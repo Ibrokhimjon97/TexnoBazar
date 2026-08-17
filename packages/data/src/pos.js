@@ -1,0 +1,28 @@
+import { getBrowserClient } from './auth.js';
+import { throwDataError } from './errors.js';
+
+async function rpc(name, args) {
+  const { data, error } = await getBrowserClient().rpc(name, args);
+  if (error) throwDataError(error, name);
+  return data;
+}
+
+export const getPosReferences = branchId => rpc('get_pos_references', { p_branch_id: branchId });
+export const findPosUnit = (branchId, code) => rpc('find_pos_unit', { p_branch_id: branchId, p_code: code });
+export function listPosUnits({ branchId, query = null, page = 1, pageSize = 30 }) {
+  return rpc('list_pos_units', { p_branch_id: branchId, p_query: query || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
+}
+export function createPosPendingSale({ branchId, lines, payments, notes = null }, idempotencyKey = crypto.randomUUID()) {
+  return rpc('create_pos_pending_sale', { p_branch_id: branchId, p_lines: lines, p_payments: payments, p_idempotency_key: idempotencyKey, p_notes: notes || null });
+}
+export const releaseExpiredPosSales = branchId => rpc('release_expired_pos_sales', { p_branch_id: branchId });
+export const getPosPendingSale = id => rpc('get_pos_pending_sale', { p_pending_id: id });
+export function listPosPendingSales({ branchId, status = null, query = null, page = 1, pageSize = 30 }) {
+  return rpc('list_pos_pending_sales', { p_branch_id: branchId, p_status: status || null, p_query: query || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
+}
+export const rejectPosPendingSale = (id, reason) => rpc('reject_pos_pending_sale', { p_pending_id: id, p_reason: reason });
+export const confirmPosSale = (id, payments = null) => rpc('manager_confirm_sale', { p_pending_sale_id: id, p_payments: payments });
+export function listMyPosSales({ branchId, page = 1, pageSize = 20 }) {
+  return rpc('list_my_pos_sales', { p_branch_id: branchId, p_limit: pageSize, p_offset: (page - 1) * pageSize });
+}
+export const getSaleReceipt = id => rpc('get_safe_sale_receipt', { p_sale_id: id });

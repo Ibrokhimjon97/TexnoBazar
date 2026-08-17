@@ -1,0 +1,1171 @@
+1) menga o`zbek tilida yozasan va dastur tili ham o`zbek tilida bo`lishi kerak. 
+2) sen senior team lead fulstack professional dasturchisan, ushbu tizimni 0 dan qurishing kerak, eng chiroyli dizayn va hatolarsiz, har bir punktni aniq va rejaga muvofiq qurishing kerak, 3) supebase, vercel, githubdan foydalanamiz, rasmlarni joylash uchun cloudflare dan foydalan chunki supebase storageni to`ldirib yubormaslik uchun,  e`tibor ber loyiha quyidagi 5 appdan iborat bo'ladi: 1-superadmin panel, 2- web sayt tovarlar sotish uchun mijozlarga, 3-menejer panel, 4-kuryer panel 5-sotuvchi panel, ushbu applarni funksiyalari haqida quyida batafsil ma`lumot beriladi. Har bir appni alohida papkaga yarat, har biriga alohida domen ulanadi keyinchalik, lekin DB va env bir hil bo`ladi
+
+Tizimda rollar asosida kirish boshqariladi.
+
+Masalan:
+
+Super Admin- do`kon (filial) egasi(keyingi o`rinlarda menejer)ni ro`yxatdan o`tkazadi,unga login parol beradi, do`konidagi ishchilar uchun va kuryerlar uchun profil yaratadi, barcha do`kon (filiallarni) statistikasini kuzatib turadi, edit delete add qila oladi. Filiallar va omborlarni ro`yxatdan o`tkizadi. Customer sayti ni boshqarish paneli superadminda bo`ladi. Ya`ni saytdagi tovarlarni edit, add, delete qila oladi, saytdagi bannerlarni reklamalarni, kategoriyalarni yaratishi o`chirishi va qo`shishi mumkin va bu o`zgarishlar saytda shu zahoti ko`rinadi. Ya`ni dasturchi yordamisiz customer web saytini superadmin taxrirlay olishi kerak. qaysi tovarlar saytda ko`rinishini, tovarlarni izohlarini qo`shadi bir so`z bilan aytganda saytni to`liq boshqaradi. Superadmin paneli desktop first, lekin mobile responsive ham ishlashi kerak. 
+
+menejer- do`konidagi savdo aylanmasini, tovarlarni, sotilishini va boshqa barcha statistikalarni ko`rib kuzatib turadi.Menejer shuningdek kelgan yangi partiya tovarlarni ro`yxatdan o`tkizadi, ularga qr kod shakllantiradi va tovarlarga yopishtiradi. qaysi tovar do`kon ichida qaysi tovar ombordaligini nazorat qiladi ajratadi. Masan 13.08.2026 001 raqamli partiyada yuk mashinasida 3 hil tovar keldi, TV, Muzlatgich, Kir yuvish moshinasi, ushbu partiyadagi tovarlarni partiya add qilib ro`yxatdan o`tkizadi, masalan TV 100 ta keldi, ularga avtomatik 100 ta qr kod  generatsiya bo`ladi, har biriga uni yopishtiradi. 50 ta muzlatgich keldi, ularni ham shu partiyada ro`yxatdan o`tkizadi va qr larni yopishtiradi. Har bir tovarni tannarxini kiritib ro`yxatga oladi. endi keyingi jarayon, tovarlarni omborga kirganlarini har birini telefonida qr kodini skaner qilib joylashuvini omborda statusiga o`zgartirib saqlaydi, do`konda qolgan tovarlarni esa skaner qilib do`konda statusida saqlaydi. (bu funksiya shuningdek xodimlarda ham bo`ladi) ishni osonlashtirish uchun tovarlarni qr kod ketma ketligida birdaniga bir nechtasini joyini do`konda yoki omborda deb ham o`zgartirishi mumkin.  Shuningdek ushbu tovarlarni boshqa filiallarga tarqatishda ham har birini skaner qiladi va filialga yuborish degan funksiyadan foydalanib ularni filialga o`tkazadi. Bu holda ushbu tovar asosiy do`kon va omborda ko`rinmaydi va uni olgan filial hisobiga o`tkaziladi va ushbu filialga qarz sifatida yoziladi. Masalan 20 ta TV tanlaydi va ularni filialga o`tkazish uchun narx belgilaydi, misol uchun 200$ dan bo`lsa 20 tasi 4000$ bo`ladi. Filialga 4000$ qarz sifatida yoziladi. Har bir tovarda qr borligi uchun har bir tovarni hayot siklini menejer va super admin kuzata oladi. Masalan ushbu tovarni filial olib uni mijozga sotadi, qancha sotgani ham qr skanerlaganda yoki admin panelda ushbu tovar belgisi kiritilganda yoki tanlanganda ko`rinadi. Ya`ni filial 4000$ lik tovar oldi va uni 5400$ ga mijozga sotganini superadmin ko`rib turadi. Va ushbu filial  4000$ qarzini qaytarishi ham nazoratda bo`ladi. Filialning qarzi shu filial menejeri panelida ko`rinadi.  Menejer app mobile first, lekin desktop va tablar uchun responsive ishlashi kerak. 
+
+Sotuvchi: app mobile va tab uchun (desktop sotuvchi appga kerak emas) Sotuvchi appda quyidagi funksiyalar bo`ladi: 1) Sotuvchi tovarlarni qr ni skaner qilib uni hozirgi joyini belgilashi mumkin ya`ni do`konda yoki omborda statusiga o`tkiza oladi.  2) tovarni qr kodini skanerlash orqali tovar ni tannarxi va sotish narxini, uning barcha ma`lumotlarini ko`ra oladi, shu tovardan qaysi filialda mavjudligini ham ko`ra oladi va mijozga ma`lumot bera oladi 3- mijozga tovar sotganda shu tovarni qr kodini skanerlab sotildi statusiga o`tkizadi va sotgan narxini kiritadi. shunda ushbu tovarni umumiy sonidan ushbu sotilgan miqdor ayiriladi va menejer va admin buni statistikada ko`rib turadi. Har bir sotuvchining faoliyati sotuvlar soni va foydasi menejer va superadminga ko`rinadi. Sotuvchi KPI shunga qarab baholanadi. 4)- Sotuvchi tovarni sotilgan narxini kiritib uni kassaga yo`naltirish buttonini bosadi, ushbu tovar menejerning panelidagi Kassa bo`limiga tushadi. va menejer pulni sanab olgach mijozdan tovar pulini olganini tasdiqlash tugmasini bosadi. 
+
+
+Kuryer: kuryerga buyurtmani menejer beradi. tovarni tanlaydi (yoki skaner qiladi) va yetkazib berish buttonini bosib kuryerni tanlaydi, kuryerdagi appga bu haqida bildirishnoma keladi, manzil va mijoz raqami bilan keladi. Kuryer yetkazib bergach yetkazildi buttonini bosadi. Kuryer necha km yurganini, nechta buyurtmani yetkazganini statistikasi o`ziga , menejerga va superadminga ko`rinadi. 
+
+Har bir rol faqat o‘ziga tegishli funksiyalarni ko‘rishi va bajarishi mumkin.
+
+Web sayt: Web saytning desktop va mobile responsive bilan qurish kerak, web saytda bosh sahifada headerdan keyin banner, kategoriyalar, sotiladigan tovarlar cardlari, hullas uzummarket kabi app bo`lsin , admin tomonidan qulay taxrirlansin, lekin sayt o`ta zamonaviy va chiroyli dizaynda qurilishi kerak. 
+
+SAVDO, OMBOR, FILIALLAR VA ELEKTRON SAVDO BOSHQARUV TIZIMI
+1. Loyiha maqsadi
+
+Mazkur dastur maishiy texnika savdosi bilan shug‘ullanuvchi kompaniyaning barcha asosiy biznes jarayonlarini yagona tizimda boshqarish uchun mo‘ljallanadi.
+
+Tizim orqali:
+
+mahsulotlarni yetkazib beruvchilardan qabul qilish;
+kelgan mahsulotlarni partiyalar bo‘yicha hisobga olish;
+har bir dona mahsulotni alohida identifikatsiya qilish;
+asosiy ombor va barcha filiallar qoldiqlarini alohida yuritish;
+mahsulotlarni ombor va filiallar o‘rtasida ko‘chirish;
+chakana va ulgurji savdoni boshqarish;
+sotuvchilar faoliyatini nazorat qilish;
+qaytarish va almashtirishlarni yuritish;
+daromad, xarajat va foydani hisoblash;
+inventarizatsiya o‘tkazish;
+mahsulotning to‘liq harakat tarixini ko‘rish;
+mijozlarga mo‘ljallangan elektron savdo saytini boshqarish;
+buyurtmalarni qabul qilish va yetkazib berishni nazorat qilish;
+barcha ko‘rsatkichlar bo‘yicha hisobot va statistika olish
+
+mumkin bo‘ladi.
+
+Tizimning asosiy g‘oyasi — har bir mahsulotning kelganidan boshlab sotilguniga yoki qaytarilguniga qadar bo‘lgan butun hayot siklini kuzatish. Do`kon direktori do`konidagi tovarlarni, savdo aylanmasini, foyda,zararini statisik aniqlashi kerak. SHuningdek, ko`p savdo qilgan faol xodimlarni aniqlash, aktiv va passiv sotilayotgan tovarlarni aniqlash. 
+
+2. Tizim tarkibi
+
+Tizim quyidagi asosiy qismlardan tashkil topadi:
+
+2.1. Mijozlar uchun elektron savdo veb-sayti
+
+Uzum Market kabi mahsulotlarni internet orqali ko‘rish, tanlash va buyurtma berish imkonini beruvchi platforma.
+
+2.2. superadmin yoki Administrator paneli
+
+Kompaniyaning barcha jarayonlarini boshqaruvchi asosiy boshqaruv paneli.
+
+2.3. Sotuvchi do`kon xodimi paneli
+
+Do‘kon xodimlari savdoni amalga oshiradigan POS tizimi.
+
+2.4. menejer paneli
+
+Mahsulotlarni qabul qilish, joylashtirish, ko‘chirish va inventarizatsiya qilish uchun.
+
+2.5. Kuryer paneli
+
+Buyurtmalarni yetkazib berish holatini boshqarish uchun.
+
+2.6. Telegram bot
+
+Rahbariyat uchun real vaqt statistikasi va qoldiqlarni olish imkoniyati.
+
+3. Filiallar va omborlarni boshqarish
+
+Tizimda kompaniyaning barcha joylashuvlari alohida hisoblanadi.
+
+Masalan:
+
+Asosiy ombor
+Asosiy do‘kon
+1-filial
+2-filial
+3-filial
+boshqa savdo nuqtalari
+
+Har bir joyning mustaqil:
+
+mahsulot qoldig‘i;
+sotuvlari;
+kirimlari;
+chiqimlari;
+transferlari;
+inventarizatsiyasi;
+moliyaviy ko‘rsatkichlari bo‘ladi.
+
+Administrator bir vaqtning o‘zida barcha filiallarni umumiy ko‘rinishda ham, alohida-alohida ham ko‘rishi mumkin.
+
+4. Mahsulot katalogi
+
+Tizimdagi barcha mahsulotlar yagona katalogda saqlanadi.
+
+Har bir mahsulot uchun:
+
+mahsulot nomi;
+kategoriya;
+ichki kategoriya;
+brend;
+model;
+SKU;
+shtrix-kod;
+mahsulot rasmi;
+qo‘shimcha rasmlar;
+tavsif;
+texnik parametrlar;
+rang;
+o‘lcham;
+hajm;
+quvvat;
+kafolat muddati;
+ishlab chiqaruvchi;
+ishlab chiqarilgan davlat;
+boshqa ixtiyoriy atributlar
+
+saqlanadi.
+
+Administrator mavjud mahsulotni istalgan vaqtda tahrirlashi mumkin.
+
+5. Mahsulotlarni kategoriyalash
+
+Administrator dasturchisiz yangi kategoriyalar yaratishi mumkin.
+
+Misol:
+
+Maishiy texnika
+
+Televizorlar
+Muzlatgichlar
+Kir yuvish mashinalari
+Konditsionerlar
+Mikroto‘lqinli pechlar
+Changyutgichlar
+
+Kategoriyalarni:
+
+yaratish;
+tahrirlash;
+o‘chirish;
+tartibini o‘zgartirish;
+yashirish/faollashtirish
+
+mumkin.
+
+Ichki kategoriyalar ham qo‘llab-quvvatlanadi.
+
+6. Mahsulot atributlari
+
+Mahsulotlarning xususiyatlari turlicha bo‘lgani sababli tizim dinamik atributlarni qo‘llab-quvvatlaydi.
+
+Masalan televizor uchun:
+
+ekran o‘lchami;
+4K;
+Smart TV;
+Wi-Fi;
+Bluetooth.
+
+Muzlatgich uchun:
+
+hajmi;
+eshiklar soni;
+rang;
+energiya klassi.
+
+Administrator kerak bo‘lsa yangi xususiyatlarni o‘zi yaratishi mumkin.
+
+7. Yetkazib beruvchidan mahsulotlarni qabul qilish
+
+Har bir yangi mahsulot kelganda u partiya sifatida tizimga kiritiladi.
+
+Masalan:
+
+Partiya: PT-2026-08-13-001
+
+Kelgan sana: 13.08.2026
+
+Yetkazib beruvchi: Samsung
+
+Samsung TV 55" — 100 dona — 300$
+Samsung TV 65" — 50 dona — 420$
+Samsung muzlatgich — 30 dona — 500$
+
+Partiya ichidagi barcha mahsulotlar alohida saqlanadi.
+
+Partiyaning:
+
+raqami;
+sanasi;
+yetkazib beruvchisi;
+invoice ma’lumoti;
+valyutasi;
+tannarxi;
+to‘lov holati
+
+saqlanadi.
+
+8. Har bir mahsulot uchun noyob QR kod
+
+Tizimning eng muhim funksiyalaridan biri — har bir fizik mahsulotga alohida QR kod biriktirish.
+
+Masalan, 100 ta Samsung TV kelsa:
+
+100 dona mahsulot;
+100 ta noyob QR kod
+
+yaratiladi.
+
+QR kod aynan bitta mahsulotga tegishli bo‘ladi.
+
+Misol:
+
+TV-000001
+TV-000002
+TV-000003
+...
+TV-000100
+
+QR kod mahsulotga yopishtiriladi.
+
+9. Mahsulotning elektron pasporti
+
+QR kod orqali mahsulotning elektron pasporti ochiladi.
+
+Unda:
+
+mahsulot nomi;
+brendi;
+modeli;
+rasmi;
+rang va boshqa atributlari;
+ichki ID;
+zavod seriya raqami;
+partiyasi;
+qachon kelgani;
+qaysi yetkazib beruvchidan kelgani;
+tannarxi;
+qaysi omborga kelgani;
+hozir qayerdaligi;
+sotilgan yoki sotilmaganligi;
+kim sotgani;
+qachon sotilgani;
+qancha narxda sotilgani;
+foyda;
+qaytarish tarixi;
+ta’mirlash tarixi;
+boshqa harakatlar ko‘rinadi.
+
+Shunday qilib QR kod mahsulotning butun hayot siklini aks ettiruvchi elektron pasport vazifasini bajaradi.
+
+10. Mahsulot hayot sikli va tarix
+
+Har bir mahsulot bo‘yicha to‘liq harakatlar tarixi saqlanadi.
+
+Masalan:
+
+13.08 — Yetkazib beruvchidan qabul qilindi
+14.08 — Asosiy omborga joylashtirildi
+17.08 — Do‘konga o‘tkazildi
+20.08 — Sotildi
+25.08 — Qaytarildi
+26.08 — Ta’mirga yuborildi
+30.08 — Qayta sotuvga chiqarildi
+
+Har bir harakatning:
+
+sanasi;
+vaqti;
+foydalanuvchisi;
+eski joylashuvi;
+yangi joylashuvi;
+sababi;
+tegishli tranzaksiyasi saqlanadi.
+
+11. Ombor qoldiqlari
+
+Ombor qoldiqlari real vaqt rejimida ko‘rsatiladi.
+
+Masalan:
+
+Asosiy ombor
+
+Samsung 55" — 90 dona
+
+Asosiy do‘kon
+
+Samsung 55" — 7 dona
+
+1-filial
+
+Samsung 55" — 12 dona
+
+2-filial
+
+Samsung 55" — 5 dona
+
+Shuningdek, tizim:
+
+barcha joylardagi umumiy qoldiq;
+har bir joydagi qoldiq;
+sotilgan;
+rezerv qilingan;
+qaytgan;
+ta’mirdagi mahsulotlarni
+
+alohida ko‘rsatadi.
+
+12. Ombor va vitrina ko‘rinishi
+
+Tovarlar ro‘yxatida ombordagi mahsulotlar va do‘kondagi/vitrinadagi mahsulotlar alohida ko‘rinadi.
+
+Masalan:
+
+Mahsulot	Ombor	Do‘kon	Filial 1	Filial 2	Jami
+Samsung TV 55"	90	7	12	           5	         114
+
+Bu rahbariyatga mahsulot qayerda mavjudligini tezda aniqlash imkonini beradi.
+
+13. Mahsulot qidiruvi
+
+Kengaytirilgan qidiruv mavjud bo‘ladi.
+
+Qidirish:
+
+nomi;
+SKU;
+QR kodi;
+shtrix-kodi;
+zavod seriya raqami;
+partiya;
+kategoriya;
+brend;
+model;
+rang;
+o‘lcham;
+narx;
+ombor;
+filial;
+status;
+sotuvchi;
+sana
+
+bo‘yicha amalga oshiriladi.
+
+QR va shtrix-kod skaner yordamida mahsulotni bir necha soniyada topish mumkin.
+
+14. Mahsulotlarni ko‘chirish
+
+Mahsulotlar:
+
+asosiy ombordan do‘konga;
+asosiy ombordan filialga;
+bir filialdan boshqa filialga;
+do‘kondan omborga ko‘chirilishi mumkin.
+
+Transfer vaqtida:
+
+qaysi mahsulotlar;
+nechta;
+qaysi joydan;
+qaysi joyga;
+kim yuborgani;
+kim qabul qilgani;
+qachon yuborilgani saqlanadi.
+
+15. Inventarizatsiya
+
+Tizimda:
+
+To‘liq inventarizatsiya
+
+Butun ombor yoki filial tekshiriladi.
+
+Qisman inventarizatsiya
+
+Faqat tanlangan:
+
+kategoriya;
+mahsulot;
+zona;
+bo‘lim;
+raf tekshiriladi.
+
+QR/shtrix-kod skaneri orqali sanash jarayoni tezlashtiriladi.
+
+Tizim:
+
+Tizimdagi qoldiq va haqiqiy sanalgan qoldiqni solishtirib, farqni aniqlaydi.
+
+16. Tovarni hisobdan chiqarish
+
+Mahsulotlar quyidagi sabablarga ko‘ra hisobdan chiqarilishi mumkin:
+
+sotilsa,
+boshqa filialga o`tkazilsa(joriy hisobdan chiqadi lekin boshqa filial hisobiga kirim bo`ladi)
+nosozlik;
+shikastlanish;
+yaroqsiz holat;
+yo‘qolish;
+boshqa sabab.
+
+Hisobdan chiqarish sababi majburiy ravishda saqlanadi.
+
+17. Narxlarni boshqarish
+
+Administrator:
+
+chakana narx;
+ulgurji narx;
+aksiya narxi;
+eski narx;
+minimal sotuv narxi
+
+kabi qiymatlarni boshqarishi mumkin.
+
+Narxlar o‘zgarish tarixi saqlanadi.
+
+Kim qachon narxni o‘zgartirgani ham ko‘rinadi.
+
+18. Narx yorliqlarini chop etish
+
+Mahsulot narxlarini maxsus formatda printerga chiqarish mumkin.
+
+Narx yorlig‘ida:
+
+mahsulot nomi;
+model;
+narx;
+aksiya narxi;
+QR/shtrix-kod;
+kompaniya nomi
+
+aks ettirilishi mumkin.
+
+19. Sotuvchi paneli / POS
+
+Sotuvchi o‘z paneliga login orqali kiradi.
+
+Mahsulotni:
+
+QR kod;
+shtrix-kod;
+nomi;
+modeli
+
+orqali topadi.
+
+Mahsulot tanlangach:
+
+mahsulot ma’lumoti;
+tannarxi;
+mavjud qoldiq;
+sotuv narxi
+
+ko‘rsatiladi.
+
+Sotuvchi savdoni rasmiylashtiradi.
+
+20. Mahsulotni sotish
+
+Sotuvchi:
+
+mahsulotni skaner qiladi;
+mahsulotni tanlaydi;
+sotuv narxini kiritadi;
+chegirma qo‘llaydi;
+to‘lov turini tanlaydi;
+sotgan narhini kiritadi, 
+savdoni yakunlaydi. bunda mijoz pulni kassaga to`lagach menejer panelida tolovni qabul qilganini tasdiqlaydi va status sotilgan ga o`tadi. 
+
+Tizim avtomatik:
+
+mahsulot qoldig‘ini kamaytiradi;
+mahsulot statusini SOLD qiladi;
+sotuvchi ma’lumotini saqlaydi;
+savdo summasini yozadi;
+tannarxni aniqlaydi;
+foydani hisoblaydi;
+chek yaratadi.
+21. Savdo bo‘yicha foyda hisoblash
+
+Masalan:
+
+Tannarx: 300$
+
+Sotuv narxi: 420$
+
+Sof savdo foydasi: 120$
+
+Administrator:
+
+mahsulot bo‘yicha;
+sotuvchi bo‘yicha;
+filial bo‘yicha;
+sana bo‘yicha;
+kategoriya bo‘yicha
+
+foydani ko‘rishi mumkin.
+
+22. Sotuvchilar statistikasi
+
+Har bir sotuvchi uchun:
+
+savdo soni;
+savdo summasi;
+sotilgan mahsulotlar;
+o‘rtacha chek;
+chegirmalar;
+qaytarishlar;
+savdo foydasi
+
+hisoblanadi.
+
+Masalan:
+
+Ali
+
+Bugungi savdo: 18 500 000 so‘m
+Cheklar: 7 ta
+Foyda: 4 100 000 so‘m
+
+23. To‘lov turlari
+
+Tizim bir nechta to‘lov turini qo‘llab-quvvatlaydi:
+
+Naqd
+Terminal
+Click
+Payme
+Bank o‘tkazmasi
+Nasiya
+boshqa kompaniya belgilagan to‘lov turlari
+
+Bir chekda bir nechta to‘lov turini ishlatish imkoniyati ham bo‘lishi mumkin.
+
+24. Chegirmalar
+
+Chegirma:
+
+Mahsulot bo‘yicha
+
+Masalan:
+
+Samsung TV — 5% chegirma
+
+Butun chek bo‘yicha
+
+Masalan:
+
+10% umumiy chegirma
+
+Chegirma:
+
+foizda;
+aniq summada
+
+berilishi mumkin.
+
+Chegirma berish huquqi foydalanuvchi roliga bog‘lanadi.
+
+25. Chek
+
+Har bir savdo uchun individual chek yaratiladi.
+
+Chekda:
+
+kompaniya logotipi;
+nomi;
+manzili;
+telefon raqami;
+mahsulot;
+miqdor;
+narx;
+chegirma;
+jami;
+to‘lov turi;
+sana;
+sotuvchi
+
+aks ettiriladi.
+
+Chekni chop etish yoki elektron ko‘rinishda yuborish mumkin.
+
+26. Qaytarishlar
+
+Sotilgan mahsulot QR orqali qayta topiladi.
+
+Tizim mahsulotning asl savdosini topadi.
+
+Qaytarish sababi ko‘rsatiladi.
+
+Mahsulot holatiga qarab:
+
+omborga qaytarish;
+do‘konga qaytarish;
+ta’mirga yuborish;
+boshqa mahsulotga almashtirish;
+hisobdan chiqarish
+
+amalga oshiriladi.
+
+27. Almashtirish
+
+Mijoz bir mahsulot o‘rniga boshqa mahsulot olganida eski va yangi mahsulot o‘zaro bog‘lanadi.
+
+Natijada:
+
+eski mahsulot;
+yangi mahsulot;
+farq summasi;
+to‘lov;
+chegirma;
+qaytarish sababi
+
+saqlanadi.
+
+28. Savdolar tarixi
+
+Barcha savdo operatsiyalari saqlanadi.
+
+Qidirish:
+
+sana;
+mahsulot;
+sotuvchi;
+filial;
+mijoz;
+to‘lov turi;
+summa;
+chek raqami
+
+bo‘yicha amalga oshiriladi.
+
+Savdo, qaytarish va almashtirish operatsiyalari uchun nazorat ostidagi tahrirlash imkoniyati mavjud bo‘ladi.
+
+Bunday o‘zgarishlar audit jurnalida qayd etiladi.
+
+29. Yetkazib beruvchilar
+
+Yetkazib beruvchilar uchun alohida ma’lumotnoma yuritiladi.
+
+Har bir supplier bo‘yicha:
+
+nomi;
+telefon;
+manzil;
+rekvizitlar;
+shartnoma;
+kelgan partiyalar;
+xaridlar;
+to‘langan mablag‘;
+qarzdorlik;
+qaytarilgan mahsulotlar
+
+ko‘rsatiladi.
+
+30. Yetkazib beruvchilar bilan hisob-kitob
+
+Har bir supplier bo‘yicha:
+
+jami xarid;
+to‘langan summa;
+qolgan qarz;
+to‘lov sanalari;
+to‘lovlar tarixi
+
+ko‘rinadi.
+
+31. Yetkazib beruvchiga qaytarish
+
+Kelgan mahsulotning bir qismi yoki to‘liq partiyasi supplierga qaytarilishi mumkin.
+
+Tizim:
+
+qaysi mahsulot;
+qaysi QR;
+qaysi partiyadan;
+nechta;
+nima sababdan;
+qaysi supplierga
+
+qaytarilganini qayd etadi.
+
+32. Daromad va xarajatlar
+
+Administrator daromad va xarajat kategoriyalarini o‘zi yaratishi mumkin.
+
+Masalan:
+
+Daromad
+
+Mahsulot savdosi
+Ulgurji savdo
+Yetkazib berish xizmati
+
+Xarajat
+
+Ish haqi
+Ijara
+Reklama
+Transport
+Elektr energiyasi
+Internet
+Soliq
+Boshqa xarajatlar
+33. Kassa va pul mablag‘lari harakati
+
+Tizimda pul harakatlari alohida hisoblanadi.
+
+Masalan:
+
+Kirim
+
+Naqd savdo
+Terminal
+Click
+
+Chiqim
+
+Ijara
+Ish haqi
+Transport
+Ta’minotchi to‘lovi
+
+Natijada kassadagi pul oqimini kuzatish mumkin.
+
+34. Ish haqi va boshqa xarajatlar
+
+Tizimga:
+
+xodim ish haqi;
+ijara;
+transport;
+reklama;
+xizmatlar;
+boshqa xarajatlar
+
+kiritiladi.
+
+35. Daromad va zarar hisoboti
+
+Tizim avtomatik ravishda:
+
+Daromad – Tannarx – Xarajatlar = Sof natija
+
+mantiği asosida boshqaruv hisobotlarini shakllantiradi.
+
+Rahbariyat:
+
+kunlik;
+haftalik;
+oylik;
+yillik
+
+natijalarni ko‘rishi mumkin.
+
+36. Mahsulot samaradorligi
+
+Har bir mahsulot bo‘yicha:
+
+qancha kelgan;
+qancha sotilgan;
+qancha qaytgan;
+qancha qolgan;
+qancha foyda keltirgan;
+o‘rtacha sotuv tezligi
+
+ko‘rsatiladi.
+
+Shuningdek, tez sotilayotgan va sekin aylanayotgan mahsulotlarni aniqlash mumkin.
+
+37. Boshqa hisobotlar
+
+Tizimda quyidagi hisobotlar mavjud bo‘ladi:
+
+Savdo hisobotlari
+kunlik;
+oylik;
+yillik;
+filiallar bo‘yicha;
+sotuvchilar bo‘yicha;
+to‘lov turi bo‘yicha.
+Ombor hisobotlari
+qoldiq;
+qoldiq ma’lum sanaga;
+mahsulot harakati;
+inventarizatsiya;
+kirim;
+chiqim.
+Mahsulot hisobotlari
+eng ko‘p sotilgan;
+eng kam sotilgan;
+eng katta foyda;
+sekin aylanadigan.
+Yetkazib beruvchi hisobotlari
+xaridlar;
+partiyalar;
+to‘lovlar;
+qarzdorlik;
+qaytarishlar.
+Moliya hisobotlari
+daromad;
+xarajat;
+kassa;
+foyda va zarar.
+38. Grafik va diagrammalar
+
+Hisobotlar:
+
+jadval;
+ustunli grafik;
+chiziqli grafik;
+doiraviy diagramma
+
+ko‘rinishida chiqariladi.
+
+Masalan:
+
+Oylar bo‘yicha savdo
+
+Yanvar → 450 mln
+Fevral → 520 mln
+Mart → 610 mln
+
+39. Excel eksport
+
+Hisobotlarni Excel fayl ko‘rinishida yuklab olish mumkin.
+
+Masalan:
+
+Ombor qoldig‘i
+Savdo
+Sotuvchilar
+Mahsulotlar
+Foyda
+Xarajatlar
+Yetkazib beruvchilar
+Inventarizatsiya
+40. Internet-do‘kon / Elektron savdo sayti
+
+Veb-sayt oddiy katalog emas, to‘liq elektron savdo platformasi bo‘ladi.
+
+Uzum Market uslubida:
+
+mahsulot katalogi;
+kategoriya;
+qidiruv;
+filtr;
+mahsulot sahifasi;
+savatcha;
+buyurtma;
+yetkazib berish;
+to‘lov;
+shaxsiy kabinet
+
+kabi funksiyalarni o‘z ichiga oladi.
+
+41. Elektron do‘konda mahsulot sahifasi
+
+Har bir mahsulot sahifasida:
+
+mahsulot rasmi;
+nomi;
+brendi;
+modeli;
+narxi;
+eski narxi;
+aksiya narxi;
+mavjudligi;
+tavsifi;
+texnik xususiyatlari;
+kafolat;
+o‘xshash mahsulotlar
+
+ko‘rsatiladi.
+
+42. Mahsulot qidiruvi va filtrlash
+
+Mijoz quyidagilar orqali mahsulotlarni topishi mumkin:
+
+nomi;
+kategoriya;
+brend;
+narx oralig‘i;
+rang;
+o‘lcham;
+boshqa mahsulot atributlari.
+43. Savatcha va buyurtma
+
+Mijoz:
+
+mahsulotni tanlaydi;
+savatchaga qo‘shadi;
+miqdorni belgilaydi;
+yetkazib berish manzilini kiritadi;
+aloqa ma’lumotlarini kiritadi;
+to‘lov usulini tanlaydi;
+buyurtmani tasdiqlaydi.
+44. Buyurtmalarni boshqarish
+
+Saytdan berilgan buyurtmalar admin panelga keladi.
+
+Holatlar:
+
+Yangi
+Tasdiqlanmoqda
+Tasdiqlandi
+Yig‘ilmoqda
+Kuryerga berildi
+Yo‘lda
+Yetkazildi
+Bekor qilindi
+Qaytarildi
+
+45. Admin panel orqali saytni to‘liq boshqarish
+
+Eng muhim jihatlardan biri — dasturchisiz kontent boshqaruvi.
+
+Administrator admin paneldan:
+
+kategoriya yaratishi;
+mahsulot yaratishi;
+mahsulotni tahrirlashi;
+mahsulotni o‘chirishi/yashirishi;
+narxni o‘zgartirishi;
+rasmlar yuklashi;
+tavsif yozishi;
+texnik parametrlarni o‘zgartirishi;
+brend qo‘shishi;
+bannerlar yaratishi;
+aksiyalar yaratishi;
+bosh sahifa bloklarini boshqarishi;
+menyularni boshqarishi;
+filiallarni boshqarishi;
+sayt sahifalarini tahrirlashi
+
+mumkin.
+
+46. Kontent boshqaruvi (CMS)
+
+Admin panel orqali:
+
+Bannerlar
+yaratish;
+rasm yuklash;
+matn yozish;
+tugma va havola qo‘shish;
+tartiblash;
+faollashtirish;
+muddat belgilash.
+Aksiyalar
+aksiya nomi;
+boshlanish sanasi;
+tugash sanasi;
+mahsulotlar ro‘yxati;
+chegirma.
+Static sahifalar
+Biz haqimizda;
+Yetkazib berish;
+To‘lov usullari;
+Kafolat;
+Qaytarish siyosati;
+Maxfiylik siyosati.
+
+Bularning hammasi admin tomonidan boshqariladi.
+
+47. Mahsulot tavsifini boshqarish
+
+Mahsulot tavsifi uchun qulay muharrir bo‘ladi.
+
+Admin:
+
+matn;
+sarlavha;
+ro‘yxat;
+jadval;
+rasm;
+video;
+havola
+
+qo‘shishi mumkin.
+
+48. SEO boshqaruvi
+
+Har bir kategoriya va mahsulot uchun:
+
+SEO Title;
+SEO Description;
+URL;
+SEO rasmi
+
+belgilash imkoniyati bo‘ladi.
+
+Bu qidiruv tizimlarida saytni rivojlantirish uchun muhim.
+
+49. Sayt va omborning o‘zaro integratsiyasi
+
+Saytdagi mahsulot ma’lumoti ichki tizim bilan bog‘langan bo‘ladi.
+
+Masalan:
+
+Omborda 20 dona mavjud → sayt "Mavjud" deb ko‘rsatadi.
+
+Omborda 0 dona → sayt "Sotuvda mavjud emas" deb ko‘rsatadi.
+
+Mahsulot narxi admin panelda o‘zgartirilsa → saytga yangi narx avtomatik chiqadi.
+
+Mahsulot rasmi yoki tavsifi o‘zgartirilsa → sayt ham yangilanadi.
+
+50. Kuryer paneli
+
+Kuryer o‘ziga berilgan buyurtmalarni ko‘radi.
+
+Har bir buyurtmada:
+
+mijoz;
+telefon;
+manzil;
+buyurtma;
+summa;
+to‘lov turi;
+yetkazib berish holati
+
+ko‘rsatiladi.
+
+Holatni:
+
+qabul qildim;
+yo‘lda;
+yetkazildi;
+mijoz topilmadi;
+bekor qilindi
+
+kabi qiymatlarga o‘zgartirish mumkin.
+
+51. Telegram bot
+
+Rahbariyat Telegram orqali asosiy statistikani olishi mumkin.
+
+Masalan:
+
+Bugungi savdo
+
+Savdo: 125 000 000 so‘m
+Cheklar: 38 ta
+Foyda: 31 000 000 so‘m
+
+Ombor
+
+Samsung TV — 21 dona
+LG TV — 15 dona
+Artel — 28 dona
+
+Sotuvchilar
+
+Ali — 22 mln
+Vali — 18 mln
+Hasan — 14 mln
+52. Telegram orqali qoldiqlar
+
+Telegram bot orqali mahsulot nomini yuborib, uning qoldig‘ini ko‘rish mumkin.
+
+Masalan:
+
+Samsung 55
+
+Bot:
+
+Asosiy ombor — 20 dona
+Asosiy do‘kon — 4 dona
+1-filial — 6 dona
+2-filial — 3 dona
+
+Jami — 33 dona.
+
+
+
+54. Audit va nazorat
+
+Tizim muhim operatsiyalarni yozib boradi.
+
+Masalan:
+
+Ali
+
+13:45
+
+Samsung TV narxini:
+
+7 000 000 → 7 500 000
+
+ga o‘zgartirdi.
+
+Yoki:
+
+15 dona mahsulotni
+
+Asosiy ombor → Sergeli
+
+yo‘nalishida transfer qildi.
+
+Shunday qilib, tizimda kim nima qilganini aniqlash mumkin.
+
+55. Tizimning asosiy ustunligi
+
+Mazkur tizimning eng katta afzalligi — mahsulot, savdo, ombor, filial, moliya va internet-do‘kon ma’lumotlari yagona tizimga bog‘lanadi.
+
+Masalan, bitta Samsung TV uchun:
+
+Yetkazib beruvchi → Partiya → Ombor → Filial → Sotuvchi → Mijoz → Savdo → To‘lov → Foyda
+
+zanjiri uzluksiz kuzatiladi.
+
+Bitta QR kodni skanerlash orqali shu mahsulotning barcha tarixini ko‘rish mumkin.
+
+56. Yakuniy tizim konsepsiyasi
+
+Ushbu loyiha amalda quyidagi tizimlarni yagona platformaga birlashtiradi:
+
+ERP — biznes va moliyaviy boshqaruv
+WMS — ombor va qoldiqlar boshqaruvi
+POS — do‘kon savdosi
+CRM — mijozlar va buyurtmalar
+E-commerce — internet-do‘kon
+CMS — sayt kontentini dasturchisiz boshqarish
+Analytics — statistik va moliyaviy hisobotlar
+Telegram Bot — tezkor monitoring
+
+Natijada kompaniya o‘z faoliyatini bir nechta alohida dastur orqali emas, bitta yagona boshqaruv tizimi orqali yurita oladi.
+
+Eng muhim natija
+
+Tizim rahbariyatga istalgan vaqtda quyidagi savollarga aniq javob bera oladi:
+
+Qancha mahsulot bor?
+Qaysi mahsulot qaysi filialda?
+Qaysi mahsulot qaysi partiyadan kelgan?
+Qachon va qancha narxda kelgan?
+Qaysi mahsulot sotilgan?
+Kim sotgan?
+Qancha narxda sotgan?
+Tannarxi qancha bo‘lgan?
+Qancha foyda qolgan?
+Qaysi mahsulot ko‘proq sotilyapti?
+Qaysi filial ko‘proq foyda keltiryapti?
+Qaysi sotuvchi qancha savdo qilgan?
+Kimga qancha qarzdorlik bor?
+Qaysi mahsulot qachon qaytgan?
+Mahsulot hozir aynan qayerda?
+
+Bularning barchasi real vaqtga yaqin rejimda, yagona ma’lumotlar bazasi asosida ko‘rsatiladi.
+
+
+
+83ff42e129b06a230b874906dd65a57e id cloudflare 
+https://pub-5937e545e98947da80ae1ab2e8ead0d3.r2.dev
+https://83ff42e129b06a230b874906dd65a57e.r2.cloudflarestorage.com/texnobazar-media
+
+claudflare supebase va vercel oddiyroq6@gmail.com ga bog`langan
+
+

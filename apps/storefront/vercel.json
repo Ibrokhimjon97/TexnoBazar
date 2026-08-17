@@ -1,0 +1,14 @@
+{
+  "crons": [
+    { "path": "/api/payments/refunds", "schedule": "*/10 * * * *" }
+  ],
+  "rewrites": [
+    { "source": "/sitemap.xml", "destination": "/api/sitemap" },
+    { "source": "/robots.txt", "destination": "/api/robots" },
+    { "source": "/((?!api/|assets/|sitemap.xml|robots.txt).*)", "destination": "/index.html" }
+  ],
+  "headers": [
+    { "source": "/sitemap.xml", "headers": [{ "key": "Content-Type", "value": "application/xml; charset=utf-8" }] },
+    { "source": "/robots.txt", "headers": [{ "key": "Content-Type", "value": "text/plain; charset=utf-8" }] }
+  ]
+}

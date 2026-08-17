@@ -1,0 +1,26 @@
+{
+  "name": "texnobazar-platform",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "dependencies": {
+    "@supabase/supabase-js": "2.112.3"
+  },
+  "scripts": {
+    "bootstrap:superadmin": "node scripts/bootstrap-superadmin.mjs",
+    "dev:storefront": "npm run dev -w @texnobazar/storefront",
+    "dev:superadmin": "npm run dev -w @texnobazar/superadmin",
+    "dev:manager": "npm run dev -w @texnobazar/manager",
+    "dev:seller": "npm run dev -w @texnobazar/seller",
+    "dev:courier": "npm run dev -w @texnobazar/courier",
+    "build": "npm run build --workspaces --if-present",
+    "build:all": "npm run build"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "5.0.4",
+    "vite": "7.3.6"
+  }
+}

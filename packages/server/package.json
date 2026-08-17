@@ -1,0 +1,20 @@
+{
+  "name": "@texnobazar/server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./r2": "./src/r2.js",
+    "./receipt-email": "./src/receipt-email.js",
+    "./payments": "./src/payments.js",
+    "./click": "./src/click.js",
+    "./payme": "./src/payme.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1111.0",
+    "@aws-sdk/s3-request-presigner": "3.1111.0"
+  }
+}

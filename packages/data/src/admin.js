@@ -1,0 +1,36 @@
+import { getAccessToken,getBrowserClient } from './auth.js';
+import { throwDataError } from './errors.js';
+async function rpc(name,args={}){const{data,error}=await getBrowserClient().rpc(name,args);if(error)throwDataError(error,name);return data}
+async function api(path,body){const token=await getAccessToken();if(!token)throw new Error('Sessiya topilmadi.');const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify(body)}),result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||'Server amali bajarilmadi.');return result}
+export const getManagementDashboard=({from,to,branchId=null})=>rpc('get_management_dashboard',{p_from:from,p_to:to,p_branch_id:branchId});
+export const queryAuditLog=({table=null,entityId=null,actorId=null,from=null,to=null,page=1,pageSize=100}={})=>rpc('query_audit_log',{p_table:table,p_entity_id:entityId,p_actor_id:actorId,p_from:from,p_to:to,p_limit:pageSize,p_offset:(page-1)*pageSize});
+export const reportSales=(from,to,branchId=null)=>rpc('report_sales_rows',{p_from:from,p_to:to,p_branch_id:branchId});
+export const reportFinance=(from,to,branchId=null)=>rpc('report_finance_rows',{p_from:from,p_to:to,p_branch_id:branchId});
+export const reportDebts=(from,to,branchId=null)=>rpc('report_debt_rows',{p_from:from,p_to:to,p_branch_id:branchId});
+export const reportSuppliers=(from,to,branchId=null,supplierId=null)=>rpc('report_supplier_ledger',{p_from:from,p_to:to,p_branch_id:branchId,p_supplier_id:supplierId});
+export const reportInventory=(branchId=null)=>rpc('report_inventory_rows',{p_branch_id:branchId});
+export const reportProfitLoss=(from,to,branchId=null)=>rpc('report_profit_loss',{p_from:from,p_to:to,p_branch_id:branchId});
+export const reportSellerPerformance=(from,to,branchId=null)=>rpc('report_seller_performance',{p_from:from,p_to:to,p_branch_id:branchId});
+export const reportProductPerformance=(from,to,branchId=null)=>rpc('report_product_performance',{p_from:from,p_to:to,p_branch_id:branchId});
+export const reportInventoryCounts=(from,to,branchId=null)=>rpc('report_inventory_count_rows',{p_from:from,p_to:to,p_branch_id:branchId});
+export const listNotifications=({unreadOnly=false,page=1,pageSize=50}={})=>rpc('list_notifications',{p_unread_only:unreadOnly,p_limit:pageSize,p_offset:(page-1)*pageSize});
+export const markNotificationsRead=(ids=null)=>rpc('mark_notifications_read',{p_ids:ids});
+const cmsTables={pages:'cms_pages',banners:'cms_banners',promotions:'cms_promotions',home_blocks:'cms_home_blocks',menu_items:'cms_menu_items'};
+function cmsTable(entity){const table=cmsTables[entity];if(!table)throw new Error('Noma’lum CMS turi.');return table}
+export async function listCmsRecords(entity){const table=cmsTable(entity),orderKey=['banners','home_blocks','menu_items'].includes(entity)?'sort_order':'created_at';const{data,error}=await getBrowserClient().from(table).select('*').order(orderKey,{ascending:orderKey==='sort_order'});if(error)throw error;const rows=data??[];if(entity!=='promotions'||!rows.length)return rows;const{data:memberships,error:membershipError}=await getBrowserClient().from('cms_promotion_products').select('promotion_id,product_id').in('promotion_id',rows.map(row=>row.id));if(membershipError)throw membershipError;const byPromotion=new Map();for(const item of memberships??[]){const ids=byPromotion.get(item.promotion_id)||[];ids.push(item.product_id);byPromotion.set(item.promotion_id,ids)}return rows.map(row=>({...row,product_ids:byPromotion.get(row.id)||[]}))}
+export async function saveCmsRecord(entity,record){if(entity==='banners'){const{_uploadId=null,_isNew,...banner}=record;return rpc('save_cms_banner',{p_banner:banner,p_upload_id:_uploadId})}if(entity==='promotions'){const{product_ids=[],_isNew,...promotion}=record;return rpc('save_cms_promotion',{p_promotion:promotion,p_product_ids:product_ids})}const table=cmsTable(entity),{id,_isNew,...payload}=record,query=id&&!_isNew?getBrowserClient().from(table).update(payload).eq('id',id):getBrowserClient().from(table).insert(id?{id,...payload}:payload);const{data,error}=await query.select('*').single();if(error)throw error;return data}
+export async function deleteCmsRecord(entity,id){if(entity==='banners')return rpc('delete_cms_banner',{p_banner_id:id});const{error}=await getBrowserClient().from(cmsTable(entity)).delete().eq('id',id);if(error)throw error}
+export const reorderCmsRecords=(entity,items)=>rpc('reorder_cms_items',{p_entity:entity,p_items:items});
+export async function listCmsProductOptions(){const{data,error}=await getBrowserClient().from('products').select('id,name,sku').eq('status','active').order('name').limit(500);if(error)throw error;return data??[]}
+export async function uploadCmsBanner(bannerId,file){const allowed=new Set(['image/jpeg','image/png','image/webp','image/avif']);if(!file||!allowed.has(file.type)||file.size<1||file.size>10*1024*1024)throw new Error('Banner JPEG, PNG, WebP yoki AVIF va 10 MiB gacha bo‘lishi kerak.');const signed=await api('/api/media/banner',{action:'presign',bannerId,contentType:file.type,size:file.size});try{const upload=await fetch(signed.uploadUrl,{method:'PUT',headers:{'Content-Type':file.type},body:file});if(!upload.ok)throw new Error('Banner rasmi R2 serveriga yuklanmadi.');return await api('/api/media/banner',{action:'complete',bannerId,uploadId:signed.uploadId,key:signed.key})}catch(error){await deleteCmsBannerMedia({bannerId,uploadId:signed.uploadId,key:signed.key}).catch(()=>{});throw error}}
+export const attachCmsBannerMedia=({bannerId,uploadId,key})=>api('/api/media/banner',{action:'attach',bannerId,uploadId,key});
+export const deleteCmsBannerMedia=({bannerId,uploadId=null,key})=>api('/api/media/banner',{action:'delete',bannerId,uploadId,key});
+function safeCell(value){let text=value==null?'':typeof value==='object'?JSON.stringify(value):String(value);if(/^[\u0000-\u0020]*[=+\-@]/.test(text))text=`'${text}`;return `"${text.replace(/"/g,'""')}"`}
+export function rowsToCsv(rows=[]){const keys=[...new Set(rows.flatMap(row=>Object.keys(row||{})))];return '\uFEFF'+[keys.map(safeCell).join(','),...rows.map(row=>keys.map(k=>safeCell(row[k])).join(','))].join('\r\n')}
+export function downloadCsv(filename,rows){const blob=new Blob([rowsToCsv(rows)],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=filename.endsWith('.csv')?filename:`${filename}.csv`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url)}
+export const listTelegramChatLinks=()=>rpc('list_telegram_chat_links');
+export const saveTelegramChatLink=({chatId,telegramUserId,profileId,branchId=null,isActive=true})=>rpc('save_telegram_chat_link',{p_chat_id:chatId,p_telegram_user_id:telegramUserId,p_profile_id:profileId,p_branch_id:branchId||null,p_is_active:isActive});
+export const deleteTelegramChatLink=chatId=>rpc('delete_telegram_chat_link',{p_chat_id:chatId});
+
+export const loadStorefrontSiteSettings=()=>rpc('get_storefront_site_settings_admin');
+export const saveStorefrontSiteSettings=settings=>rpc('save_storefront_site_settings',{p_settings:settings});

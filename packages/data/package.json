@@ -1,0 +1,12 @@
+{
+  "name": "@texnobazar/data",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.112.3"
+  }
+}
