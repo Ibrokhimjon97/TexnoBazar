@@ -12,6 +12,7 @@ export * from './pos.js';
 export * from './receipts.js';
 export * from './storefront.js';
 export * from './operations.js';
+export * from './ai.js';
 export * from './delivery.js';
 export * from './admin.js';
 export * from './realtime.js';

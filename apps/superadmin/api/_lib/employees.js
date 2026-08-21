@@ -35,12 +35,10 @@ export function validateEmployeeInput(input) {
     throw new ApiError(400, 'branchId yoki branch_id dan faqat bittasini yuboring.', 'INVALID_INPUT');
   }
 
-  const email = requiredText(input.email, 'Email', 3, 254).toLowerCase();
+  const email = input.email ? input.email.trim().toLowerCase() : null;
   if (!EMAIL_PATTERN.test(email)) throw new ApiError(400, 'Email formati noto‘g‘ri.', 'INVALID_EMAIL');
-  const password = requiredText(input.password, 'Parol', 10, 128);
-  if (!/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
-    throw new ApiError(400, 'Parol kamida bitta katta harf, kichik harf va raqamdan iborat bo‘lishi kerak.', 'INVALID_PASSWORD');
-  }
+  const password = requiredText(input.password, 'Parol', 4, 128);
+  
   const fullName = requiredText(input.fullName ?? input.full_name, 'F.I.Sh.', 3, 160);
   if (!/^[\p{L}][\p{L}\p{M} .ʼ’'`-]{1,158}[\p{L}.]$/u.test(fullName)) {
     throw new ApiError(400, 'F.I.Sh. faqat harflar, bo‘sh joy, nuqta, apostrof yoki tire ishlatishi mumkin.', 'INVALID_NAME');

@@ -9,11 +9,13 @@ async function rpc(name, args) {
 
 export const getPosReferences = branchId => rpc('get_pos_references', { p_branch_id: branchId });
 export const findPosUnit = (branchId, code) => rpc('find_pos_unit', { p_branch_id: branchId, p_code: code });
+export const getPosUnitContext = (branchId, code) => rpc('get_pos_unit_context', { p_branch_id: branchId, p_code: code });
+export const relocatePosUnits = (branchId, codes, direction, requestId = crypto.randomUUID()) => rpc('pos_relocate_units', { p_branch_id: branchId, p_codes: codes, p_direction: direction, p_request_id: requestId });
 export function listPosUnits({ branchId, query = null, page = 1, pageSize = 30 }) {
   return rpc('list_pos_units', { p_branch_id: branchId, p_query: query || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
 }
-export function createPosPendingSale({ branchId, lines, payments, notes = null }, idempotencyKey = crypto.randomUUID()) {
-  return rpc('create_pos_pending_sale', { p_branch_id: branchId, p_lines: lines, p_payments: payments, p_idempotency_key: idempotencyKey, p_notes: notes || null });
+export function createPosPendingSale({ branchId, lines, payments, notes = null, customer = null }, idempotencyKey = crypto.randomUUID()) {
+  return rpc('create_pos_pending_sale', { p_branch_id: branchId, p_lines: lines, p_payments: payments, p_idempotency_key: idempotencyKey, p_notes: notes || null, p_customer: customer || null });
 }
 export const releaseExpiredPosSales = branchId => rpc('release_expired_pos_sales', { p_branch_id: branchId });
 export const getPosPendingSale = id => rpc('get_pos_pending_sale', { p_pending_id: id });

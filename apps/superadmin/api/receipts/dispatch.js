@@ -1,5 +1,5 @@
 import{timingSafeEqual}from'node:crypto';
-import{sendReceiptEmail}from'@texnobazar/server/receipt-email';
+import{sendReceiptEmail}from'../../../../packages/server/src/receipt-email.js';
 import{createServerSupabase,sendJson}from'../_lib/auth.js';
 
 function authorized(req){const expected=String(process.env.NOTIFICATION_CRON_SECRET||process.env.CRON_SECRET||''),header=Array.isArray(req.headers?.authorization)?req.headers.authorization[0]:req.headers?.authorization,actual=String(header||'').replace(/^Bearer\s+/i,'');if(!expected||!actual)return false;const a=Buffer.from(actual),b=Buffer.from(expected);return a.length===b.length&&timingSafeEqual(a,b)}

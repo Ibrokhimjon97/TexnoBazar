@@ -1,4 +1,4 @@
-import { deleteMediaObject } from '@texnobazar/server/r2';
+import { deleteMediaObject } from '../../../../packages/server/src/r2.js';
 import { ApiError, createServerSupabase, getActiveActor, getBearerToken, handleApiError, readJsonBody, requireCatalogPermission, sendJson } from '../_lib/auth.js';
 const UUID=/^[0-9a-f]{8}-[0-9a-f-]{27}$/i;
 export default async function handler(req,res){

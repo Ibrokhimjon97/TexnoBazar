@@ -52,8 +52,8 @@ export async function requestPasswordReset(email) {
   if (error) throw error;
 }
 export async function changeOwnPassword(password) {
-  if (typeof password !== 'string' || password.length < 10 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/[0-9]/.test(password)) {
-    throw new Error('Yangi parol kamida 10 belgi, katta-kichik harf va raqamdan iborat bo‘lsin.');
+  if (typeof password !== 'string' || password.length < 4) {
+    throw new Error('Yangi parol kamida 4 belgi bo‘lsin.');
   }
   const client = getBrowserClient();
   const { data: userData, error: userError } = await client.auth.getUser();

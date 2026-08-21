@@ -1,3 +1,6 @@
+export {DualPriceInput} from './DualPriceInput.jsx';
+export {QrScannerModal, QrScanButton} from './QrScannerModal.jsx';
+export {AiChat} from './AiChat.jsx';
 import React,{useEffect} from 'react';
 export * from './auth.jsx';
 import {X,CheckCircle2,Inbox} from 'lucide-react';
@@ -14,9 +17,15 @@ export const products=[
 ];
 export const formatMoney=n=>new Intl.NumberFormat('uz-UZ').format(n)+' so‘m';
 export function Toast({message,onClose}){useEffect(()=>{const t=setTimeout(onClose,2600);return()=>clearTimeout(t)},[message]);return message?<div className="toast"><CheckCircle2 size={19} color="#4ade80"/>{message}<button onClick={onClose} style={{background:'none',border:0,color:'#fff',marginLeft:8}}><X size={17}/></button></div>:null}
-export function Modal({open,onClose,title,children}){if(!open)return null;return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&onClose()}><div className="modal"><div className="between" style={{marginBottom:18}}><h2 className="section-title">{title}</h2><button className="icon-btn" onClick={onClose}><X size={19}/></button></div>{children}</div></div>}
+export function Modal({open,onClose,title,children,wide=false}){useEffect(()=>{if(!open)return;const handler=e=>{if(e.key==='Escape')onClose?.()};document.addEventListener('keydown',handler);return()=>document.removeEventListener('keydown',handler)},[open,onClose]);if(!open)return null;return <div className="overlay"><div className={"modal"+(wide?' modal-wide':'')}><div className="between" style={{marginBottom:18}}><h2 className="section-title">{title}</h2><button className="icon-btn" onClick={onClose}><X size={19}/></button></div>{children}</div></div>}
 export function Empty({title='Ma’lumot topilmadi',text='Bu bo‘limda hozircha yozuvlar mavjud emas.'}){return <div className="empty"><Inbox size={42} strokeWidth={1.5}/><h3>{title}</h3><p>{text}</p></div>}
 export function Status({children,type='gray'}){return <span className={'badge '+type}>{children}</span>}
 export function KpiCard({icon:Icon,label,value,change,color='orange'}){return <div className="card pad kpi"><div className={'kpi-icon '+color}><Icon size={21}/></div><div><div className="muted small">{label}</div><div className="kpi-value">{value}</div>{change&&<div className="small" style={{color:change.startsWith('+')?'var(--green)':'var(--muted)'}}>{change}</div>}</div></div>}
 export function MiniBars({values=[30,55,42,70,62,88,76],height=130}){return <div className="mini-bars" style={{height}}>{values.map((v,i)=><div key={i} className="bar" style={{height:v+'%'}}><span/></div>)}</div>}
 export function Sparkline({values=[20,34,28,56,48,75,67,89]}){const max=Math.max(...values),points=values.map((v,i)=>`${i*(240/(values.length-1))},${90-v/max*72}`).join(' ');return <svg viewBox="0 0 240 100" preserveAspectRatio="none" className="spark"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stopColor="#f97316" stopOpacity=".3"/><stop offset="1" stopColor="#f97316" stopOpacity="0"/></linearGradient></defs><polyline points={`0,100 ${points} 240,100`} fill="url(#area)"/><polyline points={points} fill="none" stroke="#f97316" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+
+const THEME_STORAGE_KEY='tb_theme';
+const preferredTheme=()=>{if(typeof window==='undefined')return'light';const saved=window.localStorage?.getItem(THEME_STORAGE_KEY);return saved==='dark'||saved==='light'?saved:window.matchMedia?.('(prefers-color-scheme: dark)').matches?'dark':'light'};
+const applyTheme=theme=>{if(typeof document!=='undefined'){document.documentElement.dataset.theme=theme;document.documentElement.style.colorScheme=theme;}};
+applyTheme(preferredTheme());
+export function ThemeToggle({className=''}){const[theme,setTheme]=React.useState(preferredTheme);React.useEffect(()=>applyTheme(theme),[theme]);const toggle=()=>setTheme(current=>{const next=current==='dark'?'light':'dark';try{window.localStorage.setItem(THEME_STORAGE_KEY,next)}catch{}return next});const dark=theme==='dark';return <button type="button" className={`theme-toggle ${className}`.trim()} onClick={toggle} aria-label={dark?'Yorug‘ rejimni yoqish':'Tungi rejimni yoqish'} title={dark?'Yorug‘ rejim':'Tungi rejim'}><span className="theme-toggle-icon" aria-hidden="true">{dark?<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></svg>:<svg viewBox="0 0 24 24"><path d="M20.3 15.7A9 9 0 0 1 8.3 3.7 9 9 0 1 0 20.3 15.7Z"/></svg>}</span></button>}

@@ -1,4 +1,4 @@
-import { createPresignedMediaPut } from '@texnobazar/server/r2';
+import { createPresignedMediaPut } from '../../../../packages/server/src/r2.js';
 import {
   ApiError,
   createServerSupabase,

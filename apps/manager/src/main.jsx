@@ -4,4 +4,4 @@ import { AuthProvider, ProtectedApp } from '@texnobazar/ui';
 import '@texnobazar/ui/styles.css';
 import './app.css';
 import App from './App';
-createRoot(document.getElementById('root')).render(<React.StrictMode><AuthProvider><ProtectedApp expectedRoles={['manager']} panelLabel="Menejer"><App/></ProtectedApp></AuthProvider></React.StrictMode>);
+createRoot(document.getElementById('root')).render(<AuthProvider><ProtectedApp expectedRoles={['manager']} panelLabel="Menejer"><App/></ProtectedApp></AuthProvider>);

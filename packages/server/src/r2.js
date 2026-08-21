@@ -80,7 +80,7 @@ export async function deleteMediaObject(key, env = process.env) {
 
 export async function getMediaObjectMetadata(key, env = process.env) {
   const normalized = String(key ?? '');
-  if (!/^(?:products|delivery-proofs|banners)\/[0-9a-f-]{36}\/[0-9a-f-]+\.(?:jpg|png|webp|avif)$/.test(normalized)) {
+  if (!/^(?:products|delivery-proofs|banners|promotions)\/[0-9a-f-]{36}\/[0-9a-f-]+\.(?:jpg|png|webp|avif)$/.test(normalized)) {
     throw new TypeError('R2 media kaliti noto‘g‘ri.');
   }
   const result = await createR2Client(env).send(new HeadObjectCommand({

@@ -1,8 +1,121 @@
-import React,{useEffect,useMemo,useState}from'react';
-import{AlertTriangle,Boxes,DollarSign,Download,Navigation,ShoppingBag,TrendingUp,WalletCards}from'lucide-react';
-import{KpiCard,Status,formatMoney,useAuth}from'@texnobazar/ui';
-import{downloadCsv,getManagementDashboard,listActiveBranches,listCourierPerformance,reportInventory,reportSales}from'@texnobazar/data';
-const key=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-export default function AdminDashboardWorkspace({go}){const{profile}=useAuth(),[range,setRange]=useState('30'),[branchId,setBranchId]=useState(''),[branches,setBranches]=useState([]),[data,setData]=useState(null),[loading,setLoading]=useState(true),[error,setError]=useState('');const dates=useMemo(()=>{const to=new Date(),from=new Date();from.setDate(to.getDate()-Number(range)+1);return{from:key(from),to:key(to)}},[range]);const load=async()=>{setLoading(true);setError('');try{const branch=branchId||null,[summary,sales,inventory,courier,branchRows]=await Promise.all([getManagementDashboard({...dates,branchId:branch}),reportSales(dates.from,dates.to,branch),reportInventory(branch),listCourierPerformance({from:dates.from,to:dates.to,branchId:branch}),branches.length?Promise.resolve(branches):listActiveBranches()]);setBranches(branchRows);setData({summary,sales,inventory,courier});}catch(e){setError(e.message||'Dashboard yuklanmadi.')}finally{setLoading(false)}};useEffect(()=>{load()},[dates.from,dates.to,branchId]);if(loading)return <State text="Dashboard yuklanmoqda…"/>;if(error)return <State text={error} retry={load} error/>;const p=data.summary?.profit_loss||{},orders=data.summary?.orders||{},inventory=data.summary?.inventory||{},courier=data.courier||{},couriers=courier.couriers||[],recent=[...data.sales].sort((a,b)=>new Date(b.sold_at)-new Date(a.sold_at)).slice(0,8),low=[...data.inventory].sort((a,b)=>Number(a.available)-Number(b.available)).slice(0,8);const name=profile?.full_name?.trim()||profile?.email?.split('@')[0]||'Administrator';return <><div className="welcome between"><div><h2>Xayrli kun, {name}!</h2><p>{dates.from} — {dates.to} oralig‘idagi server ko‘rsatkichlari.</p></div><div className="row"><select className="select" value={branchId} onChange={e=>setBranchId(e.target.value)}><option value="">Barcha filiallar</option>{branches.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><select className="select" value={range} onChange={e=>setRange(e.target.value)}><option value="1">Bugun</option><option value="7">7 kun</option><option value="30">30 kun</option><option value="365">1 yil</option></select><button className="btn btn-outline" onClick={()=>downloadCsv(`dashboard-sales-${dates.to}`,data.sales)}><Download/> Savdolar CSV</button></div></div><div className="kpi-grid"><KpiCard icon={DollarSign} label="Sof savdo" value={formatMoney(Number(p.net_sales||0))} change={`Refund: ${formatMoney(Number(p.refunds||0))}`} color="orange"/><KpiCard icon={TrendingUp} label="Sof foyda" value={formatMoney(Number(p.net_profit||0))} change={`Yalpi: ${formatMoney(Number(p.gross_profit||0))}`} color="green"/><KpiCard icon={ShoppingBag} label="Buyurtmalar" value={`${Number(orders.total||0)} ta`} change={`${Number(orders.new||0)} yangi · ${Number(orders.delivered||0)} yetkazilgan`} color="blue"/><KpiCard icon={Boxes} label="Real qoldiq" value={`${Number(inventory.units||0)} dona`} change={`${Number(inventory.reserved||0)} rezervda`} color="purple"/></div><section className="card pad courier-performance"><div className="between"><div><h3>Kuryerlar masofasi</h3><span className="muted small">Tanlangan davr va filial bo‘yicha sifatli GPS segmentlari</span></div><div className="row"><Navigation/><b>{formatDistance(courier.summary?.distance_m)} jami</b></div></div><div className="table-wrap"><table className="table"><thead><tr><th>Kuryer</th><th>Filial</th><th>Masofa</th><th>Yetkazildi</th><th>Faol</th><th>Natija</th></tr></thead><tbody>{couriers.map(row=><tr key={`${row.branch_id}-${row.courier_id}`}><td><b>{row.full_name}</b></td><td>{row.branch_name}</td><td>{formatDistance(row.distance_m)}</td><td>{Number(row.delivered||0)} ta</td><td>{Number(row.active||0)} ta</td><td>{Number(row.delivery_rate||0).toLocaleString('uz-UZ')}%</td></tr>)}</tbody></table></div>{!couriers.length&&<p className="admin-inline-empty">Tanlangan kesimda faol kuryer topilmadi.</p>}</section><div className="admin-dashboard-grid"><section className="card pad"><div className="between"><div><h3>So‘nggi real savdolar</h3><span className="muted small">Tanlangan davr bo‘yicha</span></div><button className="link" onClick={()=>go('sales')}>Barchasi</button></div><div className="table-wrap"><table className="table"><thead><tr><th>Chek</th><th>Filial</th><th>Sotuvchi</th><th>Sana</th><th>Summa</th><th>Foyda</th></tr></thead><tbody>{recent.map(row=><tr key={row.sale_no}><td><b>{row.sale_no}</b></td><td>{row.branch_code}</td><td>{row.seller_name}</td><td>{new Date(row.sold_at).toLocaleString('uz-UZ')}</td><td>{formatMoney(Number(row.total))}</td><td>{formatMoney(Number(row.profit))}</td></tr>)}</tbody></table></div>{!recent.length&&<p className="admin-inline-empty">Davrda savdo yo‘q.</p>}</section><aside className="stack"><div className="card pad admin-summary"><h3>Pul va qarzdorlik</h3><div><WalletCards/><span><small>Operatsion xarajat</small><b>{formatMoney(Number(p.operating_expenses||0))}</b></span></div><div><TrendingUp/><span><small>Olinadigan qarz</small><b>{formatMoney(Number(data.summary?.receivables||0))}</b></span></div><div><AlertTriangle/><span><small>To‘lanadigan qarz</small><b>{formatMoney(Number(data.summary?.payables||0))}</b></span></div></div><div className="card pad"><div className="between"><h3>Eng kam mavjud qoldiq</h3><Status type="orange">{low.length} qator</Status></div>{low.map((row,index)=><div className="admin-stock-row" key={`${row.location_code}-${row.sku}-${index}`}><span><b>{row.product_name}</b><small>{row.branch_code} · {row.location_name} · {row.sku}</small></span><strong className={Number(row.available)<=2?'danger':''}>{Number(row.available)} dona</strong></div>)}{!low.length&&<p className="admin-inline-empty">Qoldiq yozuvi yo‘q.</p>}</div></aside></div></>}
-const formatDistance=value=>{const meters=Number(value||0);return meters>=1000?`${(meters/1000).toLocaleString('uz-UZ',{minimumFractionDigits:1,maximumFractionDigits:2})} km`:`${Math.round(meters).toLocaleString('uz-UZ')} m`};
-function State({text,retry,error}){return <div className={'admin-workspace-state '+(error?'error':'')}>{error?<AlertTriangle/>:<Boxes/>}<b>{text}</b>{retry&&<button className="btn" onClick={retry}>Qayta urinish</button>}</div>}
+import React,{useEffect,useState}from'react';
+import{AlertTriangle,Boxes,Building,Calendar,Package,ShoppingCart,Store,TrendingDown,TrendingUp,Truck,Users,Warehouse}from'lucide-react';
+import{Status,formatMoney}from'@texnobazar/ui';
+import{getBrowserClient,listEmployees,listMasterRecords}from'@texnobazar/data';
+
+const today=()=>new Date().toISOString().split('T')[0];
+const weekAgo=()=>{const d=new Date();d.setDate(d.getDate()-7);return d.toISOString().split('T')[0]};
+const monthAgo=()=>{const d=new Date();d.setMonth(d.getMonth()-1);return d.toISOString().split('T')[0]};
+
+export default function AdminDashboardWorkspace({go}){
+  const[period,setPeriod]=useState('today');
+  const[from,setFrom]=useState(today());
+  const[to,setTo]=useState(today());
+  const[stats,setStats]=useState(null);
+  const[loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    if(period==='today'){setFrom(today());setTo(today())}
+    else if(period==='week'){setFrom(weekAgo());setTo(today())}
+    else if(period==='month'){setFrom(monthAgo());setTo(today())}
+  },[period]);
+
+  useEffect(()=>{loadStats()},[from,to]);
+
+  const loadStats=async()=>{setLoading(true);try{
+    const client=getBrowserClient();
+
+    // Basic counts
+    const[{data:branches},{data:locations},{data:products}]=await Promise.all([
+      client.from('branches').select('id').eq('is_active',true),
+      client.from('locations').select('id,type').eq('is_active',true),
+      client.from('products').select('id,cost_price,retail_price,is_published')
+    ]);
+    let orderCount=0;try{const{count}=await client.from('orders').select('id',{count:'exact',head:true});orderCount=count||0}catch(e){}
+
+    const employees=await listEmployees().catch(()=>[]);
+    const couriers=employees.filter(e=>(e.roles||[]).some(r=>r.role==='courier'));
+
+    // Inventory
+    const{data:units}=await client.from('inventory_units').select('id,product_id,status').eq('status','available').limit(10000);
+    const availableUnits=units||[];
+    const productTypes=new Set(availableUnits.map(u=>u.product_id)).size;
+    const totalUnits=availableUnits.length;
+
+    // Cost/retail totals from products * unit counts
+    const unitsByProduct={};availableUnits.forEach(u=>{unitsByProduct[u.product_id]=(unitsByProduct[u.product_id]||0)+1});
+    let totalCost=0,totalRetail=0;
+    (products||[]).forEach(p=>{const count=unitsByProduct[p.id]||0;totalCost+=count*Number(p.cost_price||0);totalRetail+=count*Number(p.retail_price||0)});
+
+    // Sales in period
+    let salesData=[];try{const{data:sd}=await client.rpc('report_sales_rows',{p_from:from,p_to:to,p_branch_id:null});salesData=sd||[]}catch(e){}
+    const sales=(salesData||[]).filter(s=>s.status!=='void');
+    const salesTotal=sales.reduce((s,r)=>s+Number(r.total||0),0);
+    const salesProfit=sales.reduce((s,r)=>s+Number(r.profit||0),0);
+
+    // Expenses in period month
+    const monthStr=from.substring(0,7);
+    const{data:expenses}=await client.from('expenses').select('amount').eq('period_month',monthStr);
+    const expensesTotal=(expenses||[]).reduce((s,r)=>s+Number(r.amount||0),0);
+
+    // Online orders
+    const{count:onlineOrders}=await client.from('orders').select('id',{count:'exact',head:true}).limit(0).gte('created_at',from+'T00:00:00').lte('created_at',to+'T23:59:59');
+
+    // Top/bottom selling
+    const productSales={};sales.forEach(s=>{/* report_sales_rows doesn't have product breakdown */});
+    // Use inventory sold units for top/bottom
+    const{data:soldUnits}=await client.from('inventory_units').select('product_id,products(name,sku)').eq('status','sold').limit(5000);
+    const soldCount={};(soldUnits||[]).forEach(u=>{const name=u.products?.name||'?';if(!soldCount[name])soldCount[name]={name,sku:u.products?.sku||'',count:0};soldCount[name].count++});
+    const sortedProducts=Object.values(soldCount).sort((a,b)=>b.count-a.count);
+    const topSelling=sortedProducts.slice(0,5);
+    const lowSelling=sortedProducts.filter(p=>p.count<=2).slice(-5);
+
+    // Zero stock products
+    const allProductIds=new Set((products||[]).map(p=>p.id));
+    const hasStockIds=new Set(availableUnits.map(u=>u.product_id));
+    const zeroStock=(products||[]).filter(p=>!hasStockIds.has(p.id)).length;
+
+    const warehouses=(locations||[]).filter(l=>l.type==='warehouse').length;
+
+    setStats({
+      productTypes,totalUnits,totalCost,totalRetail,
+      branchCount:(branches||[]).length,warehouseCount:warehouses,
+      employeeCount:employees.length,courierCount:couriers.length,
+      orderCount:orderCount||0,onlineOrders:onlineOrders||0,
+      salesTotal,salesProfit,salesCount:sales.length,expensesTotal,
+      topSelling,lowSelling,zeroStock
+    });
+  }catch(e){console.error(e)}finally{setLoading(false)}};
+
+  return <><div className="page-head between"><div><h2>Asosiy</h2><p>Umumiy biznes ko'rsatkichlari</p></div><div className="period-selector"><button className={period==='today'?'active':''} onClick={()=>setPeriod('today')}>Bugun</button><button className={period==='week'?'active':''} onClick={()=>setPeriod('week')}>Hafta</button><button className={period==='month'?'active':''} onClick={()=>setPeriod('month')}>Oy</button><button className={period==='custom'?'active':''} onClick={()=>setPeriod('custom')}>Tanlash</button></div></div>
+  {period==='custom'&&<div style={{display:'flex',gap:8,marginBottom:'1rem'}}><input type="date" className="input" value={from} onChange={e=>setFrom(e.target.value)} style={{maxWidth:160}}/><input type="date" className="input" value={to} onChange={e=>setTo(e.target.value)} style={{maxWidth:160}}/></div>}
+
+  {loading?<div className="employee-loading">Yuklanmoqda...</div>:!stats?<div className="empty"><AlertTriangle/><h3>Xatolik</h3></div>:<>
+  <div className="stats-cards">
+    <div className="stat-card"><Package size={20}/><div><span className="stat-value">{stats.productTypes}</span><span className="stat-label">Tovar turlari</span></div></div>
+    <div className="stat-card"><Boxes size={20}/><div><span className="stat-value">{stats.totalUnits.toLocaleString('uz-UZ')}</span><span className="stat-label">Tovarlar soni</span></div></div>
+    <div className="stat-card"><TrendingDown size={20}/><div><span className="stat-value">{formatMoney(stats.totalCost)}</span><span className="stat-label">Tannarxi</span></div></div>
+    <div className="stat-card"><TrendingUp size={20}/><div><span className="stat-value">{formatMoney(stats.totalRetail)}</span><span className="stat-label">Sotish narxi</span></div></div>
+    <div className="stat-card"><ShoppingCart size={20}/><div><span className="stat-value">{stats.orderCount}</span><span className="stat-label">Barcha buyurtmalar</span></div></div>
+    <div className="stat-card"><Building size={20}/><div><span className="stat-value">{stats.branchCount}</span><span className="stat-label">Filiallar</span></div></div>
+    <div className="stat-card"><Warehouse size={20}/><div><span className="stat-value">{stats.warehouseCount}</span><span className="stat-label">Omborlar</span></div></div>
+    <div className="stat-card"><Users size={20}/><div><span className="stat-value">{stats.employeeCount}</span><span className="stat-label">Xodimlar</span></div></div>
+    <div className="stat-card"><Truck size={20}/><div><span className="stat-value">{stats.courierCount}</span><span className="stat-label">Kuryerlar</span></div></div>
+    <div className="stat-card"><Store size={20}/><div><span className="stat-value">{stats.onlineOrders}</span><span className="stat-label">Sayt buyurtmalari</span></div></div>
+  </div>
+
+  <div className="dashboard-grid">
+    <div className="card"><h3 style={{padding:'1rem 1rem .5rem'}}>Savdo va xarajatlar</h3><div className="product-info-rows" style={{padding:'0 1rem 1rem'}}>
+      <div><span>Sotuvlar soni:</span><b>{stats.salesCount}</b></div>
+      <div><span>Savdo summasi:</span><b>{formatMoney(stats.salesTotal)}</b></div>
+      <div><span>Sof foyda:</span><b style={{color:'green'}}>{formatMoney(stats.salesProfit)}</b></div>
+      <div><span>Xarajatlar:</span><b style={{color:'var(--primary)'}}>{formatMoney(stats.expensesTotal)}</b></div>
+      <div><span>Qoldiqsiz tovarlar:</span><b style={{color:'red'}}>{stats.zeroStock}</b></div>
+    </div></div>
+
+    {stats.topSelling.length>0&&<div className="card"><h3 style={{padding:'1rem 1rem .5rem'}}>Eng ko'p sotilgan</h3><div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>Sotilgan</th></tr></thead><tbody>{stats.topSelling.map((p,i)=><tr key={i}><td><b>{p.name}</b><br/><small className="muted">{p.sku}</small></td><td>{p.count}</td></tr>)}</tbody></table></div></div>}
+
+    {stats.lowSelling.length>0&&<div className="card"><h3 style={{padding:'1rem 1rem .5rem'}}>Eng kam sotilgan</h3><div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>Sotilgan</th></tr></thead><tbody>{stats.lowSelling.map((p,i)=><tr key={i}><td><b>{p.name}</b><br/><small className="muted">{p.sku}</small></td><td>{p.count}</td></tr>)}</tbody></table></div></div>}
+  </div>
+  </>}</>;
+}

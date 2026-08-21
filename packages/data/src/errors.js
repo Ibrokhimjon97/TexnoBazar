@@ -2,7 +2,6 @@ const SCHEMA_ERROR_CODES = new Set([
   'PGRST202',
   'PGRST204',
   'PGRST205',
-  '42883',
   '42P01',
   '42703',
   'DATABASE_SCHEMA_OUTDATED',

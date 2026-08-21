@@ -1,0 +1,40 @@
+// The AI endpoints are hosted on the superadmin deployment (that is where the
+// provider keys live), but the manager app runs on a different origin and must be
+// able to call them. Everything else in this API is same-origin, so CORS is scoped
+// to the AI routes only and to an explicit allow-list.
+
+const DEV_ORIGINS = [
+  'http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175',
+  'http://localhost:5176', 'http://localhost:5177',
+  'http://127.0.0.1:5173', 'http://127.0.0.1:5174', 'http://127.0.0.1:5175',
+  'http://127.0.0.1:5176', 'http://127.0.0.1:5177',
+];
+
+function allowedOrigins(env = process.env) {
+  const configured = String(env.AI_ALLOWED_ORIGINS || '')
+    .split(',').map(value => value.trim().replace(/\/+$/, '')).filter(Boolean);
+  // Dev origins are only trusted when no production allow-list is configured.
+  return configured.length ? configured : DEV_ORIGINS;
+}
+
+/**
+ * Applies CORS headers when the request origin is allow-listed.
+ * Returns true if the request was a preflight and has already been answered.
+ */
+export function applyCors(req, res, env = process.env) {
+  const origin = Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin;
+  if (origin && allowedOrigins(env).includes(origin.replace(/\/+$/, ''))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  }
+  if (req.method === 'OPTIONS') {
+    res.statusCode = 204;
+    res.end('');
+    return true;
+  }
+  return false;
+}

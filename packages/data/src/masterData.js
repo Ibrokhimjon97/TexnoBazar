@@ -29,7 +29,9 @@ function cleanPayload(table, input) {
 }
 export async function listMasterRecords(table) {
   tableConfig(table);
-  const { data, error } = await getBrowserClient().from(table).select(projections[table]).order('created_at', { ascending: false });
+  const orderField = ['categories','attribute_definitions','payment_methods'].includes(table) ? 'sort_order' : 'created_at';
+  const ascending = orderField === 'sort_order';
+  const { data, error } = await getBrowserClient().from(table).select(projections[table]).order(orderField, { ascending }).order('name', { ascending: true });
   if (error) throwDataError(error, `list:${table}`);
   return data ?? [];
 }

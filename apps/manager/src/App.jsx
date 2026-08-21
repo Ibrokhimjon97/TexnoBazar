@@ -1,31 +1,33 @@
 import React,{useEffect,useState}from'react';
-import{AlertTriangle,ArrowLeftRight,Bell,Boxes,ClipboardCheck,FileX2,Home,Landmark,Menu,PackagePlus,QrCode,RotateCcw,Search,ShieldCheck,ShoppingBag,Truck,WalletCards,Warehouse,Wrench,X}from'lucide-react';
-import{AccountMenu,Status,Toast,formatMoney,useAuth}from'@texnobazar/ui';
+import{AlertTriangle,ArrowLeftRight,Bell,Sparkles,Boxes,ClipboardCheck,DollarSign,FileX2,Home,Landmark,Menu,PackagePlus,QrCode,RotateCcw,ShoppingBag,Truck,WalletCards,Warehouse,Wrench,X}from'lucide-react';
+import{AccountMenu,AiChat,Status,ThemeToggle,Toast,formatMoney,useAuth}from'@texnobazar/ui';
 import{getManagementDashboard,listCourierPerformance,listNotifications,markNotificationsRead,subscribeNotifications}from'@texnobazar/data';
 import{InventoryBatches,InventoryScanner,InventoryStock,ReceiptModal}from'./InventoryWorkspace';
 import TransferWorkspace from'./TransferWorkspace';
 import DebtWorkspace from'./DebtWorkspace';
 import CashWorkspace from'./CashWorkspace';
 import InventoryCountWorkspace from'./InventoryCountWorkspace';
+import InventoryRegisterModal from'./InventoryRegisterModal';
 import WriteoffWorkspace from'./WriteoffWorkspace';
 import ReturnsWorkspace from'./ReturnsWorkspace';
 import RepairWorkspace from'./RepairWorkspace';
-import CorrectionWorkspace from'./CorrectionWorkspace';
 import OnlineOrderWorkspace from'./OnlineOrderWorkspace';
 import FinanceWorkspace from'./FinanceWorkspace';
+import ExchangeRateWorkspace from'./ExchangeRateWorkspace';
+import SalesHistoryWorkspace from'./SalesHistoryWorkspace';
 
 const nav=[
-  ['Asosiy',Home,'home'],['Partiyalar',PackagePlus,'batches'],['Qoldiq',Warehouse,'stock'],
-  ['Transfer',ArrowLeftRight,'transfer'],['Inventarizatsiya',ClipboardCheck,'count'],['Hisobdan chiqarish',FileX2,'writeoff'],
-  ['Qaytarish',RotateCcw,'returns'],['Ta’mirlash',Wrench,'repairs'],['Correction',ShieldCheck,'corrections'],['Kassa',WalletCards,'cash'],['Online / Kuryer',Truck,'orders'],
-  ['Moliya',Landmark,'finance'],['Qarzdorlik',ShoppingBag,'debt'],
+  ['Asosiy',Home,'home'],['Partiyalar',PackagePlus,'batches'],['Tovarlar',Warehouse,'stock'],
+  ['Transfer',ArrowLeftRight,'transfer'],['Hisobdan chiqarish',FileX2,'writeoff'],
+  ['Qaytarish',RotateCcw,'returns'],['Ta’mirlash',Wrench,'repairs'],['Kassa',WalletCards,'cash'],['Online / Kuryer',Truck,'orders'],['Sotuvlar tarixi',ClipboardCheck,'sales-history'],['AI yordamchi',Sparkles,'ai-chat'],
+  ['Moliya',Landmark,'finance'],['Valyuta',DollarSign,'exchange'],['Qarzdorlik',ShoppingBag,'debt'],
 ];
 export default function App(){
   const{profile,branch}=useAuth();
-  const[page,setPage]=useState('home'),[scan,setScan]=useState(false),[batch,setBatch]=useState(false),[toast,setToast]=useState(''),[menu,setMenu]=useState(false);
-  const go=value=>{setPage(value);setMenu(false);};
+  const[page,setPage]=useState(()=>window.location.hash.slice(1)||'home'),[scan,setScan]=useState(false),[batch,setBatch]=useState(false),[register,setRegister]=useState(false),[toast,setToast]=useState(''),[menu,setMenu]=useState(false);
+  const go=value=>{setPage(value);setMenu(false);window.location.hash=value};
   const common={branchId:branch?.id,toast:setToast};
-  return <div className="manager"><aside className={'m-side '+(menu?'open':'')}><div className="m-logo"><i>T</i><span><b>texnobazar</b><small>Menejer paneli</small></span><button onClick={()=>setMenu(false)}><X/></button></div><div className="branch-select"><Landmark/><span><small>Joriy filial</small><b>{branch?.name||'Filial tanlanmagan'}</b></span></div><nav>{nav.map(([title,Icon,key])=><button className={page===key?'active':''} onClick={()=>go(key)} key={key}><Icon/><span>{title}</span></button>)}</nav><div className="m-user"><AccountMenu/></div></aside><main><header className="m-top"><button className="icon-btn m-menu" onClick={()=>setMenu(true)}><Menu/></button><div><h1>{nav.find(x=>x[2]===page)?.[0]||'Menejer'}</h1><span>{branch?.name||'Filial tanlanmagan'}</span></div><button className="icon-btn" onClick={()=>setPage('stock')} aria-label="Qoldiqdan qidirish"><Search/></button><NotificationCenter profileId={profile?.id}/><AccountMenu compact/></header><div className="m-content">{page==='home'?<Overview branchId={branch?.id} go={go} scan={()=>setScan(true)} batch={()=>setBatch(true)} name={profile?.full_name}/>:page==='batches'?<InventoryBatches branchId={branch?.id} onCreate={()=>setBatch(true)}/>:page==='stock'?<InventoryStock branchId={branch?.id} onScan={()=>setScan(true)}/>:page==='transfer'?<TransferWorkspace {...common}/>:page==='count'?<InventoryCountWorkspace {...common}/>:page==='writeoff'?<WriteoffWorkspace {...common}/>:page==='returns'?<ReturnsWorkspace {...common}/>:page==='repairs'?<RepairWorkspace {...common}/>:page==='corrections'?<CorrectionWorkspace {...common}/>:page==='cash'?<CashWorkspace {...common}/>:page==='orders'?<OnlineOrderWorkspace {...common}/>:page==='finance'?<FinanceWorkspace {...common}/>:<DebtWorkspace {...common}/>}</div><BottomNav page={page} go={go} scan={()=>setScan(true)}/></main><InventoryScanner open={scan} close={()=>setScan(false)} branchId={branch?.id} toast={setToast}/><ReceiptModal open={batch} close={()=>setBatch(false)} branchId={branch?.id} created={async()=>{setBatch(false);setToast('Partiya va noyob QR kodlar yaratildi');}}/><Toast message={toast} onClose={()=>setToast('')}/></div>;
+  return <div className="manager"><aside className={'m-side '+(menu?'open':'')}><div className="m-logo"><i>T</i><span><b>texnobazar</b><small>Menejer paneli</small></span><button onClick={()=>setMenu(false)}><X/></button></div><div className="branch-select"><Landmark/><span><small>Joriy filial</small><b>{branch?.name||'Filial tanlanmagan'}</b></span></div><nav>{nav.map(([title,Icon,key])=><button className={page===key?'active':''} onClick={()=>go(key)} key={key}><Icon/><span>{title}</span></button>)}</nav><div className="m-user"><AccountMenu/></div></aside><main><header className="m-top"><button className="icon-btn m-menu" onClick={()=>setMenu(true)}><Menu/></button><div><h1>{nav.find(x=>x[2]===page)?.[0]||'Menejer'}</h1><span>{branch?.name||'Filial tanlanmagan'}</span></div><ThemeToggle/><NotificationCenter profileId={profile?.id}/><AccountMenu compact/></header><div className="m-content">{page==='home'?<Overview branchId={branch?.id} go={go} scan={()=>setScan(true)} batch={()=>setBatch(true)} name={profile?.full_name}/>:page==='batches'?<InventoryBatches branchId={branch?.id} onCreate={()=>setBatch(true)}/>:page==='stock'?<InventoryStock branchId={branch?.id} onScan={()=>setScan(true)} onRegister={()=>setRegister(true)}/>:page==='transfer'?<TransferWorkspace {...common}/>:page==='writeoff'?<WriteoffWorkspace {...common}/>:page==='returns'?<ReturnsWorkspace {...common}/>:page==='repairs'?<RepairWorkspace {...common}/>:page==='cash'?<CashWorkspace {...common}/>:page==='orders'?<OnlineOrderWorkspace {...common}/>:page==='finance'?<FinanceWorkspace {...common}/>:page==='ai-chat'?<AiChat/>:page==='sales-history'?<SalesHistoryWorkspace branchId={branch?.id}/>:page==='exchange'?<ExchangeRateWorkspace {...common}/>:<DebtWorkspace {...common}/>}</div><BottomNav page={page} go={go} scan={()=>setScan(true)}/></main><InventoryScanner open={scan} close={()=>setScan(false)} branchId={branch?.id} toast={setToast}/><ReceiptModal open={batch} close={()=>setBatch(false)} branchId={branch?.id} created={async()=>{setBatch(false);setToast('Partiya va noyob QR kodlar yaratildi');}}/><InventoryRegisterModal open={register} close={()=>setRegister(false)} branchId={branch?.id} created={async()=>{setRegister(false);setToast('Tovar ro\'yxatga olindi va QR kodlar yaratildi');}}/><Toast message={toast} onClose={()=>setToast('')}/></div>;
 }
 
 function Overview({branchId,go,scan,batch,name}){

@@ -5,3 +5,92 @@ body{background:#dfe4ea}.seller-shell{max-width:820px;margin:auto;min-height:100
 
 /* Elektron chek yetkazish */
 .receipt-delivery{margin-top:14px;padding:13px;border:1px solid var(--line);border-radius:12px;background:#f8fafc}.receipt-delivery h3{display:flex;align-items:center;gap:7px;margin:0 0 9px}.receipt-delivery h3 svg{width:18px;color:var(--orange)}.receipt-delivery label{display:flex;gap:7px}.receipt-delivery input{flex:1;min-width:0;border:1px solid var(--line);border-radius:9px;padding:10px}.receipt-delivery button{white-space:nowrap}.receipt-delivery-status{display:block;margin-top:8px;padding:8px;border-radius:8px;background:#fff;color:var(--muted)}.receipt-delivery-status.sent{color:var(--green)}.receipt-delivery-status.dead,.receipt-delivery-error{color:var(--red)}.receipt-delivery-status.ambiguous{color:#b45309}.receipt-delivery-error{margin-top:7px;font-size:11px}@media(max-width:520px){.receipt-delivery label{flex-direction:column}.receipt-delivery button{width:100%}}
+
+/* Profile workspace */
+.profile-workspace{padding:4px 0}
+.profile-tabs{display:flex;gap:6px;margin-bottom:16px;background:#fff;border-radius:12px;padding:6px;border:1px solid var(--line)}.profile-tabs button{flex:1;border:0;background:none;padding:10px;border-radius:9px;font-size:12px;font-weight:600;display:flex;align-items:center;justify-content:center;gap:6px;color:var(--muted)}.profile-tabs button.active{background:var(--orange);color:#fff}
+.profile-avatar-section{display:flex;align-items:center;gap:14px;margin-bottom:16px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px}
+.profile-avatar{position:relative;width:64px;height:64px;border-radius:50%;overflow:visible;flex-shrink:0}.profile-avatar img{width:64px;height:64px;border-radius:50%;object-fit:cover}.profile-avatar>span{width:64px;height:64px;border-radius:50%;background:var(--orange);color:#fff;display:grid;place-items:center;font-size:20px;font-weight:700}
+.profile-avatar-upload{position:absolute;bottom:-2px;right:-2px;width:26px;height:26px;background:#fff;border:2px solid var(--line);border-radius:50%;display:grid;place-items:center;cursor:pointer}.profile-avatar-upload:hover{border-color:var(--orange)}
+.profile-avatar-name b,.profile-avatar-name small{display:block}.profile-avatar-name small{color:var(--muted);font-size:11px}
+.profile-error{padding:10px;background:#fef2f2;color:#b91c1c;border-radius:9px;margin-bottom:10px;font-size:12px}
+.profile-details{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}
+.profile-row{display:flex;justify-content:space-between;padding:10px 0;border-bottom:1px solid #f1f5f9}.profile-row:last-of-type{border:0}.profile-row span{color:var(--muted);font-size:12px}.profile-row b{font-size:13px}
+.profile-details .btn{margin-top:10px;width:100%}
+.profile-form{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}.profile-form label{display:block;margin-bottom:10px}.profile-form label span{display:block;font-size:11px;font-weight:600;margin-bottom:4px;color:var(--muted)}.profile-form .input{width:100%}
+.profile-form-actions{display:flex;gap:8px;margin-top:12px}
+
+/* Salary history */
+.salary-history{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px}
+.salary-month-picker{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}.salary-month-picker button{border:0;background:none;padding:6px;border-radius:8px}.salary-month-picker button:hover{background:#f1f5f9}.salary-month-picker button:disabled{opacity:.3}.salary-month-picker b{font-size:14px;text-transform:capitalize}
+.salary-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}
+.salary-card{background:#f8fafc;border-radius:10px;padding:12px}.salary-card small{display:block;color:var(--muted);font-size:10px;margin-bottom:2px}.salary-card b{font-size:14px;color:var(--navy)}.salary-card.highlight{background:#fff7ed;border:1px solid #fed7aa}.salary-card.highlight b{color:var(--orange)}
+.salary-loading,.salary-empty{text-align:center;color:var(--muted);padding:30px}
+.salary-items h4{margin:0 0 10px;font-size:13px}
+.salary-item{border:1px solid var(--line);border-radius:10px;padding:11px;margin-bottom:8px}
+.salary-item-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:11px}.salary-status{padding:3px 8px;border-radius:6px;font-size:10px;font-weight:600}.salary-status-paid{background:#dcfce7;color:#166534}.salary-status-approved{background:#dbeafe;color:#1e40af}.salary-status-draft{background:#f1f5f9;color:#64748b}
+.salary-item-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:11px}.salary-item-grid span{color:var(--muted)}.salary-item-grid b{color:var(--navy)}
+.salary-paid-date{display:block;margin-top:6px;color:var(--muted);font-size:10px}
+
+/* Unified seller polish, dark theme and touch-safe responsive layer */
+body{background:radial-gradient(circle at 50% 0,#edf1f6,#dce2e9)}.seller-shell{background:var(--bg);box-shadow:0 24px 80px rgba(15,23,42,.16)}.seller>header{background:rgba(255,255,255,.9);backdrop-filter:blur(18px) saturate(135%)}.pos-real-kpis article,.pos-real-kpi-wide,.pos-real-pending button,.pos-real-sales button,.pos-real-unit,.pos-real-cart article,.pos-real-payment,.pos-real-totals,.pos-real-notes,.profile-tabs,.profile-avatar-section,.profile-details,.profile-form,.salary-history{background:var(--surface);border-color:var(--border);box-shadow:var(--shadow-sm)}.pos-real-pending button,.pos-real-sales button,.pos-real-unit{transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}.pos-real-pending button:hover,.pos-real-sales button:hover,.pos-real-unit:hover{transform:translateY(-2px);border-color:rgba(249,115,22,.4);box-shadow:var(--shadow)}.pos-real-scan-cta{box-shadow:0 14px 30px rgba(249,115,22,.25);transition:transform .2s ease,box-shadow .2s ease}.pos-real-scan-cta:hover{transform:translateY(-2px);box-shadow:0 18px 38px rgba(249,115,22,.34)}
+html[data-theme="dark"] body{background:#070d17}html[data-theme="dark"] .seller>header,html[data-theme="dark"] .pos-real-nav{background:rgba(17,28,44,.96);border-color:var(--border)}html[data-theme="dark"] .pos-real-code,html[data-theme="dark"] .pos-real-search,html[data-theme="dark"] .receipt-delivery-status,html[data-theme="dark"] .salary-card,html[data-theme="dark"] .profile-avatar-upload{background:var(--surface-2);border-color:var(--border)}html[data-theme="dark"] .pos-real-prices{background:var(--surface-2)}html[data-theme="dark"] .profile-row{border-color:var(--border)}html[data-theme="dark"] .salary-month-picker button:hover{background:var(--surface-2)}
+.seller>header>div:first-child,.pos-real-title>div,.pos-real-unit>div,.pos-real-cart-head>div,.profile-avatar-name{min-width:0}.seller>header b,.pos-real-unit b,.pos-real-pending b,.pos-real-sales b,.profile-row b,.salary-item b{overflow-wrap:anywhere}.pos-real-payment-row>*,.pos-real-line-grid>*{min-width:0}
+@media(min-width:640px){.pos-real-workspace{padding:22px}.pos-real-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
+@media(max-width:640px){.seller{padding-bottom:calc(76px + env(safe-area-inset-bottom))}.seller>header{padding-inline:12px}.seller>header>div:first-child{flex:1}.seller>header b{max-width:38vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.seller>header .theme-toggle{margin-left:auto}.pos-real-nav{height:calc(68px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);backdrop-filter:blur(18px)}.pos-real-workspace{padding-inline:10px}.pos-real-title{gap:10px}.pos-real-title>*{min-width:0}.pos-real-kpi-wide{min-width:0}.profile-row{gap:12px}.profile-row b{text-align:right}.receipt-delivery label{min-width:0}}
+@media(max-width:360px){.seller>header{padding-inline:8px;gap:6px}.seller>header b{max-width:28vw}.pos-real-kpis{grid-template-columns:1fr}.pos-real-payment-row,.pos-real-line-grid,.pos-real-prices,.salary-summary,.salary-item-grid{grid-template-columns:1fr}.pos-real-payment-row input:nth-child(3){grid-column:auto}.pos-real-unit{align-items:flex-start}.pos-real-unit img,.pos-real-image{width:46px;height:46px}}
+
+/* Unit context card (scan result: pricing, stock, storefront link, actions) */
+.pos-unit-context{position:relative;padding:16px;display:flex;flex-direction:column;gap:13px;border:2px solid var(--orange);margin-bottom:14px}
+.pos-unit-context-close{position:absolute;top:10px;right:10px;width:30px;height:30px;border:0;background:#f1f5f9}
+.pos-unit-context-head{display:flex;align-items:flex-start;gap:11px;flex-wrap:wrap}
+.pos-unit-context-head img,.pos-unit-context-head .pos-real-image{width:56px;height:56px;border-radius:10px;object-fit:cover;flex:0 0 56px}
+.pos-unit-context-head>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.pos-unit-context-head b,.pos-unit-context-head small{display:block;overflow-wrap:anywhere}
+.pos-unit-context-head small{color:var(--muted);font-size:10px}
+.pos-unit-context-link{flex:0 0 auto;font-size:11px;padding:6px 10px}
+.pos-unit-context-prices{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#f8fafc;border-radius:11px;padding:11px}
+.pos-unit-context-prices span{display:flex;flex-direction:column;gap:2px}
+.pos-unit-context-prices small{color:var(--muted);font-size:9px}
+.pos-unit-context-prices b{font-size:13px;color:var(--navy)}
+.pos-unit-context-prices em{font-style:normal;color:var(--orange);font-size:10px;font-weight:700}
+.pos-unit-context-stock{display:flex;gap:16px;font-size:12px;color:var(--navy)}
+.pos-unit-context-stock svg{color:var(--orange);vertical-align:middle;margin-right:4px}
+.pos-unit-context-branches{background:#fff7ed;border-radius:10px;padding:9px 11px;font-size:11px}
+.pos-unit-context-branches>small{display:block;color:#9a6a50;margin-bottom:5px;font-weight:700}
+.pos-unit-context-branches>div{display:flex;flex-wrap:wrap;gap:8px}
+.pos-unit-context-branches span{display:inline-flex;align-items:center;gap:3px;background:#fff;border-radius:7px;padding:4px 8px;font-size:10.5px}
+.pos-unit-context-branches svg{color:var(--orange)}
+.pos-unit-context-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+/* Below-minimum sale warning (non-blocking) */
+.pos-real-warning{display:flex;align-items:flex-start;gap:7px;background:#fff7ed;border:1px solid #fdba74;color:#9a3412;border-radius:9px;padding:9px 11px;font-size:11px;margin:8px 0}
+.pos-real-warning svg{flex:0 0 auto;margin-top:1px}
+
+/* Optional customer info */
+.pos-real-customer{background:#fff;border:1px solid var(--line);border-radius:14px;padding:0;margin:10px 0;overflow:hidden}
+.pos-real-customer-toggle{width:100%;border:0;background:none;padding:13px;font-weight:700;font-size:13px}
+.pos-real-customer-toggle svg:last-child{transition:transform .15s}
+.pos-real-customer-fields{display:flex;flex-direction:column;gap:9px;padding:0 13px 13px}
+.pos-real-customer-fields label{font-size:10px;font-weight:700;color:var(--muted)}
+.pos-real-customer-fields input{margin-top:4px}
+
+/* Relocation flow */
+.pos-relocate-direction{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-bottom:14px}
+.pos-relocate-direction button{border:1.5px solid var(--line);background:#fff;border-radius:13px;padding:13px 8px;display:flex;flex-direction:column;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--muted)}
+.pos-relocate-direction button svg{color:var(--muted)}
+.pos-relocate-direction button.active{border-color:var(--orange);background:#fff7ed;color:var(--orange)}
+.pos-relocate-direction button.active svg{color:var(--orange)}
+.pos-relocate-list{display:flex;flex-direction:column;gap:8px;margin-bottom:14px}
+.pos-relocate-item{display:flex;align-items:center;gap:10px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px}
+.pos-relocate-item img,.pos-relocate-item .pos-real-image{width:44px;height:44px;border-radius:9px;object-fit:cover;flex:0 0 44px}
+.pos-relocate-item>div{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.pos-relocate-item b,.pos-relocate-item small{overflow-wrap:anywhere}
+.pos-relocate-item small{color:var(--muted);font-size:10px}
+
+@media(max-width:480px){
+  .pos-unit-context-prices{grid-template-columns:1fr 1fr}
+  .pos-unit-context-actions{grid-template-columns:1fr}
+  .pos-unit-context-head{flex-direction:column;align-items:stretch}
+  .pos-unit-context-link{align-self:flex-start}
+}

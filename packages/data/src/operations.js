@@ -19,6 +19,33 @@ export const postWriteoff=id=>rpc('post_writeoff',{p_writeoff_id:id});
 export const cancelWriteoff=(id,reason)=>rpc('cancel_writeoff',{p_writeoff_id:id,p_reason:reason});
 export const listWriteoffs=({locationId=null}={})=>list('writeoffs','*,writeoff_lines(*)',q=>{q=q.order('created_at',{ascending:false});return locationId?q.eq('location_id',locationId):q});
 
+// Hisobdan chiqarish: QR/qidiruv orqali birlik tanlash, bir amalda chiqarish va tarix.
+export const WRITEOFF_REASONS=[
+  ['damaged','Buzuq / shikastlangan'],
+  ['unusable','Yaroqsiz holat'],
+  ['lost','Yo‘qolgan'],
+  ['expired','Muddati o‘tgan'],
+  ['theft','O‘g‘irlangan'],
+  ['other','Boshqa sabab'],
+];
+export const WRITEOFF_EXPENSE_CATEGORY='Hisobdan chiqqan tovarlar';
+export const findWriteoffUnit=(branchId,code)=>rpc('find_writeoff_unit',{p_branch_id:branchId,p_code:code});
+export const searchWriteoffUnits=({branchId,query='',locationId=null,limit=25})=>rpc('search_writeoff_units',{p_branch_id:branchId,p_query:query||null,p_location_id:locationId||null,p_limit:limit});
+export const executeWriteoff=({branchId,unitIds,reasonCode,note,accountId=null,idempotencyKey=crypto.randomUUID()})=>rpc('execute_writeoff',{p_branch_id:branchId,p_unit_ids:unitIds,p_reason_code:reasonCode,p_note:note,p_account_id:accountId||null,p_idempotency_key:idempotencyKey});
+export const listWriteoffHistory=({branchId,from=null,to=null,reasonCode=null,query='',page=1,pageSize=50})=>rpc('list_writeoff_history',{p_branch_id:branchId,p_from:from||null,p_to:to||null,p_reason_code:reasonCode||null,p_query:query||null,p_limit:pageSize,p_offset:(page-1)*pageSize});
+export const reportExpenseBreakdown=(from,to,branchId=null)=>rpc('report_expense_breakdown',{p_from:from,p_to:to,p_branch_id:branchId||null});
+
+// Qaytarish: QR/seriya orqali birlikni topib, bir amalda qoldiqqa qaytarish va tarix.
+export const RETURN_CONDITIONS=[
+  ['resellable','Qayta sotiladi'],
+  ['damaged','Shikastlangan'],
+  ['defective','Nuqsonli'],
+];
+export const findSaleReturnUnit=(branchId,code)=>rpc('find_sale_return_unit',{p_branch_id:branchId,p_code:code});
+export const executeSaleReturn=({branchId,unitId,condition,reason,refundAmount=null,resellLocationId=null,idempotencyKey=crypto.randomUUID()})=>rpc('execute_sale_return',{p_branch_id:branchId,p_unit_id:unitId,p_condition:condition,p_reason:reason,p_refund_amount:refundAmount,p_resell_location_id:resellLocationId||null,p_idempotency_key:idempotencyKey});
+export const listSaleReturnHistory=({branchId,from=null,to=null,query='',condition=null,status=null,page=1,pageSize=50})=>rpc('list_sale_return_history',{p_branch_id:branchId,p_from:from||null,p_to:to||null,p_query:query||null,p_condition:condition||null,p_status:status||null,p_limit:pageSize,p_offset:(page-1)*pageSize});
+export const getUnitLifecycle=code=>rpc('get_unit_lifecycle',{p_code:code});
+
 export const requestSaleReturn=({saleId,kind='return',reason,lines,idempotencyKey=crypto.randomUUID()})=>rpc('request_sale_return',{p_sale_id:saleId,p_kind:kind,p_reason:reason,p_lines:lines,p_idempotency_key:idempotencyKey});
 export const approveSaleReturn=id=>rpc('approve_sale_return',{p_return_id:id});
 export const completeSaleReturn=(id,resellLocationId,replacementSaleId=null)=>rpc('complete_sale_return',{p_return_id:id,p_resell_location_id:resellLocationId,p_replacement_sale_id:replacementSaleId});
@@ -66,3 +93,23 @@ export const getManagerWorkspaceReferences=branchId=>rpc('get_manager_workspace_
 export const listSupplierPayments=({branchId,page=1,pageSize=50})=>list('supplier_payments','id,supplier_id,branch_id,account_id,amount,currency,method,reference,notes,paid_at,created_at',q=>q.eq('branch_id',branchId).order('paid_at',{ascending:false}).range((page-1)*pageSize,page*pageSize-1));
 export const listSupplierReturns=({branchId,page=1,pageSize=50})=>list('supplier_returns','id,return_no,supplier_id,branch_id,from_location_id,status,reason,total_amount,posted_at,cancelled_at,created_at,supplier_return_lines(id,unit_id,product_id,unit_cost)',q=>q.eq('branch_id',branchId).order('created_at',{ascending:false}).range((page-1)*pageSize,page*pageSize-1));
 export const listPayrollRuns=({branchId,page=1,pageSize=50})=>list('payroll_runs','id,branch_id,period_start,period_end,status,total,approved_by,paid_at,created_at,payroll_items(id,employee_id,gross,deductions,net,metadata)',q=>q.eq('branch_id',branchId).order('created_at',{ascending:false}).range((page-1)*pageSize,page*pageSize-1));
+
+// Atomic financial RPCs (Fix 3 & Fix 5)
+export const payExpense = (expenseId, amount, key = crypto.randomUUID()) => rpc('pay_expense', { p_expense_id: expenseId, p_amount: amount, p_idempotency_key: key });
+export const paySalaryExtra = (salaryId, amount, note, key = crypto.randomUUID()) => rpc('pay_salary_extra', { p_salary_id: salaryId, p_amount: amount, p_note: note, p_idempotency_key: key });
+export const settleSupplierReceipt = (receiptId, amount, method, reference, notes, key = crypto.randomUUID()) => rpc('settle_supplier_receipt', { p_receipt_id: receiptId, p_amount: amount, p_method: method, p_reference: reference || null, p_notes: notes || null, p_idempotency_key: key });
+
+
+// Sotuvlar tarixi: har bir sotilgan birlik haqida to'liq ma'lumot (RPC orqali)
+export async function listSalesHistory({ branchId = null, from, to, query = '', page = 1, pageSize = 50 }) {
+  const result = await rpc('list_sales_history', {
+    p_branch_id: branchId || null,
+    p_from: from || null,
+    p_to: to || null,
+    p_query: query || null,
+    p_limit: pageSize,
+    p_offset: (page - 1) * pageSize,
+  });
+  return { items: result?.items || [], total: Number(result?.total || 0) };
+}
+

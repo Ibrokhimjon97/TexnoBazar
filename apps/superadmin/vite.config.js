@@ -10,6 +10,9 @@ import bannerMediaHandler from './api/media/banner.js';
 import mediaCleanupHandler from './api/media/cleanup.js';
 import receiptDispatchHandler from './api/receipts/dispatch.js';
 import telegramWebhookHandler from './api/telegram/webhook.js';
+import aiChatHandler from './api/ai/chat.js';
+import aiTestProviderHandler from './api/ai/test-provider.js';
+import aiListModelsHandler from './api/ai/list-models.js';
 
 const rootEnvDir = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -20,6 +23,7 @@ function employeeApiDevMiddleware() {
     configureServer(server) {
       const serverEnv = {
         ...loadEnv(server.config.mode, rootEnvDir, 'VITE_SUPABASE_URL'),
+        ...loadEnv(server.config.mode, rootEnvDir, 'VITE_SUPABASE_ANON_KEY'),
         ...loadEnv(server.config.mode, rootEnvDir, 'SUPABASE_SECRET_KEY'),
         ...loadEnv(server.config.mode, rootEnvDir, 'R2_'),
         ...loadEnv(server.config.mode, rootEnvDir, 'TELEGRAM_'),
@@ -28,8 +32,9 @@ function employeeApiDevMiddleware() {
         ...loadEnv(server.config.mode, rootEnvDir, 'RESEND_'),
         ...loadEnv(server.config.mode, rootEnvDir, 'RECEIPT_'),
         ...loadEnv(server.config.mode, rootEnvDir, 'CRON_'),
+        ...loadEnv(server.config.mode, rootEnvDir, 'AI_'),
       };
-      for (const key of ['VITE_SUPABASE_URL', 'SUPABASE_SECRET_KEY', 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET', 'R2_PUBLIC_BASE_URL', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'MEDIA_CLEANUP_SECRET', 'NOTIFICATION_CRON_SECRET', 'RESEND_API_KEY', 'RECEIPT_FROM_EMAIL', 'CRON_SECRET']) {
+      for (const key of ['VITE_SUPABASE_URL', 'VITE_SUPABASE_ANON_KEY', 'SUPABASE_SECRET_KEY', 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY', 'R2_BUCKET', 'R2_PUBLIC_BASE_URL', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_WEBHOOK_SECRET', 'MEDIA_CLEANUP_SECRET', 'NOTIFICATION_CRON_SECRET', 'RESEND_API_KEY', 'RECEIPT_FROM_EMAIL', 'CRON_SECRET', 'AI_ALLOWED_ORIGINS']) {
         if (!process.env[key] && serverEnv[key]) process.env[key] = serverEnv[key];
       }
 
@@ -45,6 +50,9 @@ function employeeApiDevMiddleware() {
           '/api/media/cleanup': mediaCleanupHandler,
           '/api/receipts/dispatch': receiptDispatchHandler,
           '/api/telegram/webhook': telegramWebhookHandler,
+          '/api/ai/chat': aiChatHandler,
+          '/api/ai/test-provider': aiTestProviderHandler,
+          '/api/ai/list-models': aiListModelsHandler,
         };
         const handler = handlers[pathname];
         if (!handler) return next();
