@@ -3,7 +3,7 @@ import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, ExternalLink, Packa
 import { Empty, Modal, Status, formatMoney } from '@texnobazar/ui';
 import { listSalesHistory } from '@texnobazar/data';
 
-const STOREFRONT = (import.meta.env?.VITE_STOREFRONT_URL) || 'http://localhost:5173';
+const STOREFRONT = (import.meta.env?.VITE_STOREFRONT_URL) || 'https://texnobazar-storefront.netlify.app';
 const today = () => { const d = new Date(); return d.toISOString().slice(0, 10); };
 const PAGE_SIZE = 30;
 

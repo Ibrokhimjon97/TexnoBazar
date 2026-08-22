@@ -12,7 +12,7 @@ const labels={pending:'Kutilmoqda',confirmed:'Tasdiqlandi',rejected:'Rad etildi'
 const colors={pending:'orange',confirmed:'green',rejected:'red',expired:'gray'};
 const lineTax=line=>Math.round((Number(line.unit_price)-Number(line.discount||0))*Number(line.tax_rate||0))/100;
 const lineTotal=line=>Number(line.unit_price)-Number(line.discount||0)+lineTax(line);
-const STOREFRONT=(import.meta.env?.VITE_STOREFRONT_URL)||'http://localhost:5173';
+const STOREFRONT=(import.meta.env?.VITE_STOREFRONT_URL)||'https://texnobazar-storefront.netlify.app';
 
 export default function PosWorkspace({branchId,profile,toast}){
   const[page,setPage]=useState('home'),[refs,setRefs]=useState(null),[units,setUnits]=useState([]),[sales,setSales]=useState({items:[],today:{}}),[pending,setPending]=useState({items:[]});
