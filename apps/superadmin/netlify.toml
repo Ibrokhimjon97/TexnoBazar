@@ -9,3 +9,18 @@ NODE_VERSION = "20"
 
 [functions]
 node_bundler = "esbuild"
+
+[[redirects]]
+from = "/api/media/presign"
+to = "/.netlify/functions/media-presign"
+status = 200
+
+[[redirects]]
+from = "/api/media/complete"
+to = "/.netlify/functions/media-complete"
+status = 200
+
+[[redirects]]
+from = "/*"
+to = "/index.html"
+status = 200

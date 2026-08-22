@@ -11,9 +11,9 @@ export const archiveCatalogProduct=id=>rpc('archive_catalog_product',{p_product_
 export const setPrimaryProductMedia=(productId,mediaId)=>rpc('set_primary_product_media',{p_product_id:productId,p_media_id:mediaId});
 async function api(path,method,body){const token=await getAccessToken();if(!token)throw new Error('Sessiya topilmadi.');const base=import.meta.env?.VITE_API_BASE||'';const response=await fetch(base+path,{method,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify(body)});const result=await response.json();if(!response.ok)throw new Error(result.error||'Server amali bajarilmadi.');return result}
 export async function uploadProductMedia(productId,file,altText=''){
- const signed=await api('/api/media/presign','POST',{contentType:file.type,size:file.size,scope:'products',ownerId:productId});
+ const signed=await api('/.netlify/functions/media-presign','POST',{contentType:file.type,size:file.size,scope:'products',ownerId:productId});
  const upload=await fetch(signed.uploadUrl,{method:'PUT',headers:{'Content-Type':file.type},body:file});if(!upload.ok)throw new Error('Rasm R2 serveriga yuklanmadi.');
- return api('/api/media/complete','POST',{productId,key:signed.key,altText});
+ return api('/.netlify/functions/media-complete','POST',{productId,key:signed.key,altText});
 }
 export const deleteProductMedia=mediaId=>api('/api/media/delete','DELETE',{mediaId});
 
