@@ -478,3 +478,7 @@ html[data-theme="dark"] .m-top,html[data-theme="dark"] .m-stats>div,html[data-th
 @media(max-width:640px){.m-top{height:56px;padding:0 12px;gap:8px}.m-top h1{font-size:15px;max-width:40vw}.m-top span{font-size:10px}}
 
 .m-top-spacer{flex:1}
+
+/* Hide hamburger menu on desktop - show only on tablet/mobile */
+.m-top .m-menu{display:none}
+@media(max-width:900px){.m-top .m-menu{display:grid}}
