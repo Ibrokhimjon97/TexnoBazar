@@ -680,6 +680,52 @@ function QrResolver({code,go}){
 
 function RichDescription({product}){const media=new Map(safeArray(product.media).map(item=>[String(item.id),item]));const blocks=safeArray(product.descriptionBlocks);if(!blocks.length)return product.description?<div className="product-html-description" dangerouslySetInnerHTML={{__html:product.description}}/>:<p>Mahsulot tavsifi kiritilmagan.</p>;return <div className="structured-product-description">{blocks.map((block,index)=>{if(block.type==='text')return block.text?.includes('<')?<div key={index} dangerouslySetInnerHTML={{__html:block.text}}/>:<p key={index}>{block.text}</p>;if(block.type==='heading'){const Tag=`h${Math.min(4,Math.max(2,Number(block.level)||2))}`;return <Tag key={index}>{block.text}</Tag>}if(block.type==='list')return <ul key={index}>{safeArray(block.items).map((item,i)=><li key={i}>{plainValue(item)}</li>)}</ul>;if(block.type==='table')return <div className="table-wrap" key={index}><table className="table"><thead><tr>{safeArray(block.headers).map((cell,i)=><th key={i}>{plainValue(cell)}</th>)}</tr></thead><tbody>{safeArray(block.rows).map((row,i)=><tr key={i}>{safeArray(row).map((cell,j)=><td key={j}>{plainValue(cell)}</td>)}</tr>)}</tbody></table></div>;if(block.type==='image'){const item=media.get(String(block.media_id));return item?<figure key={index}><img src={item.url} alt={block.caption||item.alt||product.name}/>{block.caption&&<figcaption>{block.caption}</figcaption>}</figure>:null}if(block.type==='video'||block.type==='link')return <p key={index}><a href={block.url} target="_blank" rel="noopener noreferrer">{block.label||(block.type==='video'?'Videoni ko‘rish':'Havolani ochish')}</a></p>;return null})}</div>}
 
+function StarRating({ value = 0, max = 5, onChange, size = 20 }) {
+  const stars = Array.from({ length: max }, (_, i) => i + 1);
+  return <div className="star-rating" role={onChange ? 'radiogroup' : 'img'} aria-label={`${value} / ${max} yulduz`}>{stars.map(n => onChange ? <button key={n} type="button" className={n <= value ? 'star filled' : 'star'} onClick={() => onChange(n)} aria-label={`${n} yulduz`}><Star size={size} fill={n <= value ? 'currentColor' : 'none'}/></button> : <span key={n} className={n <= value ? 'star filled' : 'star'}><Star size={size} fill={n <= value ? 'currentColor' : 'none'}/></span>)}</div>;
+}
+
+function ProductReviews({ productId, session, setToast }) {
+  const [reviews, setReviews] = useState([]);
+  const [avg, setAvg] = useState(0);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [rating, setRating] = useState(0);
+  const [body, setBody] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      const result = await loadProductReviews(productId);
+      setReviews(result?.items || []);
+      setAvg(Number(result?.average_rating || 0));
+      setTotal(Number(result?.total || 0));
+    } catch { setReviews([]); }
+    finally { setLoading(false); }
+  }, [productId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!rating) { setToast && setToast('Iltimos, baho bering (1-5 yulduz)'); return; }
+    setSubmitting(true);
+    try {
+      await submitProductReview({ productId, rating, body: body.trim() });
+      setToast && setToast('Sharhingiz qabul qilindi!');
+      setRating(0); setBody('');
+      await load();
+    } catch (error) { setToast && setToast(error?.message || 'Sharh yuborilmadi'); }
+    finally { setSubmitting(false); }
+  };
+
+  return <div className="reviews-section card detail-tabs">
+    <div className="reviews-header"><h2>Sharhlar va baholar</h2>{total > 0 && <div className="reviews-summary"><StarRating value={Math.round(avg)}/><b>{avg}</b><span>({total} ta sharh)</span></div>}</div>
+    {session ? <form className="review-form" onSubmit={submit}><h3>Sharh qoldirish</h3><div className="review-stars-input"><span>Bahoyingiz:</span><StarRating value={rating} onChange={setRating} size={24}/>{rating > 0 && <small>{rating} / 5</small>}</div><textarea className="textarea" value={body} onChange={e => setBody(e.target.value)} placeholder="Mahsulot haqida fikringizni yozing..." maxLength={2000} rows={3}/><button className="btn btn-primary" type="submit" disabled={submitting || !rating}>{submitting ? 'Yuborilmoqda...' : 'Sharh yuborish'}</button></form> : <p className="review-login-hint">Sharh qoldirish uchun <b>hisobingizga kiring</b>.</p>}
+    {loading ? <p className="muted">Sharhlar yuklanmoqda...</p> : reviews.length > 0 ? <div className="reviews-list">{reviews.map(item => <div className="review-item" key={item.id}><div className="review-item-head"><StarRating value={item.rating} size={16}/><b>{item.reviewer_name}</b><time>{new Date(item.created_at).toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short', year: 'numeric' })}</time></div>{item.body && <p>{item.body}</p>}</div>)}</div> : !loading && <p className="muted">Bu mahsulotga hali sharh yozilmagan. Birinchi bo'lib sharh qoldiring!</p>}
+  </div>;
+}
+
 function Product({ product, go, add, toggleFavorite, loved, related, favorites, session, setToast }) {
   return <section className="container product-page"><div className="breadcrumbs"><button onClick={() => go('home')}>Bosh sahifa</button><ChevronRight/><button onClick={() => go('catalog')}>Katalog</button><ChevronRight/>{product.name}</div><div className="product-detail card"><div className="gallery single-media"><div className="main-img"><ProductMedia product={product}/>{product.oldPrice > product.price && <span className="badge">Aksiya</span>}</div>{product.seoImage&&product.seoImage.includes("youtu")&&<div className="product-video"><iframe src={product.seoImage.replace("watch?v=","embed/").replace("youtu.be/","youtube.com/embed/")} title="Video" allowFullScreen style={{width:"100%",height:300,border:"none",borderRadius:12,marginTop:12}}/></div>}</div><div className="detail-info"><div className="row"><Status type={product.stock ? 'green' : 'red'}>{product.stock ? 'Sotuvda mavjud' : "Sotuvda yo\u2019q"}</Status></div><h1>{product.name}</h1><p className="muted">Artikul: {product.sku || '\u2014'}</p><div className="divider"/>{product.oldPrice > product.price && <div className="old-price">{money(product.oldPrice)}</div>}<div className="detail-price">{money(product.price)}</div><div className={`stock ${product.stock ? '' : 'out'}`}>{product.stock ? <Check size={18}/> : <X size={18}/>} {product.stock ? `Omborda ${product.stock} dona mavjud` : 'Omborda mavjud emas'}</div><div className="detail-actions"><button className="btn btn-primary" onClick={() => add(product)} disabled={!product.stock}><ShoppingCart/> Savatchaga</button><button className={`btn btn-outline ${loved ? 'loved' : ''}`} onClick={() => toggleFavorite(product)}><Heart fill={loved ? 'currentColor' : 'none'}/> {loved ? "Sevimlilardan olib tashlash" : "Sevimliga qo\u2019shish"}</button></div></div></div><div className="detail-tabs card"><h2>Mahsulot haqida</h2><RichDescription product={product}/><h3>Asosiy xususiyatlar</h3>{product.attributes.length ? <div className="spec-grid">{product.attributes.map(item => <div key={`${item.code}-${item.value}`}><span>{item.name}</span><b>{item.value || '\u2014'}</b></div>)}</div> : <p className="muted">Xususiyatlar kiritilmagan.</p>}</div><ProductReviews productId={product.id} session={session} setToast={setToast}/>{related.length > 0 && <ProductSection title="O\u2019xshash mahsulotlar" subtitle="Sizga mos takliflar" list={related} {...{ go, add, toggleFavorite, favorites }}/>}</section>;
 }
