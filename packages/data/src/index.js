@@ -16,6 +16,7 @@ export * from './ai.js';
 export * from './delivery.js';
 export * from './admin.js';
 export * from './realtime.js';
+export * from './reviews.js';
 
 /**
  * Browser uchun Supabase client yaratadi. Bu modul faqat VITE_ bilan ochiq
