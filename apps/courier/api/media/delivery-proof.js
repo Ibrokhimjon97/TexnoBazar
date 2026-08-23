@@ -1,4 +1,4 @@
-import{createPresignedMediaPut,getMediaObjectMetadata,MAX_MEDIA_BYTES,validateMediaInput}from'@texnobazar/server/r2';
+import{createPresignedMediaPut,getMediaObjectMetadata,MAX_MEDIA_BYTES,validateMediaInput}from'../../../../packages/server/src/r2.js';
 import{ApiError,actor,bearer,fail,json,sendJson,serverClient}from'../_lib/auth.js';
 const UUID=/^[0-9a-f]{8}-[0-9a-f-]{27}$/i;
 export default async function handler(req,res){

@@ -1,4 +1,4 @@
-begin;
+ begin;
 
 -- Guided storefront settings are intentionally allow-listed. Internal and secret
 -- system_settings keys can never be read or changed through the site builder.

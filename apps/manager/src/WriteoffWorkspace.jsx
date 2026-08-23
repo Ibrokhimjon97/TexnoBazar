@@ -1,10 +1,9 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{AlertTriangle,Boxes,CalendarDays,FileX2,Landmark,MapPin,QrCode,Search,Trash2,User,X}from'lucide-react';
-import{Empty,QrScanButton,formatMoney}from'@texnobazar/ui';
+import{DualPrice,Empty,QrScanButton,formatDualMoney,useExchangeRate}from'@texnobazar/ui';
 import{WRITEOFF_EXPENSE_CATEGORY,WRITEOFF_REASONS,executeWriteoff,findWriteoffUnit,listWriteoffHistory,searchWriteoffUnits}from'@texnobazar/data';
 
 const message=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
-const money=value=>formatMoney(Number(value||0));
 const stamp=value=>value?new Date(value).toLocaleString('uz-UZ',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
 const today=()=>new Date().toISOString().slice(0,10);
 const monthStart=()=>`${today().slice(0,7)}-01`;
@@ -30,6 +29,7 @@ export default function WriteoffWorkspace({branchId,toast}){
 }
 
 function WriteoffForm({branchId,toast,done}){
+  const rate=useExchangeRate();
   const[code,setCode]=useState('');
   const[query,setQuery]=useState('');
   const[results,setResults]=useState([]);
@@ -85,12 +85,12 @@ function WriteoffForm({branchId,toast,done}){
     setError('');
     if(!units.length){setError('Kamida bitta tovar birligini tanlang.');return;}
     if(note.trim().length<3){setError('Izoh kamida 3 belgidan iborat bo‘lishi kerak.');return;}
-    if(!window.confirm(`${units.length} dona tovar hisobdan chiqariladi va ${money(total)} do‘kon xarajatiga yoziladi. Davom etasizmi?`))return;
+    if(!window.confirm(`${units.length} dona tovar hisobdan chiqariladi va ${formatDualMoney(total,rate)} do‘kon xarajatiga yoziladi. Davom etasizmi?`))return;
     setBusy(true);
     try{
       const result=await executeWriteoff({branchId,unitIds:units.map(x=>x.id),reasonCode,note:note.trim()});
       setUnits([]);setNote('');setCode('');setQuery('');setResults([]);
-      toast?.(`${result?.writeoff_no||'Hujjat'} — ${units.length} dona hisobdan chiqarildi (${money(total)})`);
+      toast?.(`${result?.writeoff_no||'Hujjat'} — ${units.length} dona hisobdan chiqarildi (${formatDualMoney(total,rate)})`);
       done?.();
     }catch(e){setError(message(e));}
     finally{setBusy(false);}
@@ -123,7 +123,7 @@ function WriteoffForm({branchId,toast,done}){
                 <small>{unit.sku} · QR: {unit.qr_code}{unit.serial_number?` · S/N: ${unit.serial_number}`:''}</small>
                 <small><MapPin/>{unit.location_name}</small>
               </span>
-              <strong>{money(unit.cost_price)}</strong>
+              <strong><DualPrice value={Number(unit.cost_price)} rate={rate}/></strong>
             </button>;
           })}
       </div>}
@@ -156,18 +156,18 @@ function WriteoffForm({branchId,toast,done}){
               <b>{unit.product_name}</b>
               <small>{unit.sku} · QR: {unit.qr_code}</small>
             </div>
-            <strong>{money(unit.cost_price)}</strong>
+            <strong><DualPrice value={Number(unit.cost_price)} rate={rate}/></strong>
             <button type="button" className="wo-remove" onClick={()=>setUnits(units.filter(x=>x.id!==unit.id))} aria-label="Olib tashlash"><Trash2/></button>
           </div>)}</div>}
       </div>
 
       <div className="wo-total">
         <span>Hisobdan chiqadigan tannarx</span>
-        <b>{money(total)}</b>
+        <b><DualPrice value={total} rate={rate}/></b>
       </div>
       <div className="wo-form-hint">
         <Landmark/>
-        <small>{money(total)} “{WRITEOFF_EXPENSE_CATEGORY}” kategoriyasi bilan moliya chiqimiga yoziladi va oylik xarajatga qo‘shiladi.</small>
+        <small><DualPrice value={total} rate={rate}/> “{WRITEOFF_EXPENSE_CATEGORY}” kategoriyasi bilan moliya chiqimiga yoziladi va oylik xarajatga qo‘shiladi.</small>
       </div>
       {error&&<InlineError text={error}/>}
       <button className="btn btn-primary btn-block" disabled={busy||!units.length||note.trim().length<3}>
@@ -178,6 +178,7 @@ function WriteoffForm({branchId,toast,done}){
 }
 
 function WriteoffHistory({branchId,refreshKey}){
+  const rate=useExchangeRate();
   const[data,setData]=useState(null);
   const[filters,setFilters]=useState({from:monthStart(),to:today(),reasonCode:'',query:''});
   const[loading,setLoading]=useState(true);
@@ -202,15 +203,15 @@ function WriteoffHistory({branchId,refreshKey}){
 
   return <div className="wo-history">
     <div className="wo-stats">
-      <div className="wo-stat"><span>Tanlangan davr</span><b>{money(data?.total_cost)}</b><small>{Number(data?.total||0)} dona · {Number(data?.document_count||0)} hujjat</small></div>
-      <div className="wo-stat posted"><span>Joriy oy xarajati</span><b>{money(data?.month_cost)}</b><small>{Number(data?.month_units||0)} dona</small></div>
+      <div className="wo-stat"><span>Tanlangan davr</span><b><DualPrice value={Number(data?.total_cost)} rate={rate}/></b><small>{Number(data?.total||0)} dona · {Number(data?.document_count||0)} hujjat</small></div>
+      <div className="wo-stat posted"><span>Joriy oy xarajati</span><b><DualPrice value={Number(data?.month_cost)} rate={rate}/></b><small>{Number(data?.month_units||0)} dona</small></div>
       <div className="wo-stat draft"><span>Xarajat kategoriyasi</span><b className="wo-stat-text">{WRITEOFF_EXPENSE_CATEGORY}</b><small>Moliya → Xarajatlar</small></div>
     </div>
 
     {(data?.by_reason||[]).length>0&&<div className="wo-reason-summary">
       {data.by_reason.map(row=><span key={row.reason_code||'none'}>
         <small>{row.label||reasonLabel(row.reason_code)}</small>
-        <b>{money(row.cost)}</b>
+        <b><DualPrice value={Number(row.cost)} rate={rate}/></b>
         <em>{Number(row.units||0)} dona</em>
       </span>)}
     </div>}
@@ -246,7 +247,7 @@ function WriteoffHistory({branchId,refreshKey}){
                 <td><span className="wo-reason-chip">{row.reason_label||reasonLabel(row.reason_code)}</span></td>
                 <td><span className="wo-note-cell">{row.note||'—'}</span></td>
                 <td><small>{row.writeoff_no}</small>{row.actor_name&&<small><User/>{row.actor_name}</small>}</td>
-                <td className="right"><strong>{money(row.line_cost)}</strong></td>
+                <td className="right"><strong><DualPrice value={Number(row.line_cost)} rate={rate}/></strong></td>
               </tr>)}
             </tbody>
           </table>
@@ -255,7 +256,7 @@ function WriteoffHistory({branchId,refreshKey}){
           {items.map(row=><article className="card wo-history-card" key={row.line_id}>
             <div className="wo-card-icon"><FileX2/></div>
             <div className="wo-card-main">
-              <div className="between"><b>{row.product_name}</b><strong>{money(row.line_cost)}</strong></div>
+              <div className="between"><b>{row.product_name}</b><strong><DualPrice value={Number(row.line_cost)} rate={rate}/></strong></div>
               <small>{row.sku} · QR: {row.qr_code||'—'}</small>
               <div className="wo-card-meta">
                 <span><CalendarDays/>{stamp(row.occurred_at)}</span>

@@ -1,6 +1,6 @@
 import React,{useEffect,useState}from'react';
 import{AlertTriangle,ArrowLeft,BarChart3,MapPin,Pencil,Plus,Store,Trash2,Users,Warehouse}from'lucide-react';
-import{Empty,Modal,Status}from'@texnobazar/ui';
+import{DualPrice,Empty,Modal,Status,useExchangeRate}from'@texnobazar/ui';
 import{createMasterRecord,deleteMasterRecord,getAccessToken,getBrowserClient,listActiveBranches,listEmployees,listMasterRecords,updateMasterRecord}from'@texnobazar/data';
 
 const roleLabels={manager:'Menejer',seller:'Sotuvchi',courier:'Kuryer',warehouse:'Omborchi',accountant:'Hisobchi'};
@@ -87,6 +87,7 @@ function BranchEmployees({branchId,onAdd,onSelect,onEdit,onDelete}){
 
 /* --- Employee Stats inside Branch Detail --- */
 function BranchEmployeeStats({employee,back}){
+  const rate=useExchangeRate();
   const[stats,setStats]=useState(null),[loading,setLoading]=useState(true),[error,setError]=useState('');
   const[period,setPeriod]=useState('month');
   useEffect(()=>{loadStats()},[employee,period]);
@@ -108,14 +109,15 @@ function BranchEmployeeStats({employee,back}){
   const role=(employee.roles||[])[0];
   return <><div className="page-head between"><div style={{display:'flex',alignItems:'center',gap:12}}><button className="icon-btn" onClick={back}><ArrowLeft/></button><div><h2>{employee.full_name||'Nomsiz'}</h2><p>{roleLabels[role?.role]||''} · {employee.phone||employee.email||''}</p></div></div><div className="period-selector"><button className={period==='week'?'active':''} onClick={()=>setPeriod('week')}>Hafta</button><button className={period==='month'?'active':''} onClick={()=>setPeriod('month')}>Oy</button><button className={period==='year'?'active':''} onClick={()=>setPeriod('year')}>Yil</button></div></div>
   {loading?<div className="employee-loading">Statistika yuklanmoqda...</div>:error?<div className="empty"><AlertTriangle/><h3>Xatolik</h3><p>{error}</p><button className="btn" onClick={loadStats}>Qayta urinish</button></div>:<>
-  <div className="stats-cards"><div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value">{stats.salesCount}</span><span className="stat-label">Sotuvlar soni</span></div></div><div className="stat-card"><Store size={20}/><div><span className="stat-value">{Number(stats.totalRevenue).toLocaleString('uz-UZ')} so'm</span><span className="stat-label">Umumiy tushum</span></div></div><div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value">{Number(stats.totalProfit).toLocaleString('uz-UZ')} so'm</span><span className="stat-label">Sof foyda</span></div></div></div>
-  {stats.recentSales.length>0&&<div className="card"><h3 style={{padding:'1rem 1rem 0'}}>So'nggi sotuvlar</h3><div className="table-wrap"><table className="table"><thead><tr><th>Sotuv #</th><th>Sana</th><th>Summa</th><th>Foyda</th><th>Holat</th></tr></thead><tbody>{stats.recentSales.map((s,i)=><tr key={i}><td><code>{s.sale_no}</code></td><td>{new Date(s.sold_at).toLocaleDateString('uz-UZ')}</td><td>{Number(s.total).toLocaleString('uz-UZ')}</td><td>{Number(s.profit).toLocaleString('uz-UZ')}</td><td><Status type={s.status==='completed'?'green':'blue'}>{s.status}</Status></td></tr>)}</tbody></table></div></div>}
+  <div className="stats-cards"><div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value">{stats.salesCount}</span><span className="stat-label">Sotuvlar soni</span></div></div><div className="stat-card"><Store size={20}/><div><span className="stat-value"><DualPrice value={Number(stats.totalRevenue)} rate={rate}/></span><span className="stat-label">Umumiy tushum</span></div></div><div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value"><DualPrice value={Number(stats.totalProfit)} rate={rate}/></span><span className="stat-label">Sof foyda</span></div></div></div>
+  {stats.recentSales.length>0&&<div className="card"><h3 style={{padding:'1rem 1rem 0'}}>So'nggi sotuvlar</h3><div className="table-wrap"><table className="table"><thead><tr><th>Sotuv #</th><th>Sana</th><th>Summa</th><th>Foyda</th><th>Holat</th></tr></thead><tbody>{stats.recentSales.map((s,i)=><tr key={i}><td><code>{s.sale_no}</code></td><td>{new Date(s.sold_at).toLocaleDateString('uz-UZ')}</td><td><DualPrice value={Number(s.total)} rate={rate}/></td><td><DualPrice value={Number(s.profit)} rate={rate}/></td><td><Status type={s.status==='completed'?'green':'blue'}>{s.status}</Status></td></tr>)}</tbody></table></div></div>}
   {stats.salesCount===0&&<div className="empty" style={{marginTop:'1rem'}}><BarChart3 size={40}/><h3>Statistika yo'q</h3><p>Tanlangan davrda bu xodim sotuvlar amalga oshirmagan.</p></div>}
   </>}</>;
 }
 
 /* --- Location Detail: stats, analytics, inventory --- */
 function LocationDetail({location,branch,back,toast}){
+  const rate=useExchangeRate();
   const[stats,setStats]=useState(null),[inventory,setInventory]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
   const[period,setPeriod]=useState('month'),[showInventory,setShowInventory]=useState(false),[selectedProduct,setSelectedProduct]=useState(null);
 
@@ -177,16 +179,16 @@ function LocationDetail({location,branch,back,toast}){
 
   <div className="stats-cards">
     <div className="stat-card"><Warehouse size={20}/><div><span className="stat-value">{stats.totalItems}</span><span className="stat-label">Mavjud tovarlar</span></div></div>
-    <div className="stat-card"><Store size={20}/><div><span className="stat-value">{Number(stats.inventoryValue).toLocaleString('uz-UZ')}</span><span className="stat-label">Tannarxi (so'm)</span></div></div>
-    <div className="stat-card"><Store size={20}/><div><span className="stat-value">{Number(stats.retailValue).toLocaleString('uz-UZ')}</span><span className="stat-label">Chakana qiymati</span></div></div>
+    <div className="stat-card"><Store size={20}/><div><span className="stat-value"><DualPrice value={Number(stats.inventoryValue)} rate={rate}/></span><span className="stat-label">Tannarxi</span></div></div>
+    <div className="stat-card"><Store size={20}/><div><span className="stat-value"><DualPrice value={Number(stats.retailValue)} rate={rate}/></span><span className="stat-label">Chakana qiymati</span></div></div>
     <div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value">{stats.salesCount}</span><span className="stat-label">Sotuvlar soni</span></div></div>
-    <div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value">{Number(stats.totalRevenue).toLocaleString('uz-UZ')}</span><span className="stat-label">Daromad (so'm)</span></div></div>
-    <div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value">{Number(stats.totalProfit).toLocaleString('uz-UZ')}</span><span className="stat-label">Sof foyda</span></div></div>
-    <div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value">{Number(stats.totalCost).toLocaleString('uz-UZ')}</span><span className="stat-label">Harajat (tannarx)</span></div></div>
-    <div className="stat-card"><AlertTriangle size={20}/><div><span className="stat-value">{Number(stats.totalDebt).toLocaleString('uz-UZ')}</span><span className="stat-label">Qarz (transfer)</span></div></div>
+    <div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value"><DualPrice value={Number(stats.totalRevenue)} rate={rate}/></span><span className="stat-label">Daromad</span></div></div>
+    <div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value"><DualPrice value={Number(stats.totalProfit)} rate={rate}/></span><span className="stat-label">Sof foyda</span></div></div>
+    <div className="stat-card"><BarChart3 size={20}/><div><span className="stat-value"><DualPrice value={Number(stats.totalCost)} rate={rate}/></span><span className="stat-label">Harajat (tannarx)</span></div></div>
+    <div className="stat-card"><AlertTriangle size={20}/><div><span className="stat-value"><DualPrice value={Number(stats.totalDebt)} rate={rate}/></span><span className="stat-label">Qarz (transfer)</span></div></div>
   </div>
 
-  {stats.categories.length>0&&<div className="card"><h3 style={{padding:'1rem 1rem 0'}}>Kategoriya bo'yicha tovarlar</h3><div className="table-wrap"><table className="table"><thead><tr><th>Kategoriya</th><th>Soni</th><th>Qiymati</th></tr></thead><tbody>{stats.categories.map((c,i)=><tr key={i}><td><b>{c.name}</b></td><td>{c.count}</td><td>{Number(c.value).toLocaleString('uz-UZ')}</td></tr>)}</tbody></table></div></div>}
+  {stats.categories.length>0&&<div className="card"><h3 style={{padding:'1rem 1rem 0'}}>Kategoriya bo'yicha tovarlar</h3><div className="table-wrap"><table className="table"><thead><tr><th>Kategoriya</th><th>Soni</th><th>Qiymati</th></tr></thead><tbody>{stats.categories.map((c,i)=><tr key={i}><td><b>{c.name}</b></td><td>{c.count}</td><td><DualPrice value={Number(c.value)} rate={rate}/></td></tr>)}</tbody></table></div></div>}
 
   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'1rem'}}>
   {stats.topSelling.length>0&&<div className="card"><h3 style={{padding:'1rem 1rem 0'}}>Ko'p sotilgan</h3><div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>Sotilgan</th><th>Qoldiq</th></tr></thead><tbody>{stats.topSelling.map((p,i)=><tr key={i}><td><b>{p.name}</b><br/><small className="muted">{p.sku}</small></td><td>{p.sold}</td><td>{p.available}</td></tr>)}</tbody></table></div></div>}
@@ -194,12 +196,13 @@ function LocationDetail({location,branch,back,toast}){
   </div>
 
   <div className="card" style={{marginTop:'1rem'}}><div className="section-head"><h3><Warehouse size={18}/> Barcha tovarlar ({inventory.length})</h3><button className="btn btn-outline btn-sm" onClick={()=>setShowInventory(!showInventory)}>{showInventory?'Yopish':'Ko\'rsatish'}</button></div>
-  {showInventory&&<div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>SKU</th><th>Kategoriya</th><th>Holat</th><th>Narxi</th></tr></thead><tbody>{inventory.slice(0,100).map(u=><tr key={u.id} className="clickable-row" onClick={()=>setSelectedProduct(u)}><td><b>{u.products?.name||'?'}</b></td><td><code>{u.products?.sku||'-'}</code></td><td>{u.products?.categories?.name||'-'}</td><td><Status type={u.status==='available'?'green':u.status==='sold'?'blue':'red'}>{u.status}</Status></td><td>{Number(u.products?.retail_price||0).toLocaleString('uz-UZ')}</td></tr>)}</tbody></table></div>}</div>
+  {showInventory&&<div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>SKU</th><th>Kategoriya</th><th>Holat</th><th>Narxi</th></tr></thead><tbody>{inventory.slice(0,100).map(u=><tr key={u.id} className="clickable-row" onClick={()=>setSelectedProduct(u)}><td><b>{u.products?.name||'?'}</b></td><td><code>{u.products?.sku||'-'}</code></td><td>{u.products?.categories?.name||'-'}</td><td><Status type={u.status==='available'?'green':u.status==='sold'?'blue':'red'}>{u.status}</Status></td><td><DualPrice value={Number(u.products?.retail_price||0)} rate={rate}/></td></tr>)}</tbody></table></div>}</div>
   </>}</>;
 }
 
 /* --- Product Detail View from inventory unit --- */
 function ProductDetailView({unit,back}){
+  const rate=useExchangeRate();
   const[product,setProduct]=useState(null),[media,setMedia]=useState([]),[loading,setLoading]=useState(true);
   useEffect(()=>{loadProduct()},[unit]);
   const loadProduct=async()=>{setLoading(true);try{
@@ -218,10 +221,10 @@ function ProductDetailView({unit,back}){
         <div><span>Barkod:</span><b>{product.barcode||'-'}</b></div>
         <div><span>Kategoriya:</span><b>{product.categories?.name||'-'}</b></div>
         <div><span>Brend:</span><b>{product.brands?.name||'-'}</b></div>
-        <div><span>Chakana narx:</span><b>{Number(product.retail_price||0).toLocaleString('uz-UZ')} so'm</b></div>
-        <div><span>Ulgurji narx:</span><b>{Number(product.wholesale_price||0).toLocaleString('uz-UZ')} so'm</b></div>
-        <div><span>Aksiya narx:</span><b>{product.promotion_price?Number(product.promotion_price).toLocaleString('uz-UZ')+' so\'m':'-'}</b></div>
-        <div><span>Tannarx:</span><b>{Number(product.cost_price||0).toLocaleString('uz-UZ')} so'm</b></div>
+        <div><span>Chakana narx:</span><b><DualPrice value={Number(product.retail_price||0)} rate={rate}/></b></div>
+        <div><span>Ulgurji narx:</span><b><DualPrice value={Number(product.wholesale_price||0)} rate={rate}/></b></div>
+        <div><span>Aksiya narx:</span><b>{product.promotion_price?<DualPrice value={Number(product.promotion_price)} rate={rate}/>:'-'}</b></div>
+        <div><span>Tannarx:</span><b><DualPrice value={Number(product.cost_price||0)} rate={rate}/></b></div>
         <div><span>Holat:</span><b>{product.status}</b></div>
         <div><span>Nashr qilingan:</span><b>{product.is_published?'Ha':'Yo\'q'}</b></div>
       </div>

@@ -204,3 +204,10 @@ html[data-theme="dark"] .badge.gray{background:#263348;color:#c8d3e2}html[data-t
 .ai-md table.ai-md-table tr:hover td{background:var(--surface-2)}
 html[data-theme="dark"] .ai-md pre.ai-md-code{background:#1a2333}
 html[data-theme="dark"] .ai-md table.ai-md-table th{background:var(--surface-3)}
+
+/* DualPrice display */
+.dual-price{display:inline-flex;align-items:baseline;gap:5px;flex-wrap:wrap}
+.dual-price-usd{font-style:normal;color:var(--orange,#f97316);font-size:.82em;font-weight:700;white-space:nowrap}
+
+/* Avatar image in AccountMenu */
+.avatar-img{width:38px;height:38px;border-radius:50%;object-fit:cover;display:block;flex:0 0 38px}

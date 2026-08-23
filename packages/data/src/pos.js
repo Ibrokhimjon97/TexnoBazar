@@ -10,6 +10,7 @@ async function rpc(name, args) {
 export const getPosReferences = branchId => rpc('get_pos_references', { p_branch_id: branchId });
 export const findPosUnit = (branchId, code) => rpc('find_pos_unit', { p_branch_id: branchId, p_code: code });
 export const getPosUnitContext = (branchId, code) => rpc('get_pos_unit_context', { p_branch_id: branchId, p_code: code });
+export const getPosProductAvailability = (branchId, productId) => rpc('get_pos_product_availability', { p_branch_id: branchId, p_product_id: productId });
 export const relocatePosUnits = (branchId, codes, direction, requestId = crypto.randomUUID()) => rpc('pos_relocate_units', { p_branch_id: branchId, p_codes: codes, p_direction: direction, p_request_id: requestId });
 export function listPosUnits({ branchId, query = null, page = 1, pageSize = 30 }) {
   return rpc('list_pos_units', { p_branch_id: branchId, p_query: query || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
@@ -24,7 +25,10 @@ export function listPosPendingSales({ branchId, status = null, query = null, pag
 }
 export const rejectPosPendingSale = (id, reason) => rpc('reject_pos_pending_sale', { p_pending_id: id, p_reason: reason });
 export const confirmPosSale = (id, payments = null) => rpc('manager_confirm_sale', { p_pending_sale_id: id, p_payments: payments });
-export function listMyPosSales({ branchId, page = 1, pageSize = 20 }) {
-  return rpc('list_my_pos_sales', { p_branch_id: branchId, p_limit: pageSize, p_offset: (page - 1) * pageSize });
+export function listMyPosSales({ branchId, date = null, query = null, page = 1, pageSize = 100 }) {
+  return rpc('list_my_pos_sales_filtered', { p_branch_id: branchId, p_date: date || null, p_query: query || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
+}
+export function listMyPosPendingSalesByDate({ branchId, date = null, page = 1, pageSize = 100 }) {
+  return rpc('list_my_pos_pending_sales_by_date', { p_branch_id: branchId, p_date: date || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
 }
 export const getSaleReceipt = id => rpc('get_safe_sale_receipt', { p_sale_id: id });

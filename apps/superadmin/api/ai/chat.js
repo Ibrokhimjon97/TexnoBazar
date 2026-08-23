@@ -162,16 +162,25 @@ export default async function handler(req, res) {
 
     for (let round = 0; round <= MAX_TOOL_ROUNDS; round += 1) {
       const isLastRound = round === MAX_TOOL_ROUNDS;
-      const result = await callProvider({
-        provider: provider.provider,
-        apiKey: provider.api_key,
-        baseUrl: provider.base_url,
-        model,
-        system,
-        messages,
-        // Drop tools on the final round to force a prose answer instead of another call.
-        tools: isLastRound ? [] : AI_TOOLS,
-      });
+      let result;
+      try {
+        result = await callProvider({
+          provider: provider.provider,
+          apiKey: provider.api_key,
+          baseUrl: provider.base_url,
+          model,
+          system,
+          messages,
+          tools: isLastRound ? [] : AI_TOOLS,
+        });
+      } catch (providerError) {
+        console.error('AI provider call failed', { provider: provider.provider, model, message: providerError?.message, status: providerError?.status });
+        throw new ApiError(
+          providerError?.status === 504 ? 504 : 502,
+          `AI provayder xatosi: ${providerError?.message || 'Nomalum xato'}`,
+          'PROVIDER_ERROR',
+        );
+      }
 
       if (!result.toolCalls?.length) {
         finalText = result.text || '';

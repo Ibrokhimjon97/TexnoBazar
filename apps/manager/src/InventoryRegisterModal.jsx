@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from'react';
 import{AlertTriangle,Boxes,Plus,QrCode,Search,X}from'lucide-react';
 import{DualPriceInput,Modal,Status,formatMoney}from'@texnobazar/ui';
-import{createStockReceipt,getBrowserClient,getInventoryReferences,getLatestExchangeRate}from'@texnobazar/data';
+import{createStockReceipt,getBrowserClient,getInventoryReferences,getLatestExchangeRate,uploadProductMedia}from'@texnobazar/data';
 import RichTextEditor from'./RichTextEditor';
 
 const err=e=>String(e?.message||'Amalni bajarib bo\'lmadi.');
@@ -76,7 +76,7 @@ export default function InventoryRegisterModal({open,close,branchId,created}){
     }catch(e){setError(err(e))}finally{setBusy(false)}
   };
 
-  const createProduct=async(form)=>{
+  const createProduct=async(form,images=[])=>{
     try{
       const client=getBrowserClient();
       const slug=form.slug?.trim()||form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
@@ -100,10 +100,13 @@ export default function InventoryRegisterModal({open,close,branchId,created}){
         tax_rate:0,
       }).select('id,name,sku,category_id,cost_price').single();
       if(insertErr)throw insertErr;
+      const failed=[];
+      for(const file of images){try{await uploadProductMedia(data.id,file,form.name.trim())}catch(uploadError){failed.push(`${file.name}: ${err(uploadError)}`)}}
       setRefs(prev=>({...prev,products:[...prev.products,data]}));
       setProductId(data.id);setUnitCost(String(data.cost_price||''));
       setShowCreateProduct(false);
       setStep(3);
+      if(failed.length)setError(`Mahsulot yaratildi, lekin ${failed.length} ta rasm yuklanmadi: ${failed.join(' · ')}`);
     }catch(e){throw e}
   };
 
@@ -172,7 +175,7 @@ export function CreateProductInline({categories,brands,categoryId,onCreated,onCa
     e.preventDefault();
     if(!form.name.trim()){setError('Mahsulot nomini kiriting');return}
     setBusy(true);setError('');
-    try{await onCreated(form)}catch(e){setError(err(e))}finally{setBusy(false)}
+    try{await onCreated(form,images)}catch(e){setError(err(e))}finally{setBusy(false)}
   };
   return <div className="inv-create-overlay">
     <div className="inv-create-form card">
@@ -194,7 +197,7 @@ export function CreateProductInline({categories,brands,categoryId,onCreated,onCa
         <label className="wide"><span className="label">Slug</span><input className="input" value={form.slug} onChange={e=>setForm({...form,slug:e.target.value})} placeholder="Nomdan avtomatik yaratiladi"/></label>
         <label className="wide"><span className="label">YouTube video URL</span><input className="input" value={form.video_url} onChange={e=>setForm({...form,video_url:e.target.value})} placeholder="https://youtube.com/watch?v=..."/></label>
         <div className="wide"><span className="label">Tavsif</span><RichTextEditor value={form.description} onChange={v=>setForm({...form,description:v})}/></div>
-        <div className="wide"><span className="label">Rasmlar ({images.length} ta tanlangan)</span><div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>{images.map((file,i)=><div key={i} style={{width:60,height:60,borderRadius:8,overflow:'hidden',position:'relative'}}><img src={URL.createObjectURL(file)} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/><button type="button" style={{position:'absolute',top:2,right:2,width:18,height:18,border:0,borderRadius:4,background:'rgba(0,0,0,.6)',color:'#fff',fontSize:10,cursor:'pointer'}} onClick={()=>setImages(imgs=>imgs.filter((_,j)=>j!==i))}>x</button></div>)}</div><label className="btn btn-outline btn-sm" style={{cursor:'pointer'}}>Rasm tanlash<input type="file" accept="image/*" multiple hidden onChange={e=>{const files=[...e.target.files];if(files.length)setImages(prev=>[...prev,...files]);e.target.value=''}}/></label></div>
+        <div className="wide"><span className="label">Rasmlar ({images.length} ta tanlangan)</span><div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>{images.map((file,i)=><div key={i} style={{width:60,height:60,borderRadius:8,overflow:'hidden',position:'relative'}}><img src={URL.createObjectURL(file)} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/><button type="button" style={{position:'absolute',top:2,right:2,width:18,height:18,border:0,borderRadius:4,background:'rgba(0,0,0,.6)',color:'#fff',fontSize:10,cursor:'pointer'}} onClick={()=>setImages(imgs=>imgs.filter((_,j)=>j!==i))}>x</button></div>)}</div><label className="btn btn-outline btn-sm" style={{cursor:'pointer'}}>Rasm tanlash<input type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple hidden onChange={e=>{const files=[...e.target.files];const invalid=files.find(file=>file.size>10*1024*1024||!['image/jpeg','image/png','image/webp','image/avif'].includes(file.type));if(invalid)setError(`${invalid.name}: faqat JPG, PNG, WebP yoki AVIF, maksimal 10 MB.`);else if(files.length){setError('');setImages(prev=>[...prev,...files])}e.target.value=''}}/></label></div>
         <button className="btn btn-primary wide" disabled={busy}>{busy?'Yaratilmoqda...':'Yaratish'}</button>
       </form>
     </div>
@@ -230,7 +233,7 @@ function NewCategoryInline({categories,onCreated}){
     setUploading(true);
     try{
       const client=getBrowserClient();
-      const path='categories/'+Date.now()+'-'+file.name;
+      const path='categories/'+Date.now()+'-'+file.name.replace(/[^a-z0-9._-]/gi,'_');
       const{error:ue}=await client.storage.from('logos').upload(path,file,{upsert:true});
       if(ue)throw ue;
       const{data:{publicUrl}}=client.storage.from('logos').getPublicUrl(path);

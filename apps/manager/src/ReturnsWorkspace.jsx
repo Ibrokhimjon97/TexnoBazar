@@ -1,10 +1,9 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{AlertTriangle,ArrowLeftRight,BadgeCheck,Boxes,CalendarDays,CheckCircle2,ChevronRight,History,MapPin,QrCode,Receipt,RotateCcw,ShieldAlert,ShoppingBag,User}from'lucide-react';
-import{Empty,Modal,QrScanButton,Status,formatMoney}from'@texnobazar/ui';
+import{DualPrice,Empty,Modal,QrScanButton,Status,formatDualMoney,useExchangeRate}from'@texnobazar/ui';
 import{RETURN_CONDITIONS,approveSaleReturn,cancelSaleReturn,completeSaleReturn,executeSaleExchange,executeSaleReturn,findSaleReturnUnit,getExchangeQuote,getInventoryReferences,getUnitLifecycle,listProviderRefunds,listSaleReturnHistory,listSaleReturns}from'@texnobazar/data';
 
 const message=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
-const money=value=>formatMoney(Number(value||0));
 const stamp=value=>value?new Date(value).toLocaleString('uz-UZ',{day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'}):'—';
 const today=()=>new Date().toISOString().slice(0,10);
 const monthStart=()=>`${today().slice(0,7)}-01`;
@@ -38,6 +37,7 @@ export default function ReturnsWorkspace({branchId,toast}){
 }
 
 function AcceptReturn({branchId,toast,done,openLifecycle}){
+  const rate=useExchangeRate();
   const[code,setCode]=useState('');
   const[found,setFound]=useState(null);
   const[refs,setRefs]=useState({locations:[]});
@@ -76,14 +76,14 @@ function AcceptReturn({branchId,toast,done,openLifecycle}){
     if(reason.trim().length<3){setError('Qaytarish sababi kamida 3 belgidan iborat bo‘lishi kerak.');return;}
     const amount=Number(refund);
     const max=Number(found.sale_line?.max_refund||0);
-    if(!Number.isFinite(amount)||amount<0||amount>max){setError(`Qaytarish summasi 0 va ${money(max)} orasida bo‘lishi kerak.`);return;}
-    if(!window.confirm(`${found.product?.name} qaytarib olinadi.${condition==='resellable'?' Birlik qoldiqqa qaytadi.':' Birlik hisobdan chiqariladi.'} Mijozga ${money(amount)} qaytariladi. Davom etasizmi?`))return;
+    if(!Number.isFinite(amount)||amount<0||amount>max){setError(`Qaytarish summasi 0 va ${formatDualMoney(max,rate)} orasida bo‘lishi kerak.`);return;}
+    if(!window.confirm(`${found.product?.name} qaytarib olinadi.${condition==='resellable'?' Birlik qoldiqqa qaytadi.':' Birlik hisobdan chiqariladi.'} Mijozga ${formatDualMoney(amount,rate)} qaytariladi. Davom etasizmi?`))return;
     setBusy(true);
     try{
       const result=await executeSaleReturn({branchId,unitId:found.unit.id,condition,reason:reason.trim(),
         refundAmount:amount,resellLocationId:locationId});
       setCode('');reset();
-      toast?.(`${result?.return_no||'Qaytarish'} yakunlandi — ${result?.restocked?'birlik qoldiqqa qaytdi':'birlik hisobdan chiqarildi'} (${money(amount)})`);
+      toast?.(`${result?.return_no||'Qaytarish'} yakunlandi — ${result?.restocked?'birlik qoldiqqa qaytdi':'birlik hisobdan chiqarildi'} (${formatDualMoney(amount,rate)})`);
       done?.();
     }catch(e){setError(message(e));}
     finally{setBusy(false);}
@@ -128,8 +128,8 @@ function AcceptReturn({branchId,toast,done,openLifecycle}){
             <small><MapPin/>{unit?.location_name} · <Status type={unit?.status==='sold'?'green':'gray'}>{unit?.status_label}</Status></small>
           </div>
           <div className="rt-prices">
-            <span><small>Tannarx</small><b>{money(found.unit_cost)}</b></span>
-            <span><small>Sotilgan narx</small><b>{money(line?.line_total??product?.retail_price)}</b></span>
+            <span><small>Tannarx</small><b>{<DualPrice value={Number(found.unit_cost)} rate={rate}/>}</b></span>
+            <span><small>Sotilgan narx</small><b>{<DualPrice value={Number(line?.line_total??product?.retail_price)} rate={rate}/>}</b></span>
           </div>
         </div>
 
@@ -143,7 +143,7 @@ function AcceptReturn({branchId,toast,done,openLifecycle}){
             <span><small>Mijoz</small><b>{sale.customer_name||'Ko‘rsatilmagan'}</b></span>
             <span><small>Telefon</small><b>{sale.customer_phone||'—'}</b></span>
             <span><small>To‘lov usuli</small><b>{(sale.payment_methods||[]).join(', ')||'—'}</b></span>
-            <span><small>Chek summasi</small><b>{money(sale.total)}</b></span>
+            <span><small>Chek summasi</small><b>{<DualPrice value={Number(sale.total)} rate={rate}/>}</b></span>
           </div>
         </div>:<p className="rt-hint">Bu birlik uchun sotuv tarixi topilmadi.</p>}
 
@@ -163,7 +163,7 @@ function AcceptReturn({branchId,toast,done,openLifecycle}){
             <RotateCcw/>
             <span><b>{row.return_no}</b><small>{row.sale_no} · {row.condition_label||conditionLabel(row.condition)}</small></span>
             <em>{stamp(row.completed_at||row.created_at)}</em>
-            <strong>{money(row.refund_amount)}</strong>
+            <strong>{<DualPrice value={Number(row.refund_amount)} rate={rate}/>}</strong>
           </div>)}
         </div>}
       </div>
@@ -200,7 +200,7 @@ function AcceptReturn({branchId,toast,done,openLifecycle}){
         </div>
         <div className={'rt-outcome '+(condition==='resellable'?'ok':'warn')}>
           {condition==='resellable'
-            ?<><Boxes/><span><b>Birlik qoldiqqa qaytadi</b><small>Tannarx {money(found.unit_cost)} va sotilish narxi {money(line?.line_total)} tiklanadi, tovar qayta sotuvga tayyor bo‘ladi.</small></span></>
+            ?<><Boxes/><span><b>Birlik qoldiqqa qaytadi</b><small>Tannarx {<DualPrice value={Number(found.unit_cost)} rate={rate}/>} va sotilish narxi {<DualPrice value={Number(line?.line_total)} rate={rate}/>} tiklanadi, tovar qayta sotuvga tayyor bo‘ladi.</small></span></>
             :<><AlertTriangle/><span><b>Birlik hisobdan chiqariladi</b><small>Shikastlangan/nuqsonli tovar qoldiqqa qaytmaydi, hisobdan chiqarilgan fondga o‘tadi.</small></span></>}
         </div>
         {error&&<InlineError text={error}/>}
@@ -213,6 +213,7 @@ function AcceptReturn({branchId,toast,done,openLifecycle}){
 }
 
 function ReturnHistory({branchId,refreshKey,openLifecycle}){
+  const rate=useExchangeRate();
   const[data,setData]=useState(null);
   const[filters,setFilters]=useState({from:monthStart(),to:today(),query:'',condition:'',status:''});
   const[loading,setLoading]=useState(true);
@@ -237,16 +238,16 @@ function ReturnHistory({branchId,refreshKey,openLifecycle}){
 
   return <div className="rt-history">
     <div className="rt-stats">
-      <div className="rt-stat"><span>Tanlangan davr</span><b>{money(data?.refund_total)}</b><small>{Number(data?.total||0)} dona · {Number(data?.document_count||0)} hujjat</small></div>
-      <div className="rt-stat cost"><span>Qaytgan tannarx</span><b>{money(data?.cost_total)}</b><small>Qoldiqqa tiklangan qiymat</small></div>
-      <div className="rt-stat month"><span>Joriy oy refundi</span><b>{money(data?.month_refund)}</b><small>{Number(data?.month_units||0)} dona</small></div>
+      <div className="rt-stat"><span>Tanlangan davr</span><b>{<DualPrice value={Number(data?.refund_total)} rate={rate}/>}</b><small>{Number(data?.total||0)} dona · {Number(data?.document_count||0)} hujjat</small></div>
+      <div className="rt-stat cost"><span>Qaytgan tannarx</span><b>{<DualPrice value={Number(data?.cost_total)} rate={rate}/>}</b><small>Qoldiqqa tiklangan qiymat</small></div>
+      <div className="rt-stat month"><span>Joriy oy refundi</span><b>{<DualPrice value={Number(data?.month_refund)} rate={rate}/>}</b><small>{Number(data?.month_units||0)} dona</small></div>
     </div>
 
     {(data?.by_condition||[]).length>0&&<div className="rt-condition-summary">
       {data.by_condition.map(row=><span key={row.condition}>
         <small>{row.label||conditionLabel(row.condition)}</small>
-        <b>{money(row.refund)}</b>
-        <em>{Number(row.units||0)} dona · tannarx {money(row.cost)}</em>
+        <b>{<DualPrice value={Number(row.refund)} rate={rate}/>}</b>
+        <em>{Number(row.units||0)} dona · tannarx {<DualPrice value={Number(row.cost)} rate={rate}/>}</em>
       </span>)}
     </div>}
 
@@ -291,8 +292,8 @@ function ReturnHistory({branchId,refreshKey,openLifecycle}){
                 <td><span className={'rt-chip '+row.condition}>{row.condition_label||conditionLabel(row.condition)}</span></td>
                 <td><b>{row.sale_no}</b><small>{stamp(row.sold_at)}</small>
                   {row.seller_name&&<small><User/>{row.seller_name}</small>}</td>
-                <td>{money(row.unit_cost)}<small>narx {money(row.line_total)}</small></td>
-                <td className="right"><strong>{money(row.refund_amount)}</strong></td>
+                <td>{<DualPrice value={Number(row.unit_cost)} rate={rate}/>}<small>narx {<DualPrice value={Number(row.line_total)} rate={rate}/>}</small></td>
+                <td className="right"><strong>{<DualPrice value={Number(row.refund_amount)} rate={rate}/>}</strong></td>
                 <td><button className="btn rt-icon-btn" onClick={()=>openLifecycle(row.qr_code)} aria-label="Hayot sikli"><History/></button></td>
               </tr>)}
             </tbody>
@@ -302,13 +303,13 @@ function ReturnHistory({branchId,refreshKey,openLifecycle}){
           {items.map(row=><article className="card rt-history-card" key={row.line_id}>
             <div className="rt-card-icon"><RotateCcw/></div>
             <div className="rt-card-main">
-              <div className="between"><b>{row.product_name}</b><strong>{money(row.refund_amount)}</strong></div>
+              <div className="between"><b>{row.product_name}</b><strong>{<DualPrice value={Number(row.refund_amount)} rate={rate}/>}</strong></div>
               <small>{row.sku} · QR: {row.qr_code||'—'}</small>
               <div className="rt-card-meta">
                 <span><CalendarDays/>{stamp(row.occurred_at)}</span>
                 <span className={'rt-chip '+row.condition}>{row.condition_label||conditionLabel(row.condition)}</span>
               </div>
-              <small>{row.return_no} · Sotuv {row.sale_no} · Tannarx {money(row.unit_cost)}</small>
+              <small>{row.return_no} · Sotuv {row.sale_no} · Tannarx {<DualPrice value={Number(row.unit_cost)} rate={rate}/>}</small>
               <button className="btn btn-block" onClick={()=>openLifecycle(row.qr_code)}><History/>Hayot sikli</button>
             </div>
           </article>)}
@@ -318,6 +319,7 @@ function ReturnHistory({branchId,refreshKey,openLifecycle}){
 }
 
 function LifecycleModal({code,close}){
+  const rate=useExchangeRate();
   const[data,setData]=useState(null);
   const[loading,setLoading]=useState(false);
   const[error,setError]=useState('');
@@ -360,7 +362,7 @@ function LifecycleModal({code,close}){
             <span><b>{row.sale_no}</b><small>{stamp(row.sold_at)} · {row.branch_name}</small>
               <small>{row.seller_name||'—'}{row.customer_name?` → ${row.customer_name}`:''}</small></span>
             <em>{row.returned?<Status type="orange">Qaytarilgan</Status>:<Status type="green">Sotilgan</Status>}</em>
-            <strong>{money(row.line_total)}<small>tannarx {money(row.unit_cost)}</small></strong>
+            <strong>{<DualPrice value={Number(row.line_total)} rate={rate}/>}<small>tannarx {<DualPrice value={Number(row.unit_cost)} rate={rate}/>}</small></strong>
           </div>)}
         </div>}
 
@@ -370,7 +372,7 @@ function LifecycleModal({code,close}){
             <span><b>{row.return_no}</b><small>{stamp(row.completed_at||row.created_at)} · {row.condition_label}</small>
               <small>{row.reason}</small></span>
             <em><Status type={statusColors[row.status]}>{statusLabels[row.status]||row.status}</Status></em>
-            <strong>{money(row.refund_amount)}</strong>
+            <strong>{<DualPrice value={Number(row.refund_amount)} rate={rate}/>}</strong>
           </div>)}
         </div>}
 
@@ -392,6 +394,7 @@ function LifecycleModal({code,close}){
 }
 
 function ReturnRequests({branchId,toast,onChange}){
+  const rate=useExchangeRate();
   const[refs,setRefs]=useState({locations:[]});
   const[rows,setRows]=useState([]);
   const[detail,setDetail]=useState(null);
@@ -444,7 +447,7 @@ function ReturnRequests({branchId,toast,onChange}){
             <span className="rt-card-icon">{row.kind==='exchange'?<ArrowLeftRight/>:<RotateCcw/>}</span>
             <div className="rt-card-main">
               <div className="between"><b>{row.return_no}</b><Status type={statusColors[row.status]}>{statusLabels[row.status]||row.status}</Status></div>
-              <strong>{row.kind==='exchange'?'Almashtirish':'Qaytarish'} · {money(row.refund_amount)}</strong>
+              <strong>{row.kind==='exchange'?'Almashtirish':'Qaytarish'} · {<DualPrice value={Number(row.refund_amount)} rate={rate}/>}</strong>
               <small>{row.reason}</small>
               <small>{stamp(row.created_at)} · {row.sale_return_lines?.length||0} dona</small>
             </div>
@@ -457,6 +460,7 @@ function ReturnRequests({branchId,toast,onChange}){
 }
 
 function RequestDetail({row,refs,close,busy,error,action}){
+  const rate=useExchangeRate();
   const[locationId,setLocationId]=useState('');
   const[pendingId,setPendingId]=useState('');
   const[quote,setQuote]=useState(null);
@@ -492,11 +496,11 @@ function RequestDetail({row,refs,close,busy,error,action}){
     {row&&<div className="rt-detail">
       <div className="between">
         <Status type={statusColors[row.status]}>{statusLabels[row.status]||row.status}</Status>
-        <b>{money(row.refund_amount)}</b>
+        <b>{<DualPrice value={Number(row.refund_amount)} rate={rate}/>}</b>
       </div>
       <p className="rt-note">{row.reason}</p>
       {row.provider_refunds?.map(refund=><div className="rt-warning" key={refund.id}>
-        <AlertTriangle/><span><b>{refund.provider?.toUpperCase()} refund: {refund.state}</b> {money(Number(refund.amount_minor||0)/100)}
+        <AlertTriangle/><span><b>{refund.provider?.toUpperCase()} refund: {refund.state}</b> <DualPrice value={Number(refund.amount_minor||0)/100} rate={rate}/>
         {refund.action_required&&<small>{refund.action_required}</small>}
         {refund.last_error&&<small>{refund.last_error}</small>}</span>
       </div>)}
@@ -505,7 +509,7 @@ function RequestDetail({row,refs,close,busy,error,action}){
         {row.sale_return_lines?.map(line=><div key={line.id}>
           <RotateCcw/>
           <span><b>{conditionLabel(line.condition)}</b><small>{line.unit_id}</small></span>
-          <strong>{money(line.refund_amount)}</strong>
+          <strong>{<DualPrice value={Number(line.refund_amount)} rate={rate}/>}</strong>
         </div>)}
       </div>
       {row.status==='approved'&&<div className="rt-form-grid">
@@ -523,10 +527,10 @@ function RequestDetail({row,refs,close,busy,error,action}){
           </label>
           {quoteError&&<div className="wide"><InlineError text={quoteError}/></div>}
           {quote&&<div className="wide rt-quote">
-            <div className="between"><span>Qaytarish krediti</span><b>{money(quote.return_credit)}</b></div>
-            <div className="between"><span>Yangi sotuv</span><b>{money(quote.replacement_total)}</b></div>
-            <div className="between"><span>Qo‘shimcha to‘lov</span><b>{money(quote.amount_due)}</b></div>
-            <div className="between"><span>Mijozga qaytariladi</span><b>{money(quote.refund_due)}</b></div>
+            <div className="between"><span>Qaytarish krediti</span><b>{<DualPrice value={Number(quote.return_credit)} rate={rate}/>}</b></div>
+            <div className="between"><span>Yangi sotuv</span><b>{<DualPrice value={Number(quote.replacement_total)} rate={rate}/>}</b></div>
+            <div className="between"><span>Qo‘shimcha to‘lov</span><b>{<DualPrice value={Number(quote.amount_due)} rate={rate}/>}</b></div>
+            <div className="between"><span>Mijozga qaytariladi</span><b>{<DualPrice value={Number(quote.refund_due)} rate={rate}/>}</b></div>
           </div>}
           {Number(quote?.amount_due||0)>0&&<>
             <label><span>Farq to‘lov usuli</span>

@@ -145,6 +145,6 @@ export function handleApiError(res, error, fallbackMessage) {
   if (error instanceof SyntaxError || error instanceof TypeError || error instanceof RangeError) {
     return sendJson(res, 400, { error: error.message, code: 'INVALID_INPUT' });
   }
-  console.error(fallbackMessage);
-  return sendJson(res, 500, { error: fallbackMessage, code: 'INTERNAL_ERROR' });
+  console.error(fallbackMessage, { name: error?.name, message: error?.message, code: error?.code, stack: error?.stack?.split('\n').slice(0, 5).join('\n') });
+  return sendJson(res, 500, { error: fallbackMessage, code: 'INTERNAL_ERROR', detail: error?.message || null });
 }

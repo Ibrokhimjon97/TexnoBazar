@@ -2,7 +2,7 @@
 -- Customers can leave a review (1-5 stars + text) on any product.
 -- Admin controls visibility (is_visible flag).
 
-create table public.product_reviews (
+create table if not exists public.product_reviews (
   id uuid primary key default gen_random_uuid(),
   product_id uuid not null references public.products(id) on delete cascade,
   reviewer_id uuid not null references auth.users(id) on delete cascade,
@@ -14,10 +14,17 @@ create table public.product_reviews (
   unique(product_id, reviewer_id)
 );
 
-create index product_reviews_product_idx on public.product_reviews(product_id, is_visible, created_at desc);
-create index product_reviews_reviewer_idx on public.product_reviews(reviewer_id, created_at desc);
+create index if not exists product_reviews_product_idx on public.product_reviews(product_id, is_visible, created_at desc);
+create index if not exists product_reviews_reviewer_idx on public.product_reviews(reviewer_id, created_at desc);
 
 alter table public.product_reviews enable row level security;
+
+-- Recreate policies so this migration is safe when the table was provisioned manually.
+drop policy if exists "reviews_select_visible" on public.product_reviews;
+drop policy if exists "reviews_select_anon" on public.product_reviews;
+drop policy if exists "reviews_insert_own" on public.product_reviews;
+drop policy if exists "reviews_update_own" on public.product_reviews;
+drop policy if exists "reviews_delete_own" on public.product_reviews;
 
 -- Authenticated users can read visible reviews
 create policy "reviews_select_visible" on public.product_reviews
@@ -121,7 +128,7 @@ declare
   v_items jsonb;
   v_total bigint;
 begin
-  if not public.has_role('admin') then
+  if not public.has_role(array['superadmin','admin']::public.app_role[], null) then
     raise exception 'Admin ruxsati talab qilinadi' using errcode = '42501';
   end if;
 
@@ -158,7 +165,7 @@ grant execute on function public.admin_list_reviews(uuid, boolean, int, int) to 
 create or replace function public.admin_toggle_review_visibility(p_review_id uuid, p_visible boolean)
 returns void language plpgsql security definer set search_path = '' as $$
 begin
-  if not public.has_role('admin') then
+  if not public.has_role(array['superadmin','admin']::public.app_role[], null) then
     raise exception 'Admin ruxsati talab qilinadi' using errcode = '42501';
   end if;
 
@@ -179,7 +186,7 @@ grant execute on function public.admin_toggle_review_visibility(uuid, boolean) t
 create or replace function public.admin_delete_review(p_review_id uuid)
 returns void language plpgsql security definer set search_path = '' as $$
 begin
-  if not public.has_role('admin') then
+  if not public.has_role(array['superadmin','admin']::public.app_role[], null) then
     raise exception 'Admin ruxsati talab qilinadi' using errcode = '42501';
   end if;
 

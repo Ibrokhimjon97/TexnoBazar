@@ -10,11 +10,22 @@ const DEV_ORIGINS = [
   'http://127.0.0.1:5176', 'http://127.0.0.1:5177',
 ];
 
+const PROD_ORIGINS = [
+  'https://texnobazar-admin.netlify.app',
+  'https://texnobazar-manager.netlify.app',
+  'https://texnobazar-seller.netlify.app',
+  'https://texnobazar-storefront.netlify.app',
+  'https://texnobazar-courier.netlify.app',
+];
+
 function allowedOrigins(env = process.env) {
   const configured = String(env.AI_ALLOWED_ORIGINS || '')
     .split(',').map(value => value.trim().replace(/\/+$/, '')).filter(Boolean);
   // Dev origins are only trusted when no production allow-list is configured.
-  return configured.length ? configured : DEV_ORIGINS;
+  // Always include the known Netlify production origins regardless.
+  return configured.length
+    ? [...new Set([...configured, ...PROD_ORIGINS])]
+    : [...DEV_ORIGINS, ...PROD_ORIGINS];
 }
 
 /**

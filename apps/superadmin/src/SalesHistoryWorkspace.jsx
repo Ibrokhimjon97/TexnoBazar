@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, ExternalLink, Package, Search, ShoppingBag, Store, User } from 'lucide-react';
-import { Empty, Modal, Status, formatMoney } from '@texnobazar/ui';
-import { listSalesHistory, listMasterRecords } from '@texnobazar/data';
+import { DualPrice, Empty, Modal, Status, formatMoney } from '@texnobazar/ui';
+import { getLatestExchangeRate, listSalesHistory, listMasterRecords, listInventorySearchSellers } from '@texnobazar/data';
 
 const STOREFRONT = (import.meta.env?.VITE_STOREFRONT_URL) || 'https://texnobazar-storefront.netlify.app';
 const today = () => new Date().toISOString().slice(0, 10);
@@ -9,7 +9,9 @@ const PAGE_SIZE = 50;
 
 export default function SalesHistoryWorkspace() {
   const [branches, setBranches] = useState([]);
+  const [sellers, setSellers] = useState([]);
   const [branchId, setBranchId] = useState('');
+  const [sellerId, setSellerId] = useState('');
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
   const [query, setQuery] = useState('');
@@ -19,13 +21,18 @@ export default function SalesHistoryWorkspace() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState(null);
+  const [rate, setRate] = useState(null);
 
-  useEffect(() => { listMasterRecords('branches').then(setBranches).catch(() => {}); }, []);
+  useEffect(() => {
+    listMasterRecords('branches').then(setBranches).catch(() => {});
+    listInventorySearchSellers().then(setSellers).catch(() => {});
+    getLatestExchangeRate().then(r => setRate(Number(r) || null)).catch(() => {});
+  }, []);
 
   const load = async (p = page) => {
     setLoading(true); setError('');
     try {
-      const result = await listSalesHistory({ branchId: branchId || null, from, to, query, page: p, pageSize: PAGE_SIZE });
+      const result = await listSalesHistory({ branchId: branchId || null, sellerId: sellerId || null, from, to, query, page: p, pageSize: PAGE_SIZE });
       setItems(result.items || []);
       setTotal(result.total || 0);
     } catch (e) {
@@ -33,11 +40,13 @@ export default function SalesHistoryWorkspace() {
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { setPage(1); load(1); }, [branchId, from, to]);
+  useEffect(() => { setPage(1); load(1); }, [branchId, sellerId, from, to]);
   useEffect(() => { load(); }, [page]);
 
   const search = e => { e.preventDefault(); setPage(1); load(1); };
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+
+  const filteredSellers = sellerId || !branchId ? sellers : sellers.filter(s => !branchId || (s.branch_ids || []).includes(branchId));
 
   return (
     <>
@@ -58,6 +67,10 @@ export default function SalesHistoryWorkspace() {
           <option value="">Barcha filiallar</option>
           {branches.filter(b => b.is_active).map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
         </select>
+        <select className="select" value={sellerId} onChange={e => setSellerId(e.target.value)} style={{ minWidth: 160 }}>
+          <option value="">Barcha xodimlar</option>
+          {filteredSellers.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+        </select>
         <form onSubmit={search} style={{ display: 'flex', gap: 8, flex: 1, minWidth: 180 }}>
           <label style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6, border: '1px solid var(--line)', borderRadius: 10, padding: '0 10px' }}>
             <Search size={16} />
@@ -68,7 +81,7 @@ export default function SalesHistoryWorkspace() {
       </div>
 
       {/* Summary */}
-      {!loading && !error && items.length > 0 && <SummaryBar items={items} total={total} />}
+      {!loading && !error && items.length > 0 && <SummaryBar items={items} total={total} rate={rate} />}
 
       {loading ? <div className="employee-loading">Yuklanmoqda...</div>
         : error ? <div className="empty"><AlertTriangle /><h3>Xatolik</h3><p>{error}</p><button className="btn" onClick={() => load()}>Qayta urinish</button></div>
@@ -87,9 +100,9 @@ export default function SalesHistoryWorkspace() {
                   </div></td>
                   <td>{item.branch_name || '—'}</td>
                   <td>{item.seller_name || '—'}</td>
-                  <td><b>{formatMoney(Number(item.unit_price || 0))}</b></td>
-                  <td>{formatMoney(Number(item.unit_cost || 0))}</td>
-                  <td><b style={{ color: profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatMoney(profit)}</b></td>
+                  <td><DualPrice value={item.unit_price} rate={rate} bold /></td>
+                  <td><DualPrice value={item.unit_cost} rate={rate} /></td>
+                  <td><b style={{ color: profit >= 0 ? 'var(--green)' : 'var(--red)' }}><DualPrice value={profit} rate={rate} /></b></td>
                   <td>{new Date(item.sold_at).toLocaleDateString('uz-UZ')}</td>
                   <td><Status type={item.sale_status === 'completed' ? 'green' : item.sale_status === 'void' ? 'red' : 'orange'}>{item.sale_status || '—'}</Status></td>
                 </tr>;
@@ -105,25 +118,24 @@ export default function SalesHistoryWorkspace() {
           </div>
         </>}
 
-      {selected && <SaleDetailModal item={selected} onClose={() => setSelected(null)} />}
+      {selected && <SaleDetailModal item={selected} onClose={() => setSelected(null)} rate={rate} />}
     </>
   );
 }
 
-function SummaryBar({ items, total }) {
+function SummaryBar({ items, total, rate }) {
   const revenue = items.reduce((s, i) => s + Number(i.line_total || 0), 0);
-  const cost = items.reduce((s, i) => s + Number(i.unit_cost || 0), 0);
   const profit = items.reduce((s, i) => s + (Number(i.line_total || 0) - Number(i.tax || 0) - Number(i.unit_cost || 0)), 0);
   return (
     <div className="admin-report-kpis" style={{ marginTop: 14 }}>
       <div><ShoppingBag size={20} /><div><small>Sahifadagi birliklar</small><b>{items.length} / {total}</b></div></div>
-      <div><Store size={20} /><div><small>Tushum</small><b>{formatMoney(revenue)}</b></div></div>
-      <div><Package size={20} /><div><small>Sof foyda</small><b style={{ color: profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatMoney(profit)}</b></div></div>
+      <div><Store size={20} /><div><small>Tushum</small><DualPrice value={revenue} rate={rate} bold /></div></div>
+      <div><Package size={20} /><div><small>Sof foyda</small><span style={{ color: profit >= 0 ? 'var(--green)' : 'var(--red)' }}><DualPrice value={profit} rate={rate} bold /></span></div></div>
     </div>
   );
 }
 
-function SaleDetailModal({ item, onClose }) {
+function SaleDetailModal({ item, onClose, rate }) {
   const profit = Number(item.line_total || 0) - Number(item.tax || 0) - Number(item.unit_cost || 0);
   const storefrontUrl = item.product_slug && item.is_published ? `${STOREFRONT}/product/${item.product_slug}` : null;
 
@@ -142,9 +154,9 @@ function SaleDetailModal({ item, onClose }) {
         </div>
 
         <div className="admin-report-kpis">
-          <div><div><small>Sotuv narxi</small><b>{formatMoney(Number(item.unit_price || 0))}</b></div></div>
-          <div><div><small>Tannarx</small><b>{formatMoney(Number(item.unit_cost || 0))}</b></div></div>
-          <div><div><small>Sof foyda</small><b style={{ color: profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatMoney(profit)}</b></div></div>
+          <div><div><small>Sotuv narxi</small><DualPrice value={item.unit_price} rate={rate} bold /></div></div>
+          <div><div><small>Tannarx</small><DualPrice value={item.unit_cost} rate={rate} /></div></div>
+          <div><div><small>Sof foyda</small><span style={{ color: profit >= 0 ? 'var(--green)' : 'var(--red)' }}><DualPrice value={profit} rate={rate} bold /></span></div></div>
         </div>
 
         <div style={{ display: 'grid', gap: 8 }}>
@@ -174,7 +186,7 @@ function SaleDetailModal({ item, onClose }) {
           </div>}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <ShoppingBag size={16} style={{ color: 'var(--muted)' }} />
-            <span><b>Chegirma:</b> {formatMoney(Number(item.discount || 0))} · <b>Soliq:</b> {formatMoney(Number(item.tax || 0))} · <b>Jami:</b> {formatMoney(Number(item.line_total || 0))}</span>
+            <span><b>Chegirma:</b> <DualPrice value={item.discount} rate={rate} /> · <b>Soliq:</b> <DualPrice value={item.tax} rate={rate} /> · <b>Jami:</b> <DualPrice value={item.line_total} rate={rate} bold /></span>
           </div>
         </div>
 

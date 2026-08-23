@@ -220,3 +220,38 @@ html[data-theme="dark"] .topbar,html[data-theme="dark"] .admin-filterbar,html[da
 .pagination button:hover:not(:disabled){border-color:var(--brand);background:var(--brand-tint)}
 .pagination button:disabled{opacity:.4;cursor:not-allowed}
 .pagination span{font-size:13px;color:var(--text-2)}
+
+/* Mahsulot detali: birliklar uchun qidiruv va filtrlar */
+.unit-filter-bar{display:flex;flex-direction:column;gap:8px;margin:8px 0 10px}
+.unit-filter-search{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:7px 11px;background:var(--card,#fff)}
+.unit-filter-search svg{color:var(--muted);flex:0 0 auto}
+.unit-filter-search input{flex:1;border:0;background:none;outline:none;font-size:12.5px;color:inherit;min-width:0}
+.unit-filter-search button{border:0;background:none;color:var(--muted);display:grid;place-items:center;cursor:pointer;padding:0}
+.unit-filter-chips{display:flex;flex-wrap:wrap;gap:6px}
+.unit-filter-chips button{display:inline-flex;align-items:center;gap:5px;border:1px solid var(--line);background:var(--card,#fff);color:inherit;border-radius:999px;padding:5px 11px;font-size:11.5px;font-weight:600;cursor:pointer}
+.unit-filter-chips button i{font-style:normal;font-size:10px;font-weight:700;background:#f1f5f9;color:#475569;border-radius:999px;padding:1px 6px}
+.unit-filter-chips button.active{background:var(--orange,#f97316);border-color:var(--orange,#f97316);color:#fff}
+.unit-filter-chips button.active i{background:#ffffff33;color:#fff}
+.unit-filter-chips .unit-filter-reset{border-style:dashed;color:var(--muted)}
+.unit-filter-empty{text-align:center;color:var(--muted);font-size:12px;padding:14px 0}
+
+/* Notification badge with count */
+.admin-notifications>.icon-btn .notif-badge{position:absolute;right:-4px;top:-4px;min-width:18px;height:18px;padding:0 5px;background:#ef4444;color:#fff;border:2px solid #fff;border-radius:10px;font-size:10px;font-weight:700;font-style:normal;display:grid;place-items:center;animation:notif-pulse .6s ease}
+@keyframes notif-pulse{0%{transform:scale(.5);opacity:0}50%{transform:scale(1.2)}100%{transform:scale(1);opacity:1}}
+
+/* Order branch selector with stock info */
+.order-branch-selector{display:grid;gap:8px;margin-top:8px}
+.order-branch-option{border:1px solid var(--line);border-radius:12px;padding:12px;text-align:left;background:#fff;transition:border-color .18s,box-shadow .18s;cursor:pointer;display:flex;flex-direction:column;gap:6px}
+.order-branch-option:hover{border-color:#fdba74;box-shadow:0 4px 12px rgba(249,115,22,.1)}
+.order-branch-option.active{border-color:var(--orange);background:#fff7ed;box-shadow:0 4px 16px rgba(249,115,22,.15)}
+.order-branch-option-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.order-branch-stock-list{display:flex;flex-wrap:wrap;gap:6px}
+.order-branch-stock-list span{font-size:11px;padding:3px 8px;border-radius:6px;background:#f1f5f9}
+.order-branch-stock-list .stock-ok{background:#dcfce7;color:#166534}
+.order-branch-stock-list .stock-low{background:#fef2f2;color:#b91c1c}
+
+/* Inventory overview tabs */
+.inventory-tabs{display:flex;gap:4px;margin-bottom:16px;background:#eef1f5;padding:4px;border-radius:11px;width:max-content}
+.inventory-tabs button{border:0;background:none;padding:10px 16px;border-radius:8px;font-weight:600;font-size:13px;white-space:nowrap;color:#64748b;transition:background .15s,color .15s}
+.inventory-tabs button.active{background:#fff;color:var(--navy);box-shadow:var(--shadow-sm)}
+.inventory-tabs button:hover:not(.active){color:var(--navy)}

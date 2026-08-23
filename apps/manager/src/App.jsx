@@ -1,7 +1,24 @@
-import React,{useEffect,useState}from'react';
+import React,{useCallback,useEffect,useRef,useState}from'react';
 import{AlertTriangle,ArrowLeftRight,Bell,Sparkles,Boxes,ClipboardCheck,DollarSign,FileX2,Home,Landmark,Menu,PackagePlus,QrCode,RotateCcw,ShoppingBag,Truck,WalletCards,Warehouse,Wrench,X}from'lucide-react';
 import{AccountMenu,AiChat,Status,ThemeToggle,Toast,formatMoney,useAuth}from'@texnobazar/ui';
-import{getManagementDashboard,listCourierPerformance,listNotifications,markNotificationsRead,subscribeNotifications}from'@texnobazar/data';
+import{getManagementDashboard,listCourierPerformance,listNotifications,listPosPendingSales,markNotificationsRead,subscribeNotifications}from'@texnobazar/data';
+
+// Qisqa signal: kassaga yangi so‘rov kelganda menejer eshitadi (fayl talab qilmaydi).
+function playAlert(){
+  try{
+    const Ctx=window.AudioContext||window.webkitAudioContext;
+    if(!Ctx)return;
+    const ctx=new Ctx();
+    const gain=ctx.createGain();gain.gain.value=0.0001;gain.connect(ctx.destination);
+    const beep=(startAt,frequency)=>{const osc=ctx.createOscillator();osc.type='sine';osc.frequency.value=frequency;osc.connect(gain);osc.start(startAt);osc.stop(startAt+0.16)};
+    const now=ctx.currentTime;
+    gain.gain.setValueAtTime(0.0001,now);
+    gain.gain.exponentialRampToValueAtTime(0.22,now+0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001,now+0.42);
+    beep(now,880);beep(now+0.2,1180);
+    setTimeout(()=>ctx.close().catch(()=>{}),900);
+  }catch{/* audio bloklangan bo‘lsa jim qolamiz */}
+}
 import{InventoryBatches,InventoryScanner,InventoryStock,ReceiptModal}from'./InventoryWorkspace';
 import TransferWorkspace from'./TransferWorkspace';
 import DebtWorkspace from'./DebtWorkspace';
@@ -27,7 +44,22 @@ export default function App(){
   const[page,setPage]=useState(()=>window.location.hash.slice(1)||'home'),[scan,setScan]=useState(false),[batch,setBatch]=useState(false),[register,setRegister]=useState(false),[toast,setToast]=useState(''),[menu,setMenu]=useState(false);
   const go=value=>{setPage(value);setMenu(false);window.location.hash=value};
   const common={branchId:branch?.id,toast:setToast};
-  return <div className="manager"><aside className={'m-side '+(menu?'open':'')}><div className="m-logo"><i>T</i><span><b>texnobazar</b><small>Menejer paneli</small></span><button onClick={()=>setMenu(false)}><X/></button></div><div className="branch-select"><Landmark/><span><small>Joriy filial</small><b>{branch?.name||'Filial tanlanmagan'}</b></span></div><nav>{nav.map(([title,Icon,key])=><button className={page===key?'active':''} onClick={()=>go(key)} key={key}><Icon/><span>{title}</span></button>)}</nav><div className="m-user"><AccountMenu/></div></aside><main><header className="m-top"><button className="icon-btn m-menu" onClick={()=>setMenu(true)}><Menu/></button><div><h1>{nav.find(x=>x[2]===page)?.[0]||'Menejer'}</h1><span>{branch?.name||'Filial tanlanmagan'}</span></div><div className="m-top-spacer"/><ThemeToggle/><NotificationCenter profileId={profile?.id}/><AccountMenu compact/></header><div className="m-content">{page==='home'?<Overview branchId={branch?.id} go={go} scan={()=>setScan(true)} batch={()=>setBatch(true)} name={profile?.full_name}/>:page==='batches'?<InventoryBatches branchId={branch?.id} onCreate={()=>setBatch(true)}/>:page==='stock'?<InventoryStock branchId={branch?.id} onScan={()=>setScan(true)} onRegister={()=>setRegister(true)}/>:page==='transfer'?<TransferWorkspace {...common}/>:page==='writeoff'?<WriteoffWorkspace {...common}/>:page==='returns'?<ReturnsWorkspace {...common}/>:page==='repairs'?<RepairWorkspace {...common}/>:page==='cash'?<CashWorkspace {...common}/>:page==='orders'?<OnlineOrderWorkspace {...common}/>:page==='finance'?<FinanceWorkspace {...common}/>:page==='ai-chat'?<AiChat/>:page==='sales-history'?<SalesHistoryWorkspace branchId={branch?.id}/>:page==='exchange'?<ExchangeRateWorkspace {...common}/>:<DebtWorkspace {...common}/>}</div><BottomNav page={page} go={go} scan={()=>setScan(true)}/></main><InventoryScanner open={scan} close={()=>setScan(false)} branchId={branch?.id} toast={setToast}/><ReceiptModal open={batch} close={()=>setBatch(false)} branchId={branch?.id} created={async()=>{setBatch(false);setToast('Partiya va noyob QR kodlar yaratildi');}}/><InventoryRegisterModal open={register} close={()=>setRegister(false)} branchId={branch?.id} created={async()=>{setRegister(false);setToast('Tovar ro\'yxatga olindi va QR kodlar yaratildi');}}/><Toast message={toast} onClose={()=>setToast('')}/></div>;
+  // Kassadagi tasdiqlanmagan so‘rovlar soni: nav badge va signal uchun.
+  const[pendingCount,setPendingCount]=useState(0);
+  const pendingSeen=useRef(null);
+  const loadPending=useCallback(async()=>{
+    if(!branch?.id)return;
+    try{
+      const result=await listPosPendingSales({branchId:branch.id,status:'pending',pageSize:1});
+      const count=Number(result?.summary?.pending_count??result?.total??0);
+      setPendingCount(count);
+      if(pendingSeen.current!==null&&count>pendingSeen.current){playAlert();setToast('Kassaga yangi savdo so‘rovi keldi');}
+      pendingSeen.current=count;
+    }catch{/* filial yoki ruxsat mavjud bo‘lmasa jim qolamiz */}
+  },[branch?.id]);
+  useEffect(()=>{pendingSeen.current=null;setPendingCount(0);loadPending();},[loadPending]);
+  useEffect(()=>{if(!branch?.id)return;const timer=setInterval(loadPending,15000);return()=>clearInterval(timer)},[branch?.id,loadPending]);
+  return <div className="manager"><aside className={'m-side '+(menu?'open':'')}><div className="m-logo"><i>T</i><span><b>texnobazar</b><small>Menejer paneli</small></span><button onClick={()=>setMenu(false)}><X/></button></div><div className="branch-select"><Landmark/><span><small>Joriy filial</small><b>{branch?.name||'Filial tanlanmagan'}</b></span></div><nav>{nav.map(([title,Icon,key])=><button className={page===key?'active':''} onClick={()=>go(key)} key={key}><Icon/><span>{title}</span>{key==='cash'&&pendingCount>0&&<em className="nav-badge">{pendingCount>99?'99+':pendingCount}</em>}</button>)}</nav><div className="m-user"><AccountMenu/></div></aside><main><header className="m-top"><button className="icon-btn m-menu" onClick={()=>setMenu(true)}><Menu/></button><div><h1>{nav.find(x=>x[2]===page)?.[0]||'Menejer'}</h1><span>{branch?.name||'Filial tanlanmagan'}</span></div><div className="m-top-spacer"/><ThemeToggle/><NotificationCenter profileId={profile?.id} onAlert={item=>{setToast(item?.title||'Yangi bildirishnoma');loadPending();}}/><AccountMenu compact/></header><div className="m-content">{page==='home'?<Overview branchId={branch?.id} go={go} scan={()=>setScan(true)} batch={()=>setBatch(true)} name={profile?.full_name}/>:page==='batches'?<InventoryBatches branchId={branch?.id} onCreate={()=>setBatch(true)}/>:page==='stock'?<InventoryStock branchId={branch?.id} onScan={()=>setScan(true)} onRegister={()=>setRegister(true)}/>:page==='transfer'?<TransferWorkspace {...common}/>:page==='writeoff'?<WriteoffWorkspace {...common}/>:page==='returns'?<ReturnsWorkspace {...common}/>:page==='repairs'?<RepairWorkspace {...common}/>:page==='cash'?<CashWorkspace {...common}/>:page==='orders'?<OnlineOrderWorkspace {...common}/>:page==='finance'?<FinanceWorkspace {...common}/>:page==='ai-chat'?<AiChat/>:page==='sales-history'?<SalesHistoryWorkspace branchId={branch?.id}/>:page==='exchange'?<ExchangeRateWorkspace {...common}/>:<DebtWorkspace {...common}/>}</div><BottomNav page={page} go={go} scan={()=>setScan(true)}/></main><InventoryScanner open={scan} close={()=>setScan(false)} branchId={branch?.id} toast={setToast}/><ReceiptModal open={batch} close={()=>setBatch(false)} branchId={branch?.id} created={async()=>{setBatch(false);setToast('Partiya va noyob QR kodlar yaratildi');}}/><InventoryRegisterModal open={register} close={()=>setRegister(false)} branchId={branch?.id} created={async()=>{setRegister(false);setToast('Tovar ro\'yxatga olindi va QR kodlar yaratildi');}}/><Toast message={toast} onClose={()=>setToast('')}/></div>;
 }
 
 function Overview({branchId,go,scan,batch,name}){
@@ -41,13 +73,27 @@ function Overview({branchId,go,scan,batch,name}){
   return <><div className="greeting"><span>{new Date().toLocaleDateString('uz-UZ',{weekday:'long',day:'numeric',month:'long'})}</span><h2>Xayrli kun, {name?.split(' ')[0]||'Menejer'}!</h2><p>Filialning serverdagi joriy ko‘rsatkichlari.</p></div><div className="m-stats"><div className="primary"><WalletCards/><span>Bugungi sof savdo<b>{formatMoney(Number(day.profit_loss?.net_sales||0))}</b><small>Refund: {formatMoney(Number(day.profit_loss?.refunds||0))}</small></span></div><div><Truck/><span>Oylik buyurtmalar<b>{Number(month.orders?.total||0)} ta</b><small>{Number(month.orders?.new||0)} ta yangi</small></span></div><div><Boxes/><span>Real qoldiq<b>{Number(month.inventory?.units||0)} dona</b><small>{Number(month.inventory?.reserved||0)} rezervda</small></span></div><div><AlertTriangle/><span>To‘lanadigan qarz<b>{formatMoney(Number(month.payables||0))}</b><small>Olinadigan: {formatMoney(Number(month.receivables||0))}</small></span></div></div><h3 className="block-title">Tezkor amallar</h3><div className="quick-actions"><button onClick={scan}><span><QrCode/></span><b>QR skanerlash</b><small>Birlik pasporti</small></button><button onClick={batch}><span><PackagePlus/></span><b>Partiya yaratish</b><small>Yangi real kirim</small></button><button onClick={()=>go('transfer')}><span><ArrowLeftRight/></span><b>Transfer</b><small>Filialga yuborish</small></button><button onClick={()=>go('count')}><span><ClipboardCheck/></span><b>Inventarizatsiya</b><small>Sanashni boshlash</small></button></div><div className="overview-real card"><h3>Joriy oy P&amp;L</h3><div><span><small>Sof savdo</small><b>{formatMoney(Number(month.profit_loss?.net_sales||0))}</b></span><span><small>Yalpi foyda</small><b>{formatMoney(Number(month.profit_loss?.gross_profit||0))}</b></span><span><small>Operatsion xarajat</small><b>{formatMoney(Number(month.profit_loss?.operating_expenses||0))}</b></span><span><small>Sof foyda</small><b>{formatMoney(Number(month.profit_loss?.net_profit||0))}</b></span></div></div><section className="overview-real card courier-performance"><div className="between"><div><h3>Kuryerlar — joriy oy</h3><small>Filial bo‘yicha serverda qabul qilingan sifatli GPS segmentlari</small></div><b>{formatDistance(courier.summary?.distance_m)} jami</b></div><div className="table-wrap"><table className="table"><thead><tr><th>Kuryer</th><th>Masofa</th><th>Yetkazildi</th><th>Faol</th><th>Natija</th></tr></thead><tbody>{couriers.map(row=><tr key={`${row.branch_id}-${row.courier_id}`}><td><b>{row.full_name}</b></td><td>{formatDistance(row.distance_m)}</td><td>{Number(row.delivered||0)} ta</td><td>{Number(row.active||0)} ta</td><td>{Number(row.delivery_rate||0).toLocaleString('uz-UZ')}%</td></tr>)}</tbody></table></div>{!couriers.length&&<p className="admin-inline-empty">Filialda faol kuryer topilmadi.</p>}</section></>;
 }
 
-function NotificationCenter({profileId}){
+function NotificationCenter({profileId,onAlert}){
   const[open,setOpen]=useState(false),[items,setItems]=useState([]),[unread,setUnread]=useState(0),[loading,setLoading]=useState(false),[error,setError]=useState('');
-  const load=async()=>{if(!profileId)return;setLoading(true);setError('');try{const result=await listNotifications({pageSize:30});setItems(result.items||[]);setUnread(Number(result.unread_count||0));}catch(e){setError(String(e?.message||'Bildirishnomalar yuklanmadi.'));}finally{setLoading(false);}};
-  useEffect(()=>{load();},[profileId]);
-  useEffect(()=>{if(!profileId)return;return subscribeNotifications(load,e=>setError(String(e?.message||e)),profileId);},[profileId]);
-  const mark=async ids=>{try{await markNotificationsRead(ids);await load();}catch(e){setError(String(e?.message||e));}};
-  return <div className="notification-wrap"><button className="icon-btn" onClick={()=>{setOpen(!open);if(!open)load();}} aria-label="Bildirishnomalar"><Bell/>{unread>0&&<i/>}</button>{open&&<div className="notification-panel"><header><div><b>Bildirishnomalar</b><small>{unread} ta o‘qilmagan</small></div><button onClick={()=>mark(null)} disabled={!unread}>Barchasini o‘qish</button></header>{loading?<div className="notification-state">Yuklanmoqda…</div>:error?<div className="notification-state error">{error}<button onClick={load}>Qayta urinish</button></div>:items.length===0?<div className="notification-state">Bildirishnoma yo‘q</div>:<div className="notification-list">{items.map(item=><button key={item.id} className={item.read_at?'':'unread'} onClick={()=>!item.read_at&&mark([item.id])}><span><b>{item.title}</b><small>{item.body}</small><time>{new Date(item.created_at).toLocaleString('uz-UZ')}</time></span>{!item.read_at&&<Status type="orange">Yangi</Status>}</button>)}</div>}</div>}</div>;
+  const seen=useRef(null);
+  const load=useCallback(async()=>{
+    if(!profileId)return;
+    setLoading(true);setError('');
+    try{
+      const result=await listNotifications({pageSize:30});
+      const nextUnread=Number(result.unread_count||0);
+      setItems(result.items||[]);setUnread(nextUnread);
+      // Faqat yangi qo‘shilganda signal beriladi, birinchi yuklashda emas.
+      if(seen.current!==null&&nextUnread>seen.current){playAlert();onAlert?.(result.items?.[0]);}
+      seen.current=nextUnread;
+    }catch(e){setError(String(e?.message||'Bildirishnomalar yuklanmadi.'));}
+    finally{setLoading(false);}
+  },[profileId,onAlert]);
+  useEffect(()=>{load();},[load]);
+  useEffect(()=>{if(!profileId)return;return subscribeNotifications(load,e=>setError(String(e?.message||e)),profileId);},[profileId,load]);
+  useEffect(()=>{if(!profileId)return;const timer=setInterval(load,20000);return()=>clearInterval(timer)},[profileId,load]);
+  const mark=async ids=>{try{await markNotificationsRead(ids);seen.current=null;await load();}catch(e){setError(String(e?.message||e));}};
+  return <div className="notification-wrap"><button className="icon-btn notification-bell" onClick={()=>{setOpen(!open);if(!open)load();}} aria-label={`Bildirishnomalar${unread?`: ${unread} ta yangi`:''}`}><Bell/>{unread>0&&<em className="notification-count">{unread>99?'99+':unread}</em>}</button>{open&&<div className="notification-panel"><header><div><b>Bildirishnomalar</b><small>{unread} ta o‘qilmagan</small></div><button onClick={()=>mark(null)} disabled={!unread}>Barchasini o‘qish</button></header>{loading?<div className="notification-state">Yuklanmoqda…</div>:error?<div className="notification-state error">{error}<button onClick={load}>Qayta urinish</button></div>:items.length===0?<div className="notification-state">Bildirishnoma yo‘q</div>:<div className="notification-list">{items.map(item=><button key={item.id} className={item.read_at?'':'unread'} onClick={()=>!item.read_at&&mark([item.id])}><span><b>{item.title}</b><small>{item.body}</small><time>{new Date(item.created_at).toLocaleString('uz-UZ')}</time></span>{!item.read_at&&<Status type="orange">Yangi</Status>}</button>)}</div>}</div>}</div>;
 }
 
 function OverviewState({error,retry}){return <div className={'ops-state '+(error?'ops-error':'')}>{error?<><AlertTriangle/><b>Dashboard yuklanmadi</b><p>{error}</p>{retry&&<button className="btn" onClick={retry}>Qayta urinish</button>}</>:<>Dashboard yuklanmoqda…</>}</div>;}

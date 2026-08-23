@@ -1,20 +1,20 @@
 import React,{useEffect,useState}from'react';
 import{Camera,Check,ChevronLeft,ChevronRight,DollarSign,Pencil,Save,User,Wallet}from'lucide-react';
-import{formatMoney,useAuth}from'@texnobazar/ui';
-import{getBrowserClient}from'@texnobazar/data';
+import{DualPrice,useAuth,useExchangeRate}from'@texnobazar/ui';
+import{getBrowserClient,uploadProfileAvatar}from'@texnobazar/data';
 
 const msg=e=>String(e?.message||'Xatolik yuz berdi');
-const money=v=>formatMoney(Number(v||0));
 
 export default function ProfileWorkspace({toast}){
   const{profile,refresh}=useAuth();
+  const rate=useExchangeRate();
   const[tab,setTab]=useState('info');
   return <section className="profile-workspace">
     <div className="profile-tabs">
       <button className={tab==='info'?'active':''} onClick={()=>setTab('info')}><User size={16}/>Ma'lumotlarim</button>
       <button className={tab==='salary'?'active':''} onClick={()=>setTab('salary')}><Wallet size={16}/>Maoshlarim</button>
     </div>
-    {tab==='info'?<ProfileInfo profile={profile} refresh={refresh} toast={toast}/>:<SalaryHistory profile={profile}/>}
+    {tab==='info'?<ProfileInfo profile={profile} refresh={refresh} toast={toast}/>:<SalaryHistory profile={profile} rate={rate}/>}
   </section>;
 }
 
@@ -44,16 +44,9 @@ function ProfileInfo({profile,refresh,toast}){
     if(file.size>5*1024*1024){setError('Rasm 5MB dan kichik bo\'lishi kerak');return}
     setUploading(true);setError('');
     try{
-      const client=getBrowserClient();
-      const ext=file.name.split('.').pop()||'jpg';
-      const path=`avatars/${profile.id}/${Date.now()}.${ext}`;
-      const{error:upErr}=await client.storage.from('avatars').upload(path,file,{upsert:true,contentType:file.type});
-      if(upErr)throw upErr;
-      const{data:{publicUrl}}=client.storage.from('avatars').getPublicUrl(path);
-      const{error:updErr}=await client.from('profiles').update({avatar_url:publicUrl}).eq('id',profile.id);
-      if(updErr)throw updErr;
+      await uploadProfileAvatar(file);
       refresh?.();toast?.('Rasm yangilandi');
-    }catch(e){setError(msg(e))}finally{setUploading(false)}
+    }catch(e){setError(msg(e))}finally{setUploading(false);if(e?.target)e.target.value=''}
   };
 
   const initials=(profile?.full_name||profile?.email||'U').split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();
@@ -92,7 +85,7 @@ function ProfileInfo({profile,refresh,toast}){
   </div>;
 }
 
-function SalaryHistory({profile}){
+function SalaryHistory({profile,rate}){
   const now=new Date();
   const[month,setMonth]=useState(()=>`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`);
   const[data,setData]=useState(null);
@@ -138,13 +131,13 @@ function SalaryHistory({profile}){
 
     {loading?<p className="salary-loading">Yuklanmoqda...</p>:error?<div className="profile-error">{error}</div>:<>
       <div className="salary-summary">
-        <div className="salary-card"><small>Oylik maosh</small><b>{money(totals.gross)}</b></div>
-        {Number(totals.bonus)>0&&<div className="salary-card"><small>Ustama</small><b>{money(totals.bonus)}</b></div>}
-        {Number(totals.advance)>0&&<div className="salary-card"><small>Avans</small><b>{money(totals.advance)}</b></div>}
-        <div className="salary-card"><small>To'langan</small><b>{money(totals.salary_paid)}</b></div>
-        {Number(totals.extra)>0&&<div className="salary-card"><small>Qo'shimcha</small><b>{money(totals.extra)}</b></div>}
-        <div className="salary-card highlight"><small>Jami olgan</small><b>{money(totals.net)}</b></div>
-        {Number(totals.remaining)>0&&<div className="salary-card"><small>Qoldiq</small><b style={{color:'#b91c1c'}}>{money(totals.remaining)}</b></div>}
+        <div className="salary-card"><small>Oylik maosh</small><b><DualPrice value={Number(totals.gross||0)} rate={rate}/></b></div>
+        {Number(totals.bonus)>0&&<div className="salary-card"><small>Ustama</small><b><DualPrice value={Number(totals.bonus||0)} rate={rate}/></b></div>}
+        {Number(totals.advance)>0&&<div className="salary-card"><small>Avans</small><b><DualPrice value={Number(totals.advance||0)} rate={rate}/></b></div>}
+        <div className="salary-card"><small>To'langan</small><b><DualPrice value={Number(totals.salary_paid||0)} rate={rate}/></b></div>
+        {Number(totals.extra)>0&&<div className="salary-card"><small>Qo'shimcha</small><b><DualPrice value={Number(totals.extra||0)} rate={rate}/></b></div>}
+        <div className="salary-card highlight"><small>Jami olgan</small><b><DualPrice value={Number(totals.net||0)} rate={rate}/></b></div>
+        {Number(totals.remaining)>0&&<div className="salary-card"><small>Qoldiq</small><b style={{color:'#b91c1c'}}><DualPrice value={Number(totals.remaining||0)} rate={rate}/></b></div>}
       </div>
 
       {items.length>0?<div className="salary-items">
@@ -155,12 +148,12 @@ function SalaryHistory({profile}){
             {Number(item.remaining)<=0?<span className="salary-status salary-status-paid">To'liq to'langan</span>:<span className="salary-status salary-status-draft">Qoldiq bor</span>}
           </div>
           <div className="salary-item-grid">
-            <span>Oylik: <b>{money(item.base_salary)}</b></span>
-            <span>Ustama: <b>{money(item.bonus)}</b></span>
-            <span>Avans: <b>{money(item.advance_paid)}</b></span>
-            <span>To'langan: <b>{money(item.salary_paid)}</b></span>
-            {Number(item.extra_paid)>0&&<span>Qo'shimcha: <b>{money(item.extra_paid)}</b></span>}
-            <span>Qoldiq: <b style={{color:Number(item.remaining)>0?'#b91c1c':'green'}}>{money(item.remaining)}</b></span>
+            <span>Oylik: <b><DualPrice value={Number(item.base_salary||0)} rate={rate}/></b></span>
+            <span>Ustama: <b><DualPrice value={Number(item.bonus||0)} rate={rate}/></b></span>
+            <span>Avans: <b><DualPrice value={Number(item.advance_paid||0)} rate={rate}/></b></span>
+            <span>To'langan: <b><DualPrice value={Number(item.salary_paid||0)} rate={rate}/></b></span>
+            {Number(item.extra_paid)>0&&<span>Qo'shimcha: <b><DualPrice value={Number(item.extra_paid||0)} rate={rate}/></b></span>}
+            <span>Qoldiq: <b style={{color:Number(item.remaining)>0?'#b91c1c':'green'}}><DualPrice value={Number(item.remaining||0)} rate={rate}/></b></span>
           </div>
           {item.salary_paid_at&&<small className="salary-paid-date">Maosh sanasi: {new Date(item.salary_paid_at).toLocaleDateString('uz-UZ')}</small>}
           {item.advance_paid_at&&<small className="salary-paid-date">Avans sanasi: {new Date(item.advance_paid_at).toLocaleDateString('uz-UZ')}</small>}

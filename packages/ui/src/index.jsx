@@ -1,4 +1,4 @@
-export {DualPriceInput} from './DualPriceInput.jsx';
+export {DualPriceInput, DualPrice, useExchangeRate, formatDualMoney} from './DualPriceInput.jsx';
 export {QrScannerModal, QrScanButton} from './QrScannerModal.jsx';
 export {AiChat} from './AiChat.jsx';
 import React,{useEffect} from 'react';

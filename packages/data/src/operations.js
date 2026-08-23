@@ -68,6 +68,7 @@ export const listBusinessCorrections=({branchId,status=null,page=1,pageSize=50})
 
 export const listOnlineOrders=({branchId=null,status=null,page=1,pageSize=50}={})=>list('orders','*,order_lines(*),deliveries(*)',q=>{q=q.order('placed_at',{ascending:false}).range((page-1)*pageSize,page*pageSize-1);if(branchId)q=q.eq('branch_id',branchId);if(status)q=q.eq('status',status);return q});
 export const transitionOnlineOrder=(id,target,branchId=null,note=null)=>rpc('transition_online_order',{p_order_id:id,p_target:target,p_branch_id:branchId,p_note:note});
+export const getOrderBranchStock=orderId=>rpc('get_order_branch_stock',{p_order_id:orderId});
 export const cancelOnlineOrder=(id,reason)=>rpc('cancel_online_order',{p_order_id:id,p_reason:reason});
 export const assignOrderCourier=(orderId,courierId)=>rpc('assign_order_courier',{p_order_id:orderId,p_courier_id:courierId});
 export async function listBranchCouriers(branchId){const rows=await rpc('list_employees');return(rows||[]).filter(x=>x.is_active&&(x.roles||[]).some(r=>r.role==='courier'&&r.branch_id===branchId))}
@@ -101,9 +102,10 @@ export const settleSupplierReceipt = (receiptId, amount, method, reference, note
 
 
 // Sotuvlar tarixi: har bir sotilgan birlik haqida to'liq ma'lumot (RPC orqali)
-export async function listSalesHistory({ branchId = null, from, to, query = '', page = 1, pageSize = 50 }) {
+export async function listSalesHistory({ branchId = null, sellerId = null, from, to, query = '', page = 1, pageSize = 50 }) {
   const result = await rpc('list_sales_history', {
     p_branch_id: branchId || null,
+    p_seller_id: sellerId || null,
     p_from: from || null,
     p_to: to || null,
     p_query: query || null,

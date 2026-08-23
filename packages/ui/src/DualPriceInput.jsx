@@ -1,4 +1,27 @@
 import React,{useEffect,useState}from'react';
+import{getLatestExchangeRate}from'@texnobazar/data';
+
+/**
+ * Har bir workspace komponentida oxirgi USD->UZS kursini yuklaydigan umumiy hook.
+ * Menejer "Valyuta" bo'limida kiritgan eng so'nggi kursni qaytaradi (1 USD = X UZS).
+ */
+export function useExchangeRate(){
+  const[rate,setRate]=useState(null);
+  useEffect(()=>{getLatestExchangeRate().then(r=>setRate(Number(r)||null)).catch(()=>{})},[]);
+  return rate;
+}
+
+/**
+ * Matn ichida (masalan confirm() yoki alert() ichida) ishlatish uchun UZS + USD qatorini qaytaradi.
+ * rate bo'lmasa faqat UZS qaytaradi.
+ */
+export function formatDualMoney(value,rate){
+  const uzs=Number(value||0);
+  const formatted=new Intl.NumberFormat('uz-UZ').format(uzs)+" so'm";
+  if(!rate||rate<=0)return formatted;
+  const usd=Math.round(uzs/rate);
+  return `${formatted} ($${usd.toLocaleString('en-US')})`;
+}
 
 /**
  * Ikki valyutali narx input — UZS kiritilganda USD avtomatik hisoblanadi va aksincha.
@@ -44,4 +67,20 @@ export function DualPriceInput({label,valueUzs='',onChangeUzs,rate,disabled=fals
       </label>
     </div>
   </div>;
+}
+
+
+/**
+ * Ikki valyutali narx display — UZS asosiy, USD kursga qarab yonida ko'rsatiladi.
+ * Props: value (UZS son), rate (1 USD = X UZS), className, style, bold
+ * rate null yoki 0 bo'lsa faqat UZS ko'rsatiladi.
+ */
+export function DualPrice({value,rate,className='',style,bold=false}){
+  const uzs=Number(value||0);
+  const usd=rate&&rate>0?Math.round(uzs/rate):null;
+  const formatted=new Intl.NumberFormat('uz-UZ').format(uzs);
+  return <span className={`dual-price ${className}`} style={style}>
+    {bold?<b>{formatted} so'm</b>:<>{formatted} so'm</>}
+    {usd!==null&&<em className="dual-price-usd">${usd.toLocaleString('en-US')}</em>}
+  </span>;
 }

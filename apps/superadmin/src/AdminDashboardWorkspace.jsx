@@ -1,6 +1,6 @@
 import React,{useEffect,useState}from'react';
 import{AlertTriangle,Boxes,Building,Calendar,Package,ShoppingCart,Store,TrendingDown,TrendingUp,Truck,Users,Warehouse}from'lucide-react';
-import{Status,formatMoney}from'@texnobazar/ui';
+import{DualPrice,Status,useExchangeRate}from'@texnobazar/ui';
 import{getBrowserClient,listEmployees,listMasterRecords}from'@texnobazar/data';
 
 const today=()=>new Date().toISOString().split('T')[0];
@@ -8,6 +8,7 @@ const weekAgo=()=>{const d=new Date();d.setDate(d.getDate()-7);return d.toISOStr
 const monthAgo=()=>{const d=new Date();d.setMonth(d.getMonth()-1);return d.toISOString().split('T')[0]};
 
 export default function AdminDashboardWorkspace({go}){
+  const rate=useExchangeRate();
   const[period,setPeriod]=useState('today');
   const[from,setFrom]=useState(today());
   const[to,setTo]=useState(today());
@@ -94,8 +95,8 @@ export default function AdminDashboardWorkspace({go}){
   <div className="stats-cards">
     <div className="stat-card"><Package size={20}/><div><span className="stat-value">{stats.productTypes}</span><span className="stat-label">Tovar turlari</span></div></div>
     <div className="stat-card"><Boxes size={20}/><div><span className="stat-value">{stats.totalUnits.toLocaleString('uz-UZ')}</span><span className="stat-label">Tovarlar soni</span></div></div>
-    <div className="stat-card"><TrendingDown size={20}/><div><span className="stat-value">{formatMoney(stats.totalCost)}</span><span className="stat-label">Tannarxi</span></div></div>
-    <div className="stat-card"><TrendingUp size={20}/><div><span className="stat-value">{formatMoney(stats.totalRetail)}</span><span className="stat-label">Sotish narxi</span></div></div>
+    <div className="stat-card"><TrendingDown size={20}/><div><span className="stat-value"><DualPrice value={stats.totalCost} rate={rate}/></span><span className="stat-label">Tannarxi</span></div></div>
+    <div className="stat-card"><TrendingUp size={20}/><div><span className="stat-value"><DualPrice value={stats.totalRetail} rate={rate}/></span><span className="stat-label">Sotish narxi</span></div></div>
     <div className="stat-card"><ShoppingCart size={20}/><div><span className="stat-value">{stats.orderCount}</span><span className="stat-label">Barcha buyurtmalar</span></div></div>
     <div className="stat-card"><Building size={20}/><div><span className="stat-value">{stats.branchCount}</span><span className="stat-label">Filiallar</span></div></div>
     <div className="stat-card"><Warehouse size={20}/><div><span className="stat-value">{stats.warehouseCount}</span><span className="stat-label">Omborlar</span></div></div>
@@ -107,9 +108,9 @@ export default function AdminDashboardWorkspace({go}){
   <div className="dashboard-grid">
     <div className="card"><h3 style={{padding:'1rem 1rem .5rem'}}>Savdo va xarajatlar</h3><div className="product-info-rows" style={{padding:'0 1rem 1rem'}}>
       <div><span>Sotuvlar soni:</span><b>{stats.salesCount}</b></div>
-      <div><span>Savdo summasi:</span><b>{formatMoney(stats.salesTotal)}</b></div>
-      <div><span>Sof foyda:</span><b style={{color:'green'}}>{formatMoney(stats.salesProfit)}</b></div>
-      <div><span>Xarajatlar:</span><b style={{color:'var(--primary)'}}>{formatMoney(stats.expensesTotal)}</b></div>
+      <div><span>Savdo summasi:</span><b><DualPrice value={stats.salesTotal} rate={rate}/></b></div>
+      <div><span>Sof foyda:</span><b style={{color:'green'}}><DualPrice value={stats.salesProfit} rate={rate}/></b></div>
+      <div><span>Xarajatlar:</span><b style={{color:'var(--primary)'}}><DualPrice value={stats.expensesTotal} rate={rate}/></b></div>
       <div><span>Qoldiqsiz tovarlar:</span><b style={{color:'red'}}>{stats.zeroStock}</b></div>
     </div></div>
 

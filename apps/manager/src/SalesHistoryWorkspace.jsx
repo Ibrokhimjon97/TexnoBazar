@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, ExternalLink, Package, Search, ShoppingBag, User, X } from 'lucide-react';
-import { Empty, Modal, Status, formatMoney } from '@texnobazar/ui';
+import { DualPrice, Empty, Modal, Status, useExchangeRate } from '@texnobazar/ui';
 import { listSalesHistory } from '@texnobazar/data';
 
 const STOREFRONT = (import.meta.env?.VITE_STOREFRONT_URL) || 'https://texnobazar-storefront.netlify.app';
@@ -8,6 +8,7 @@ const today = () => { const d = new Date(); return d.toISOString().slice(0, 10);
 const PAGE_SIZE = 30;
 
 export default function SalesHistoryWorkspace({ branchId }) {
+  const rate = useExchangeRate();
   const [from, setFrom] = useState(today());
   const [to, setTo] = useState(today());
   const [query, setQuery] = useState('');
@@ -65,7 +66,7 @@ export default function SalesHistoryWorkspace({ branchId }) {
         : items.length === 0 ? <Empty title="Sotuvlar topilmadi" text="Tanlangan sanalar oralig'ida sotilgan tovar yo'q." />
         : <>
           <div className="ops-grid">
-            {items.map(item => <SaleCard key={item.id} item={item} onClick={() => setSelected(item)} />)}
+            {items.map(item => <SaleCard key={item.id} item={item} onClick={() => setSelected(item)} rate={rate} />)}
           </div>
           <div className="inventory-search-pagination">
             <span>{(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, total)} / {total}</span>
@@ -76,19 +77,19 @@ export default function SalesHistoryWorkspace({ branchId }) {
           </div>
         </>}
 
-      {selected && <SaleDetailModal item={selected} onClose={() => setSelected(null)} />}
+      {selected && <SaleDetailModal item={selected} onClose={() => setSelected(null)} rate={rate} />}
     </div>
   );
 }
 
-function SaleCard({ item, onClick }) {
+function SaleCard({ item, onClick, rate }) {
   const profit = Number(item.line_total || 0) - Number(item.tax || 0) - Number(item.unit_cost || 0);
   return (
     <button className="ops-card" onClick={onClick}>
       <span className="ops-icon"><ShoppingBag size={19} /></span>
       <div>
         <b>{item.product_name || 'Nomsiz'}</b>
-        <strong>{formatMoney(Number(item.line_total || 0))}</strong>
+        <strong><DualPrice value={Number(item.line_total || 0)} rate={rate} /></strong>
         <small>{item.seller_name || 'Noaniq'} · {new Date(item.sold_at).toLocaleDateString('uz-UZ')}</small>
         <small>SKU: {item.sku || '—'}</small>
       </div>
@@ -99,7 +100,7 @@ function SaleCard({ item, onClick }) {
   );
 }
 
-function SaleDetailModal({ item, onClose }) {
+function SaleDetailModal({ item, onClose, rate }) {
   const profit = Number(item.line_total || 0) - Number(item.tax || 0) - Number(item.unit_cost || 0);
   const storefrontUrl = item.product_slug && item.is_published ? `${STOREFRONT}/product/${item.product_slug}` : null;
 
@@ -120,16 +121,16 @@ function SaleDetailModal({ item, onClose }) {
 
         {/* Price details */}
         <div className="ops-metrics">
-          <span><small>Sotuv narxi</small><b>{formatMoney(Number(item.unit_price || 0))}</b></span>
-          <span><small>Tannarx</small><b>{formatMoney(Number(item.unit_cost || 0))}</b></span>
-          <span><small>Sof foyda</small><b style={{ color: profit >= 0 ? 'var(--green)' : 'var(--red)' }}>{formatMoney(profit)}</b></span>
+          <span><small>Sotuv narxi</small><b><DualPrice value={Number(item.unit_price || 0)} rate={rate} /></b></span>
+          <span><small>Tannarx</small><b><DualPrice value={Number(item.unit_cost || 0)} rate={rate} /></b></span>
+          <span><small>Sof foyda</small><b style={{ color: profit >= 0 ? 'var(--green)' : 'var(--red)' }}><DualPrice value={profit} rate={rate} /></b></span>
         </div>
 
         {/* Sale metadata */}
         <div className="ops-metrics">
-          <span><small>Chegirma</small><b>{formatMoney(Number(item.discount || 0))}</b></span>
-          <span><small>Soliq</small><b>{formatMoney(Number(item.tax || 0))}</b></span>
-          <span><small>Jami</small><b>{formatMoney(Number(item.line_total || 0))}</b></span>
+          <span><small>Chegirma</small><b><DualPrice value={Number(item.discount || 0)} rate={rate} /></b></span>
+          <span><small>Soliq</small><b><DualPrice value={Number(item.tax || 0)} rate={rate} /></b></span>
+          <span><small>Jami</small><b><DualPrice value={Number(item.line_total || 0)} rate={rate} /></b></span>
         </div>
 
         {/* Seller & details */}

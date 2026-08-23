@@ -1,6 +1,6 @@
 [build]
-base = "."
-command = "npm run build"
+base = "apps/superadmin"
+command = "npm run build --workspace @texnobazar/superadmin"
 publish = "dist"
 functions = "netlify/functions"
 
@@ -11,13 +11,8 @@ NODE_VERSION = "20"
 node_bundler = "esbuild"
 
 [[redirects]]
-from = "/api/media/presign"
-to = "/.netlify/functions/media-presign"
-status = 200
-
-[[redirects]]
-from = "/api/media/complete"
-to = "/.netlify/functions/media-complete"
+from = "/api/*"
+to = "/.netlify/functions/api"
 status = 200
 
 [[redirects]]
