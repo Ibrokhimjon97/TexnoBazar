@@ -1,3 +1,5 @@
+import { formatUzDate } from '@texnobazar/data';
+
 const formulaPattern=/^[\u0000-\u0020]*[=+\-@]/;
 const dateKeys=new Set(['sold_at','occurred_at','created_at','started_at','posted_at','counted_at','from','to']);
 const numberFormats={money:'#,##0.00',quantity:'#,##0.000',integer:'0'};
@@ -9,7 +11,7 @@ const numericKeys=new Set(['subtotal','discount','tax','total','cost','profit','
 const safeText=value=>{let text=String(value??'');if(formulaPattern.test(text))text=`'${text}`;return text};
 const flatValue=value=>value==null?'':typeof value==='object'?safeText(JSON.stringify(value)):safeText(value);
 const asDate=value=>{const date=new Date(value);return Number.isNaN(date.getTime())?safeText(value):date};
-const localDate=value=>new Intl.DateTimeFormat('uz-UZ',{year:'numeric',month:'short',day:'2-digit'}).format(new Date(value));
+const localDate=value=>formatUzDate(value, { day: true, month: 'short', year: true });
 const monthKey=value=>String(value||'').slice(0,7);
 const dayKey=value=>String(value||'').slice(0,10);
 const reportDate=row=>row.sold_at||row.occurred_at||row.created_at||row.started_at||row.posted_at;

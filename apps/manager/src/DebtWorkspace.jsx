@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from'react';
 import{AlertTriangle,CalendarDays,ChevronRight,Landmark,PackagePlus,ReceiptText,Truck}from'lucide-react';
 import{DualPrice,Empty,Modal,Status,useExchangeRate}from'@texnobazar/ui';
-import{getBranchDebt,getBranchDebtSummary,listBranchDebts,listSupplierDebts,recordBranchDebtPayment}from'@texnobazar/data';
+import{formatUzDate,getBranchDebt,getBranchDebtSummary,listBranchDebts,listSupplierDebts,recordBranchDebtPayment}from'@texnobazar/data';
 const message=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 const labels={open:'Ochiq',partially_paid:'Qisman to‘langan',paid:'To‘langan',void:'Bekor qilingan'};
 const badge={open:'orange',partially_paid:'blue',paid:'green',void:'gray'};
@@ -52,7 +52,7 @@ function SupplierDebtDetail({supplier,close,rate}){
       <h3>Barcha partiyalar</h3>
       {receipts.length?receipts.map(r=><div key={r.id} className="supplier-receipt-card card" style={{padding:14,marginBottom:10}}>
         <div className="between" style={{marginBottom:8}}>
-          <div><b>{r.receipt_no}</b><br/><small><CalendarDays size={11}/> {new Date(r.received_at).toLocaleDateString('uz-UZ',{day:'numeric',month:'long',year:'numeric'})}</small></div>
+          <div><b>{r.receipt_no}</b><br/><small><CalendarDays size={11}/> {formatUzDate(r.received_at, { day: true, month: 'long', year: true })}</small></div>
           <div style={{textAlign:'right'}}><Status type={statusBadge[r.payment_status]||'gray'}>{statusLabel[r.payment_status]||r.payment_status}</Status><br/><b><AmountView value={Number(r.total_cost)} currency={r.currency} rate={rate}/></b></div>
         </div>
         {r.products&&r.products.length>0&&<div className="table-wrap"><table className="table" style={{minWidth:'auto'}}><thead><tr><th>Tovar</th><th>SKU</th><th>Miqdor</th><th>Birlik narxi</th><th>Jami</th></tr></thead><tbody>{r.products.map((p,i)=><tr key={i}><td><b>{p.product_name}</b></td><td>{p.sku}</td><td>{Number(p.quantity)} dona</td><td><AmountView value={Number(p.unit_cost)} currency={r.currency} rate={rate}/></td><td><b><AmountView value={Number(p.line_total)} currency={r.currency} rate={rate}/></b></td></tr>)}</tbody></table></div>}

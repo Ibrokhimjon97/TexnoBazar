@@ -102,6 +102,68 @@ function toOpenAiMessages(system, messages) {
   return out;
 }
 
+function extractDsmlToolCalls(rawText) {
+  if (!rawText || typeof rawText !== 'string') {
+    return { text: rawText, toolCalls: [] };
+  }
+  const calls = [];
+  const workingText = rawText;
+
+  // 1. DeepSeek / XML DSML format:
+  // Matches <{ | DSML | invoke name="func">, <|DSML|invoke name="func">, <｜invoke:func｜>, <invoke name="func">, etc.
+  const dsmlInvokeRegex = /<[{|\uFF5C\s]*\/?(?:DSML)?[\s|\uFF5C:]*invoke(?:\s+name=["']([^"']+)["']|[:\s]+([a-zA-Z0-9_-]+))[^>]*>([\s\S]*?)<\/[{|\uFF5C\s]*(?:DSML)?[\s|\uFF5C:]*invoke\s*>/gi;
+  let match;
+  while ((match = dsmlInvokeRegex.exec(workingText)) !== null) {
+    const name = match[1] || match[2];
+    const inner = match[3];
+    const args = {};
+    const paramRegex = /<[{|\uFF5C\s]*\/?(?:DSML)?[\s|\uFF5C:]*parameter(?:\s+name=["']([^"']+)["']|[:\s]+([a-zA-Z0-9_-]+))[^>]*>([\s\S]*?)<\/[{|\uFF5C\s]*(?:DSML)?[\s|\uFF5C:]*parameter\s*>/gi;
+    let pMatch;
+    while ((pMatch = paramRegex.exec(inner)) !== null) {
+      const pName = pMatch[1] || pMatch[2];
+      const rawVal = pMatch[3].trim();
+      try {
+        args[pName] = JSON.parse(rawVal);
+      } catch {
+        if (rawVal.toLowerCase() === 'true') args[pName] = true;
+        else if (rawVal.toLowerCase() === 'false') args[pName] = false;
+        else if (!isNaN(rawVal) && rawVal !== '') args[pName] = Number(rawVal);
+        else args[pName] = rawVal;
+      }
+    }
+    if (name) {
+      calls.push({ id: 'call_' + Math.random().toString(36).slice(2, 9), name, args });
+    }
+  }
+
+  // 2. <tool_call> JSON format
+  const jsonToolCallRegex = /<tool_call>([\s\S]*?)<\/tool_call>/gi;
+  while ((match = jsonToolCallRegex.exec(workingText)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1].trim());
+      if (parsed?.name) {
+        calls.push({
+          id: 'call_' + Math.random().toString(36).slice(2, 9),
+          name: parsed.name,
+          args: parsed.arguments || parsed.parameters || {},
+        });
+      }
+    } catch { /* ignore */ }
+  }
+
+  // Clean all tool / DSML tags from the user-facing text
+  let cleanText = workingText
+    .replace(/<[{|\uFF5C\s\/]*DSML[\s\S]*?<\/?[{|\uFF5C\s\/]*DSML[^{}>]*>/gi, '')
+    .replace(/<[{|\uFF5C\s\/]*tool_calls[\s\S]*?<\/?[{|\uFF5C\s\/]*tool_calls[^{}>]*>/gi, '')
+    .replace(/<tool_call>[\s\S]*?<\/tool_call>/gi, '')
+    .replace(/<[{|\uFF5C\s\/]*\/?(?:DSML)?[\s|\uFF5C:]*(?:invoke|parameter|tool_calls)[^>]*>[\s\S]*?<\/[{|\uFF5C\s]*(?:DSML)?[\s|\uFF5C:]*(?:invoke|parameter|tool_calls)\s*>/gi, '')
+    .replace(/<[{|\uFF5C\s\/]*[\s|\uFF5C:]*(?:DSML|invoke|parameter|tool_calls)[^>]*>/gi, '')
+    .replace(/<\/[{|\uFF5C\s\/]*[\s|\uFF5C:]*(?:DSML|invoke|parameter|tool_calls)[^>]*>/gi, '')
+    .trim();
+
+  return { text: cleanText, toolCalls: calls };
+}
+
 async function callOpenAi({ provider, apiKey, baseUrl, model, system, messages, tools }) {
   const url = `${baseUrlFor(provider, baseUrl)}/chat/completions`;
   const headers = { Authorization: `Bearer ${apiKey}` };
@@ -122,14 +184,24 @@ async function callOpenAi({ provider, apiKey, baseUrl, model, system, messages, 
 
   const json = await postJson(url, headers, body);
   const choice = json?.choices?.[0]?.message;
-  const toolCalls = (choice?.tool_calls ?? [])
+  let contentText = choice?.content ?? '';
+  let toolCalls = (choice?.tool_calls ?? [])
     .filter(call => call?.function?.name)
     .map(call => {
       let args = {};
       try { args = call.function.arguments ? JSON.parse(call.function.arguments) : {}; } catch { args = {}; }
       return { id: call.id, name: call.function.name, args };
     });
-  return { text: choice?.content ?? '', toolCalls };
+
+  if (toolCalls.length === 0 && contentText) {
+    const dsml = extractDsmlToolCalls(contentText);
+    if (dsml.toolCalls.length > 0) {
+      toolCalls = dsml.toolCalls;
+      contentText = dsml.text;
+    }
+  }
+
+  return { text: contentText, toolCalls };
 }
 
 // --- Anthropic --------------------------------------------------------------

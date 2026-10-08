@@ -1,91 +1,50 @@
 import React,{useEffect,useState}from'react';
-import{AlertTriangle,Boxes,Plus,QrCode,Search,X}from'lucide-react';
-import{DualPriceInput,Modal,Status,formatMoney}from'@texnobazar/ui';
-import{createStockReceipt,getBrowserClient,getInventoryReferences,getLatestExchangeRate,uploadProductMedia}from'@texnobazar/data';
+import{AlertTriangle,Boxes,Plus,X}from'lucide-react';
+import{ColorVariantEditor,DualPriceInput,Modal,Status,formatMoney}from'@texnobazar/ui';
+import{getBrowserClient,getInventoryReferences,getLatestExchangeRate,saveProductVariants,uploadProductMedia}from'@texnobazar/data';
 import RichTextEditor from'./RichTextEditor';
 
 const err=e=>String(e?.message||'Amalni bajarib bo\'lmadi.');
 
-export default function InventoryRegisterModal({open,close,branchId,created}){
-  const[step,setStep]=useState(1);
-  const[refs,setRefs]=useState({locations:[],suppliers:[],products:[],categories:[],brands:[]});
-  const[categoryId,setCategoryId]=useState('');
-  const[productId,setProductId]=useState('');
-  const[productSearch,setProductSearch]=useState('');
-  const[quantity,setQuantity]=useState(1);
-  const[unitCost,setUnitCost]=useState('');
-  const[locationId,setLocationId]=useState('');
+/**
+ * Yangi tovar yaratish modali (Katalog).
+ * DIQQAT: Ushbu modal FAQAT tovar ma'lumotlarini (nomi, narxi, rasmlari, rang variantlari)
+ * yaratadi. U sonini (qoldiq) kiritmaydi va HECH QANDAY partiya (stock receipt) yaratmaydi!
+ * Qoldiqlar faqat "Partiyalar" sahifasida Yangi partiya yoki Inventarizatsiya orqali kiritiladi.
+ */
+export default function CreateProductModal({open,close,branchId,created}){
+  const[refs,setRefs]=useState({categories:[],brands:[]});
   const[busy,setBusy]=useState(false);
   const[error,setError]=useState('');
-  const[showCreateProduct,setShowCreateProduct]=useState(false);
   const[rate,setRate]=useState(null);
-  useEffect(()=>{getLatestExchangeRate().then(r=>setRate(Number(r)||null)).catch(()=>{})},[]);
 
   useEffect(()=>{
-    if(!open||!branchId)return;
-    setStep(1);setCategoryId('');setProductId('');setQuantity(1);setUnitCost('');setError('');setProductSearch('');
+    getLatestExchangeRate().then(r=>setRate(Number(r)||null)).catch(()=>{});
+  },[]);
+
+  useEffect(()=>{
+    if(!open)return;
+    setError('');
     Promise.all([
-      getInventoryReferences(branchId).then(async ref=>{const{data:prods}=await getBrowserClient().from('products').select('id,name,sku,cost_price,category_id').neq('status','archived');return{...ref,products:(prods||[]).map(p=>({...p,...(ref.products||[]).find(x=>x.id===p.id)}))}}),
       getBrowserClient().from('categories').select('id,name,slug,parent_id').eq('is_active',true).order('sort_order'),
       getBrowserClient().from('brands').select('id,name').eq('is_active',true).order('name'),
-    ]).then(([ref,{data:cats},{data:brands}])=>{
-      setRefs({...ref,categories:cats||[],brands:brands||[]});
-      setLocationId(ref.locations.find(x=>x.type==='warehouse')?.id||ref.locations[0]?.id||'');
+    ]).then(([{data:cats},{data:brands}])=>{
+      setRefs({categories:cats||[],brands:brands||[]});
     }).catch(e=>setError(err(e)));
-  },[open,branchId]);
+  },[open]);
 
-  const filteredProducts=refs.products.filter(p=>{
-    if(categoryId&&p.category_id!==categoryId)return false;
-    if(productSearch){
-      const q=productSearch.toLowerCase();
-      return p.name.toLowerCase().includes(q)||p.sku.toLowerCase().includes(q);
-    }
-    return true;
-  });
-
-  const selectedProduct=refs.products.find(p=>p.id===productId);
-
-  const submit=async()=>{
-    if(!productId||!quantity||!locationId){setError('Tovar, son va joyni tanlang');return}
-    setBusy(true);setError('');
-    try{
-      const receiptNo=`INV-${new Date().toISOString().slice(0,10).replace(/-/g,'')}-${Date.now().toString(36).toUpperCase()}`;
-      // Inventarizatsiya uchun maxsus ta'minotchi shart emas — birinchi ta'minotchini ishlatamiz yoki "Inventarizatsiya" nomli
-      let supplierId=refs.suppliers.find(s=>s.name.toLowerCase().includes('inventar'))?.id||refs.suppliers[0]?.id;
-      if(!supplierId){
-        // Ta'minotchi yo'q — yaratamiz
-        const{data:newSupplier}=await getBrowserClient().from('suppliers').insert({code:'INVENTAR',name:'Inventarizatsiya',is_active:true}).select('id').single();
-        supplierId=newSupplier?.id;
-      }
-      await createStockReceipt({
-        receipt_no:receiptNo,
-        supplier_id:supplierId,
-        receiving_location_id:locationId,
-        branch_id:branchId,
-        currency:'UZS',
-        payment_status:'paid',
-        received_at:new Date().toISOString(),
-        notes:'Inventarizatsiya orqali ro\'yxatga olingan',
-      },[{
-        product_id:productId,
-        quantity:Number(quantity),
-        unit_cost:Number(unitCost)||0,
-        serial_numbers:[],
-      }]);
-      await created();
-    }catch(e){setError(err(e))}finally{setBusy(false)}
-  };
-
-  const createProduct=async(form,images=[])=>{
+  const handleProductCreate=async(form,images=[],variants=[])=>{
+    setBusy(true);
+    setError('');
     try{
       const client=getBrowserClient();
-      const slug=form.slug?.trim()||form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
+      const slug=form.slug?.trim()||form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+Date.now().toString(36);
       const{data,error:insertErr}=await client.from('products').insert({
         name:form.name.trim(),
-        sku:form.sku.trim().toUpperCase()||('INV-'+Date.now()),
+        sku:form.sku?.trim().toUpperCase()||('TB-'+Date.now().toString(36).toUpperCase()),
         barcode:form.barcode?.trim()||null,
         slug,
-        category_id:form.category_id||categoryId||null,
+        category_id:form.category_id||null,
         brand_id:form.brand_id||null,
         cost_price:Number(form.cost_price)||0,
         retail_price:Number(form.retail_price)||0,
@@ -94,114 +53,168 @@ export default function InventoryRegisterModal({open,close,branchId,created}){
         minimum_sale_price:Number(form.minimum_sale_price)||0,
         compare_at_price:Number(form.compare_at_price)||null,
         description:form.description||null,
+        seo_image_url:form.video_url?.trim()||null,
         status:'active',
-        is_published:false,
+        is_published:true,
         track_individual_units:true,
         tax_rate:0,
-      }).select('id,name,sku,category_id,cost_price').single();
+      }).select('id,name,sku,category_id,cost_price,retail_price,wholesale_price,minimum_sale_price').single();
+
       if(insertErr)throw insertErr;
+
       const failed=[];
-      for(const file of images){try{await uploadProductMedia(data.id,file,form.name.trim())}catch(uploadError){failed.push(`${file.name}: ${err(uploadError)}`)}}
-      setRefs(prev=>({...prev,products:[...prev.products,data]}));
-      setProductId(data.id);setUnitCost(String(data.cost_price||''));
-      setShowCreateProduct(false);
-      setStep(3);
-      if(failed.length)setError(`Mahsulot yaratildi, lekin ${failed.length} ta rasm yuklanmadi: ${failed.join(' · ')}`);
-    }catch(e){throw e}
+      for(const file of images){
+        try{
+          await uploadProductMedia(data.id,file,form.name.trim());
+        }catch(uploadError){
+          failed.push(`${file.name}: ${err(uploadError)}`);
+        }
+      }
+
+      const namedVariants=variants.filter(v=>v.color_name?.trim());
+      if(namedVariants.length){
+        const variantsPayload=namedVariants.map(v=>({
+          color_name:v.color_name.trim(),
+          color_hex:v.color_hex||null,
+          retail_price:v.retail_price===''?null:Number(v.retail_price),
+          wholesale_price:v.wholesale_price===''?null:Number(v.wholesale_price),
+          is_active:true
+        }));
+        const createdVariants=await saveProductVariants(data.id,variantsPayload);
+        for(let i=0;i<createdVariants.length&&i<namedVariants.length;i++){
+          for(const file of namedVariants[i].imageFiles||[]){
+            try{
+              await uploadProductMedia(data.id,file,form.name.trim(),createdVariants[i].id);
+            }catch(uploadError){
+              failed.push(`${namedVariants[i].color_name}: ${err(uploadError)}`);
+            }
+          }
+        }
+      }
+
+      await created?.(data);
+      close();
+    }catch(e){
+      setError(err(e));
+    }finally{
+      setBusy(false);
+    }
   };
 
   if(!open)return null;
 
-  return <Modal open onClose={close} wide title="Inventarizatsiya — tovar ro'yxatga olish">
-    <div className="inv-register">
-      <div className="inv-steps">
-        <span className={step>=1?'active':''}>1. Kategoriya</span>
-        <span className={step>=2?'active':''}>2. Tovar</span>
-        <span className={step>=3?'active':''}>3. Son va joy</span>
+  return <div className="receipt-create-overlay">
+    <div className="receipt-create-form card" style={{width:"min(780px,95vw)",padding:24,maxHeight:"92vh",overflow:"auto",borderRadius:16}}>
+      <div className="between" style={{marginBottom:14,borderBottom:'1px solid var(--line)',paddingBottom:12}}>
+        <div>
+          <h2 style={{margin:0,fontSize:18}}>Yangi tovar qo'shish (Katalog)</h2>
+          <p style={{margin:'4px 0 0',fontSize:12,color:'var(--muted)'}}>Tovar ma'lumotlari katalogga kiritiladi. Partiya va soni kiritilmaydi.</p>
+        </div>
+        <button type="button" className="icon-btn" onClick={close}><X size={18}/></button>
       </div>
-
-      {error&&<div className="employee-error">{error}</div>}
-
-      {step===1&&<div className="inv-step-content">
-        <p>Tovar qaysi kategoriyaga mansub?</p>
-        <div className="inv-category-grid">
-          {refs.categories.filter(c=>!c.parent_id).map(cat=><button key={cat.id} className={categoryId===cat.id?'active':''} onClick={()=>{setCategoryId(cat.id);setStep(2)}}>{cat.name}</button>)}
-        </div>
-        <button className="btn btn-outline" onClick={()=>setStep(2)}>Kategoriyasiz davom etish</button>
-      </div>}
-
-      {step===2&&<div className="inv-step-content">
-        <p>Tovarni tanlang yoki yangi tovar yarating:</p>
-        <div className="inv-search">
-          <Search size={16}/>
-          <input value={productSearch} onChange={e=>setProductSearch(e.target.value)} placeholder="Tovar nomi yoki SKU bo'yicha qidirish..."/>
-        </div>
-        <div className="inv-product-list">
-          {filteredProducts.slice(0,20).map(p=><button key={p.id} className={productId===p.id?'active':''} onClick={()=>{setProductId(p.id);setUnitCost(String(p.cost_price||''));setStep(3)}}>
-            <b>{p.name}</b><span>{p.sku}</span>
-          </button>)}
-          {filteredProducts.length===0&&<p className="inv-empty">Mos tovar topilmadi</p>}
-          {filteredProducts.length>20&&<p className="inv-empty">Yana {filteredProducts.length-20} ta natija — qidiruvni aniqlashtiring</p>}
-        </div>
-        <button className="btn btn-primary" onClick={()=>setShowCreateProduct(true)}><Plus size={15}/>Yangi tovar yaratish</button>
-        {categoryId&&<button className="btn btn-outline" onClick={()=>setStep(1)}>Kategoriyaga qaytish</button>}
-      </div>}
-
-      {step===3&&<div className="inv-step-content">
-        {selectedProduct&&<div className="inv-selected-product"><Boxes size={20}/><div><b>{selectedProduct.name}</b><span>{selectedProduct.sku}</span></div></div>}
-        <div className="inv-form-grid">
-          <label><span>Nechta dona?</span><input className="input" type="number" min="1" max="1000" value={quantity} onChange={e=>setQuantity(e.target.value)}/></label>
-          <DualPriceInput label="Birlik tannarxi" valueUzs={unitCost} onChangeUzs={setUnitCost} rate={rate}/>
-          <label><span>Qabul joyi</span><select className="select" value={locationId} onChange={e=>setLocationId(e.target.value)}>{refs.locations.map(x=><option key={x.id} value={x.id}>{x.name} ({x.type==='warehouse'?'Ombor':'Do\'kon'})</option>)}</select></label>
-        </div>
-        <div className="inv-qr-info"><QrCode size={20}/><b>{quantity} ta noyob QR kod</b><span>avtomatik generatsiya qilinadi</span></div>
-        <div className="inv-actions">
-          <button className="btn btn-outline" onClick={()=>setStep(2)}>Ortga</button>
-          <button className="btn btn-primary" disabled={busy} onClick={submit}>{busy?'Ro\'yxatga olinmoqda...':'Ro\'yxatga olish'}</button>
-        </div>
-      </div>}
-
-      {showCreateProduct&&<CreateProductInline categories={refs.categories} brands={refs.brands} categoryId={categoryId} onCreated={createProduct} onCancel={()=>setShowCreateProduct(false)} rate={rate}/>}
+      {error&&<div className="employee-error" style={{marginBottom:14}}>{error}</div>}
+      <CreateProductForm
+        categories={refs.categories}
+        brands={refs.brands}
+        onSave={handleProductCreate}
+        onCancel={close}
+        busy={busy}
+        rate={rate}
+      />
     </div>
-  </Modal>;
+  </div>;
 }
 
 export function CreateProductInline({categories,brands,categoryId,onCreated,onCancel,rate}){
-  const[form,setForm]=useState({name:'',sku:'',barcode:'',category_id:categoryId||'',brand_id:'',cost_price:'',retail_price:'',wholesale_price:'',promotion_price:'',minimum_sale_price:'0',compare_at_price:'',slug:'',video_url:'',description:''});
-  const[images,setImages]=useState([]);
-  const[busy,setBusy]=useState(false);
-  const[error,setError]=useState('');
-  const submit=async e=>{
-    e.preventDefault();
-    if(!form.name.trim()){setError('Mahsulot nomini kiriting');return}
-    setBusy(true);setError('');
-    try{await onCreated(form,images)}catch(e){setError(err(e))}finally{setBusy(false)}
-  };
   return <div className="inv-create-overlay">
-    <div className="inv-create-form card">
-      <div className="between" style={{marginBottom:16}}><h3>Yangi mahsulot</h3><button type="button" className="icon-btn" onClick={onCancel}><X size={18}/></button></div>
-      <form className="employee-form-grid" onSubmit={submit}>
-        {error&&<div className="employee-error wide">{error}</div>}
-        <label className="wide"><span className="label">Mahsulot nomi</span><input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required minLength="2"/></label>
-        <label><span className="label">SKU</span><input className="input" value={form.sku} onChange={e=>setForm({...form,sku:e.target.value})} placeholder="Avtomatik"/></label>
-        <label><span className="label">Kategoriya</span><select className="select" value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})}><option value="">Tanlang</option>{categories.filter(c=>!c.parent_id).map(p=><optgroup key={p.id} label={p.name}><option value={p.id}>{p.name}</option>{categories.filter(c=>c.parent_id===p.id).map(child=><option key={child.id} value={child.id}>&nbsp;&nbsp;{child.name}</option>)}</optgroup>)}</select></label>
-        <NewCategoryInline categories={categories} onCreated={cat=>setForm({...form,category_id:cat.id})}/>
-        <label><span className="label">Brend</span><div style={{display:'flex',gap:6,position:'relative'}}><select className="select" style={{flex:1}} value={form.brand_id} onChange={e=>setForm({...form,brand_id:e.target.value})}><option value="">Brendsiz</option>{brands.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><NewBrandInline brands={brands} onCreated={b=>setForm({...form,brand_id:b.id})}/></div></label>
-        <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v=>setForm({...form,cost_price:v})} rate={rate}/>
-        <DualPriceInput label="Sotish narxi" valueUzs={form.retail_price} onChangeUzs={v=>setForm({...form,retail_price:v})} rate={rate}/>
-        <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v=>setForm({...form,wholesale_price:v})} rate={rate}/>
-        <label><span className="label">Aksiya narxi</span><input className="input" type="number" min="0" value={form.promotion_price} onChange={e=>setForm({...form,promotion_price:e.target.value})}/></label>
-        <label><span className="label">Minimal sotuv narxi</span><input className="input" type="number" min="0" value={form.minimum_sale_price} onChange={e=>setForm({...form,minimum_sale_price:e.target.value})}/></label>
-        <label><span className="label">Eski narx</span><input className="input" type="number" min="0" value={form.compare_at_price} onChange={e=>setForm({...form,compare_at_price:e.target.value})}/></label>
-        <label><span className="label">Shtrix-kod</span><input className="input" value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})}/></label>
-        <label className="wide"><span className="label">Slug</span><input className="input" value={form.slug} onChange={e=>setForm({...form,slug:e.target.value})} placeholder="Nomdan avtomatik yaratiladi"/></label>
-        <label className="wide"><span className="label">YouTube video URL</span><input className="input" value={form.video_url} onChange={e=>setForm({...form,video_url:e.target.value})} placeholder="https://youtube.com/watch?v=..."/></label>
-        <div className="wide"><span className="label">Tavsif</span><RichTextEditor value={form.description} onChange={v=>setForm({...form,description:v})}/></div>
-        <div className="wide"><span className="label">Rasmlar ({images.length} ta tanlangan)</span><div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>{images.map((file,i)=><div key={i} style={{width:60,height:60,borderRadius:8,overflow:'hidden',position:'relative'}}><img src={URL.createObjectURL(file)} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/><button type="button" style={{position:'absolute',top:2,right:2,width:18,height:18,border:0,borderRadius:4,background:'rgba(0,0,0,.6)',color:'#fff',fontSize:10,cursor:'pointer'}} onClick={()=>setImages(imgs=>imgs.filter((_,j)=>j!==i))}>x</button></div>)}</div><label className="btn btn-outline btn-sm" style={{cursor:'pointer'}}>Rasm tanlash<input type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple hidden onChange={e=>{const files=[...e.target.files];const invalid=files.find(file=>file.size>10*1024*1024||!['image/jpeg','image/png','image/webp','image/avif'].includes(file.type));if(invalid)setError(`${invalid.name}: faqat JPG, PNG, WebP yoki AVIF, maksimal 10 MB.`);else if(files.length){setError('');setImages(prev=>[...prev,...files])}e.target.value=''}}/></label></div>
-        <button className="btn btn-primary wide" disabled={busy}>{busy?'Yaratilmoqda...':'Yaratish'}</button>
-      </form>
+    <div className="inv-create-form card" style={{width:"min(780px,95vw)",padding:20,maxHeight:"90vh",overflow:"auto",borderRadius:16}}>
+      <div className="between" style={{marginBottom:16}}>
+        <h3>Yangi tovar yaratish</h3>
+        <button type="button" className="icon-btn" onClick={onCancel}><X size={18}/></button>
+      </div>
+      <CreateProductForm
+        categories={categories}
+        brands={brands}
+        initialCategoryId={categoryId}
+        onSave={onCreated}
+        onCancel={onCancel}
+        rate={rate}
+      />
     </div>
   </div>;
+}
+
+function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,onCancel,busy=false,rate}){
+  const[form,setForm]=useState({
+    name:'',sku:'',barcode:'',category_id:initialCategoryId||'',brand_id:'',
+    cost_price:'',retail_price:'',wholesale_price:'',promotion_price:'',
+    minimum_sale_price:'0',compare_at_price:'',slug:'',video_url:'',description:''
+  });
+  const[images,setImages]=useState([]);
+  const[variants,setVariants]=useState([]);
+  const[submitting,setSubmitting]=useState(false);
+  const[formError,setFormError]=useState('');
+
+  const submit=async e=>{
+    e.preventDefault();
+    if(!form.name.trim()){
+      setFormError('Mahsulot nomini kiriting');
+      return;
+    }
+    setSubmitting(true);
+    setFormError('');
+    try{
+      await onSave(form,images,variants);
+    }catch(e){
+      setFormError(err(e));
+    }finally{
+      setSubmitting(false);
+    }
+  };
+
+  const isBusy = busy || submitting;
+
+  return <form className="employee-form-grid" onSubmit={submit}>
+    {formError&&<div className="employee-error wide">{formError}</div>}
+    <label className="wide"><span className="label">Mahsulot nomi *</span><input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required minLength="2" placeholder="Masalan: Gaz plita Artel Apetito 50-00E"/></label>
+    <label><span className="label">SKU / Artikul</span><input className="input" value={form.sku} onChange={e=>setForm({...form,sku:e.target.value})} placeholder="Avtomatik (TB-...)"/></label>
+    <label><span className="label">Shtrix-kod (barcode)</span><input className="input" value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})} placeholder="Skaner yoki raqamlar"/></label>
+    <label><span className="label">Kategoriya</span><select className="select" value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})}><option value="">Tanlang</option>{categories.filter(c=>!c.parent_id).map(p=><optgroup key={p.id} label={p.name}><option value={p.id}>{p.name}</option>{categories.filter(c=>c.parent_id===p.id).map(child=><option key={child.id} value={child.id}>&nbsp;&nbsp;{child.name}</option>)}</optgroup>)}</select></label>
+    <NewCategoryInline categories={categories} onCreated={cat=>setForm({...form,category_id:cat.id})}/>
+    <label><span className="label">Brend</span><div style={{display:'flex',gap:6,position:'relative'}}><select className="select" style={{flex:1}} value={form.brand_id} onChange={e=>setForm({...form,brand_id:e.target.value})}><option value="">Brendsiz</option>{brands.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><NewBrandInline brands={brands} onCreated={b=>setForm({...form,brand_id:b.id})}/></div></label>
+    <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v=>setForm({...form,cost_price:v})} rate={rate}/>
+    <DualPriceInput label="Sotish narxi *" valueUzs={form.retail_price} onChangeUzs={v=>setForm({...form,retail_price:v})} rate={rate}/>
+    <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v=>setForm({...form,wholesale_price:v})} rate={rate}/>
+    <DualPriceInput label="Minimal sotuv narxi" valueUzs={form.minimum_sale_price} onChangeUzs={v=>setForm({...form,minimum_sale_price:v})} rate={rate}/>
+    <label><span className="label">Aksiya narxi</span><input className="input" type="number" min="0" value={form.promotion_price} onChange={e=>setForm({...form,promotion_price:e.target.value})} placeholder="Ixtiyoriy"/></label>
+    <label><span className="label">Eski narx (chizilgan)</span><input className="input" type="number" min="0" value={form.compare_at_price} onChange={e=>setForm({...form,compare_at_price:e.target.value})} placeholder="Ixtiyoriy"/></label>
+    <label className="wide"><span className="label">YouTube video URL</span><input className="input" value={form.video_url} onChange={e=>setForm({...form,video_url:e.target.value})} placeholder="https://youtube.com/watch?v=..."/></label>
+    <div className="wide"><span className="label">Tavsif</span><RichTextEditor value={form.description} onChange={v=>setForm({...form,description:v})}/></div>
+    <div className="wide">
+      <span className="label">Rasmlar ({images.length} ta tanlangan)</span>
+      <div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>
+        {images.map((file,i)=><div key={i} style={{width:64,height:64,borderRadius:8,overflow:'hidden',position:'relative',border:'1px solid var(--line)'}}>
+          <img src={URL.createObjectURL(file)} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+          <button type="button" style={{position:'absolute',top:2,right:2,width:20,height:20,border:0,borderRadius:'50%',background:'rgba(0,0,0,.7)',color:'#fff',fontSize:11,cursor:'pointer',display:'grid',placeItems:'center'}} onClick={()=>setImages(imgs=>imgs.filter((_,j)=>j!==i))}>&times;</button>
+        </div>)}
+      </div>
+      <label className="btn btn-outline btn-sm" style={{cursor:'pointer',display:'inline-flex',alignItems:'center',gap:6}}>
+        <Plus size={14}/> Rasm tanlash
+        <input type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple hidden onChange={e=>{const files=[...e.target.files];if(files.length){setImages(prev=>[...prev,...files])}e.target.value=''}}/>
+      </label>
+    </div>
+    <div className="wide">
+      <ColorVariantEditor variants={variants} setVariants={setVariants} showQuantity={false} showWholesale rate={rate} basePriceHint={form.retail_price?`${form.retail_price} so'm`:''}/>
+    </div>
+    <div className="wide" style={{display:'flex',gap:10,marginTop:10}}>
+      <button className="btn btn-primary" type="submit" disabled={isBusy} style={{flex:1}}>
+        {isBusy?'Saqlanmoqda...':'Tovarni saqlash'}
+      </button>
+      <button className="btn" type="button" onClick={onCancel} disabled={isBusy}>
+        Bekor qilish
+      </button>
+    </div>
+  </form>;
 }
 
 function NewCategoryInline({categories,onCreated}){
@@ -267,6 +280,7 @@ function NewCategoryInline({categories,onCreated}){
     </div>
   </div>;
 }
+
 function NewBrandInline({brands,onCreated}){
   const[open,setOpen]=useState(false);
   const[form,setForm]=useState({name:'',slug:'',logo_url:'',description:''});

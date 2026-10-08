@@ -1,7 +1,23 @@
 import { getBrowserClient } from './auth.js';
 import { DATABASE_UPDATE_MESSAGE, isSchemaCompatibilityError, throwDataError } from './errors.js';
 
-async function rpc(name,args={}){const{data,error}=await getBrowserClient().rpc(name,args);if(error)throwDataError(error,name);return data}
+async function rpc(name, args = {}, maxRetries = 2) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const { data, error } = await getBrowserClient().rpc(name, args);
+    if (!error) return data;
+
+    const status = error.status || (error.code === '57014' ? 504 : null);
+    const isRetryable = status === 500 || status === 502 || status === 503 || status === 504
+      || error.code === '57014'
+      || (error.message && (error.message.includes('timeout') || error.message.includes('fetch') || error.message.includes('network')));
+
+    if (isRetryable && attempt < maxRetries) {
+      await new Promise(r => setTimeout(r, 500 * (attempt + 1)));
+      continue;
+    }
+    throwDataError(error, name);
+  }
+}
 const emptyFacets=()=>({categories:[],brands:[],attributes:{},price:{}});
 export async function loadStorefrontCatalog({query=null,categoryId=null,categoryIds=[],brandIds=[],attributes={},minPrice=null,maxPrice=null,inStock=false,sort='name',page=1,pageSize=24}={}){const categories=categoryIds.length?categoryIds:(categoryId?[categoryId]:[]);try{return await rpc('storefront_catalog_faceted',{p_filters:{query:query||null,category_ids:categories,brand_ids:brandIds,attributes,min_price:minPrice,max_price:maxPrice,in_stock:inStock,sort},p_limit:pageSize,p_offset:(page-1)*pageSize})}catch(error){if(!isSchemaCompatibilityError(error))throw error;const legacyCompatible=categories.length<=1&&brandIds.length===0&&Object.keys(attributes||{}).length===0&&(minPrice===null||minPrice==='')&&(maxPrice===null||maxPrice==='')&&!inStock&&sort==='name';if(!legacyCompatible)throw error;console.warn(`${DATABASE_UPDATE_MESSAGE} storefront_catalog_faceted o‘rniga cheklangan legacy katalog ishlatildi.`);const legacy=await rpc('storefront_catalog',{p_query:query||null,p_category_id:categories[0]||null,p_limit:pageSize,p_offset:(page-1)*pageSize});return{items:legacy?.items||[],total:Number(legacy?.total||0),facets:emptyFacets(),schema_warning:DATABASE_UPDATE_MESSAGE}}}
 export const loadStorefrontProduct=slug=>rpc('storefront_product_detail',{p_slug:slug});
@@ -19,7 +35,7 @@ export const saveCustomerProfile=profile=>rpc('save_customer_profile',{p_profile
 export const saveCustomerAddress=address=>rpc('save_customer_address',{p_address:address});
 export const removeCustomerAddress=id=>rpc('delete_customer_address',{p_address_id:id});
 export const setCustomerFavorite=(productId,favorite)=>rpc('set_customer_favorite',{p_product_id:productId,p_favorite:favorite});
-export const setCustomerCartItem=(productId,quantity)=>rpc('set_customer_cart_item',{p_product_id:productId,p_quantity:quantity});
+export const setCustomerCartItem=(productId,quantity,variantId=null)=>rpc('set_customer_cart_item',{p_product_id:productId,p_quantity:quantity,p_variant_id:variantId||null});
 export function loadCustomerOrders({page=1,pageSize=20}={}){return rpc('customer_order_history',{p_limit:pageSize,p_offset:(page-1)*pageSize})}
 export async function getStorefrontSession(){const{data,error}=await getBrowserClient().auth.getSession();if(error)throw error;return data.session}
 export async function signInCustomer(email,password){const{data,error}=await getBrowserClient().auth.signInWithPassword({email,password});if(error)throw error;return data}

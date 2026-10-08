@@ -7,8 +7,8 @@ import { AI_TOOLS, TOOL_BY_NAME, buildSystemPrompt } from '../_lib/ai-tools.js';
 import { callProvider } from '../_lib/ai-providers.js';
 import { applyCors } from '../_lib/cors.js';
 
-const MAX_TOOL_ROUNDS = 6;
-const MAX_HISTORY = 20;
+const MAX_TOOL_ROUNDS = 12;
+const MAX_HISTORY = 25;
 
 // Tools run under the caller's JWT so every RPC re-checks their role/branch access.
 function createUserClient(token, env = process.env) {
@@ -135,11 +135,15 @@ export default async function handler(req, res) {
     const { data: profile } = await admin.from('profiles').select('full_name').eq('id', actor.id).maybeSingle();
     const { data: branchRows } = await userClient.rpc('ai_list_branches');
     const branches = Array.isArray(branchRows) ? branchRows.filter(b => b.can_access) : [];
+    const { data: categoryRows } = await admin.from('categories').select('id,name').eq('is_active', true).order('name');
+    const { data: brandRows } = await admin.from('brands').select('id,name').eq('is_active', true).order('name');
 
     const system = buildSystemPrompt({
       actorName: profile?.full_name,
       roles: roles.map(r => ({ role: r.role, branch_name: branches.find(b => b.branch_id === r.branch_id)?.name })),
       branches,
+      categories: categoryRows ?? [],
+      brands: brandRows ?? [],
       today: new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(new Date()),
     });
 

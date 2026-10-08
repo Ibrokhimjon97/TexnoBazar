@@ -1,10 +1,9 @@
 import React,{useCallback,useEffect,useMemo,useState}from'react';
 import RichTextEditor from'./RichTextEditor';
-import{AlertTriangle,Boxes,Download,Pencil,Plus,RefreshCw,Search,Store,Trash2,Upload,Warehouse,X}from'lucide-react';
-import{DualPrice,DualPriceInput,Empty,Modal,QrScanButton,Status,useExchangeRate}from'@texnobazar/ui';
-import{getBrowserClient,listInventoryBalances,listInventorySearchSellers,listMasterRecords,searchInventoryUnits}from'@texnobazar/data';
-
-import ProductCatalog from'./ProductCatalog';
+import{AlertTriangle,Bluetooth,Boxes,CheckSquare,Download,Pencil,Plus,Printer,RefreshCw,Search,Store,Trash2,Upload,Warehouse,X}from'lucide-react';
+import{DualPrice,DualPriceInput,Empty,Modal,QrScanButton,Status,useExchangeRate,DetongerPrintModal}from'@texnobazar/ui';
+import{bulkDeleteProducts,deleteCategoryProducts,getBrowserClient,listInventoryBalances,listInventorySearchSellers,listMasterRecords,searchInventoryUnits}from'@texnobazar/data';
+import ProductCatalog,{ProductEditor}from'./ProductCatalog';
 
 const PAGE_SIZE=100;
 const STOREFRONT=(import.meta.env?.VITE_STOREFRONT_URL||'https://texnobazar-storefront.netlify.app').replace(/\/$/,'');
@@ -15,7 +14,6 @@ const nextDay=value=>{const date=new Date(`${value}T00:00:00Z`);date.setUTCDate(
 const unitFilters=form=>compact({query:form.query,qr:form.qr,serial:form.serial,batch:form.batch,sku:form.sku,model:form.model,color:form.color,size:form.size,min_price:form.min_price,max_price:form.max_price,branch_ids:form.branch?[form.branch]:[],location_ids:form.location?[form.location]:[],statuses:form.status?[form.status]:[],seller_ids:form.seller?[form.seller]:[],from:form.from?`${form.from}T00:00:00Z`:'',to:form.to?nextDay(form.to):''});
 
 export default function InventoryOverview({toast}){
-  const rate=useExchangeRate();
   const[tab,setTab]=useState('catalog');
   if(tab==='catalog')return <section><div className="inventory-tabs"><button className={tab==='catalog'?'active':''} onClick={()=>setTab('catalog')}>Mahsulot katalogi</button><button className={tab==='balance'?'active':''} onClick={()=>setTab('balance')}>Qoldiq (Balans)</button><button className={tab==='units'?'active':''} onClick={()=>setTab('units')}>Individual birliklar</button></div><ProductCatalog toast={toast}/></section>;
   return <InventoryBalanceView toast={toast} tab={tab} setTab={setTab}/>;
@@ -25,6 +23,7 @@ function InventoryBalanceView({toast,tab,setTab}){
   const[mode,setMode]=useState('summary');
   const[rows,setRows]=useState([]);
   const[totalRows,setTotalRows]=useState(0);
+  const[aggregates,setAggregates]=useState({totalOnHand:0,totalValue:0,totalCost:0});
   const[refs,setRefs]=useState({branches:[],locations:[],employees:[],categories:[]});
   const[form,setForm]=useState(initial);
   const[applied,setApplied]=useState(initial);
@@ -32,6 +31,10 @@ function InventoryBalanceView({toast,tab,setTab}){
   const[loading,setLoading]=useState(true);
   const[selectedProduct,setSelectedProduct]=useState(null),[newProductModal,setNewProductModal]=useState(false);
   const[error,setError]=useState('');
+  const[selected,setSelected]=useState([]);
+  const[bulkDeleting,setBulkDeleting]=useState(false);
+  const[categoryDeleting,setCategoryDeleting]=useState(false);
+
   const set=(key,value)=>setForm(current=>({...current,[key]:value}));
 
   useEffect(()=>{
@@ -52,26 +55,103 @@ function InventoryBalanceView({toast,tab,setTab}){
       // Enrich with cost_price from products table
       if(items.length>0){const ids=[...new Set(items.map(i=>i.product_id))];const{data:prods}=await getBrowserClient().from('products').select('id,cost_price').in('id',ids);const costMap=Object.fromEntries((prods||[]).map(p=>[p.id,p.cost_price||0]));items.forEach(i=>{i.cost_price=costMap[i.product_id]||0})}
       setRows(items);setTotalRows(Number(result?.total||0));
+      if(mode==='summary'&&result){
+        setAggregates({
+          totalOnHand: Number(result.total_on_hand || 0),
+          totalValue: Number(result.total_value || 0),
+          totalCost: Number(result.total_cost || 0)
+        });
+      }
     }catch(currentError){setRows([]);setTotalRows(0);setError(currentError.message||'Qoldiq yuklanmadi')}
     finally{setLoading(false)}
   },[mode,applied,page]);
+
   useEffect(()=>{load()},[load]);
 
-  const apply=event=>{event?.preventDefault();setPage(1);setApplied({...form})};
-  const reset=()=>{setForm(initial);setApplied(initial);setPage(1)};
-  const switchMode=next=>{setMode(next);setPage(1)};
+  const apply=event=>{event?.preventDefault();setPage(1);setSelected([]);setApplied({...form})};
+  const reset=()=>{setForm(initial);setApplied(initial);setSelected([]);setPage(1)};
+  const switchMode=next=>{setMode(next);setSelected([]);setPage(1)};
   const totalPages=Math.max(1,Math.ceil(totalRows/PAGE_SIZE));
   const locations=refs.locations.filter(item=>!form.branch||item.branch_id===form.branch);
+  const activeCategoryObj=useMemo(()=>refs.categories.find(c=>c.id===applied.category),[refs.categories,applied.category]);
+
   const summary=useMemo(()=>mode==='summary'
     ?rows.reduce((result,item)=>({on:result.on+Number(item.on_hand),reserved:result.reserved+Number(item.reserved),value:result.value+Number(item.on_hand)*Number(item.retail_price),cost:result.cost+Number(item.on_hand)*Number(item.cost_price||0),types:result.types.add(item.product_id)}),{on:0,reserved:0,value:0,cost:0,types:new Set()})
     :rows.reduce((result,item)=>({available:result.available+(item.status==='available'?1:0),reserved:result.reserved+(item.status==='reserved'?1:0),value:result.value+Number((item.promotion_price??item.retail_price)||0)}),{available:0,reserved:0,value:0}),[rows,mode]);
 
-    const editProduct=item=>{setSelectedProduct(item)};
+  const editProduct=item=>{setSelectedProduct(item)};
   const deleteProduct=async item=>{if(!confirm(item.product_name+" mahsulotini ochirasizmi?"))return;try{const client=getBrowserClient();const{error:err}=await client.rpc('delete_product_cascade',{p_product_id:item.product_id});if(err)throw err;if(toast)toast('Mahsulot ochirildi');setRows(prev=>prev.filter(r=>r.product_id!==item.product_id))}catch(e){setError(e.message)}};
+
+  const uniqueProductIds=useMemo(()=>[...new Set(rows.map(r=>r.product_id).filter(Boolean))],[rows]);
+  const allSelected=uniqueProductIds.length>0&&uniqueProductIds.every(id=>selected.includes(id));
+  const toggleSelect=id=>setSelected(prev=>prev.includes(id)?prev.filter(x=>x!==id):[...prev,id]);
+  const toggleSelectAll=()=>setSelected(allSelected?[]:[...uniqueProductIds]);
+
+  const bulkDelete=async()=>{
+    if(!selected.length)return;
+    const count=selected.length;
+    if(!confirm(`${count} ta mahsulotni o‘chirishni tasdiqlaysizmi?\n\nDIQQAT: Ushbu mahsulotlar va ularning ombordagi barcha birliklari butunlay o‘chiriladi!`))return;
+    setBulkDeleting(true);setError('');
+    try{
+      const res=await bulkDeleteProducts(selected);
+      const done=res?.deleted_count??selected.length;
+      setSelected([]);
+      if(toast)toast(`${done} ta mahsulot o‘chirildi`);
+      await load();
+    }catch(e){
+      try{
+        const client=getBrowserClient();
+        let done=0;
+        for(const id of selected){
+          await client.rpc('delete_product_cascade',{p_product_id:id});
+          done++;
+        }
+        setSelected([]);
+        if(toast)toast(`${done} ta mahsulot o‘chirildi`);
+        await load();
+      }catch(err2){setError(err2?.message||e?.message)}
+    }finally{setBulkDeleting(false)}
+  };
+
+  const deleteActiveCategoryProducts=async()=>{
+    if(!applied.category||!activeCategoryObj)return;
+    const client=getBrowserClient();
+    const subCats=refs.categories.filter(c=>c.parent_id===applied.category).map(c=>c.id);
+    const catIds=[applied.category,...subCats];
+    const{count,error:cErr}=await client.from('products').select('id',{count:'exact',head:true}).in('category_id',catIds);
+    if(cErr){setError(cErr.message);return}
+    const prodCount=count||0;
+    if(prodCount===0){
+      alert(`“${activeCategoryObj.name}” kategoriyasida tovar topilmadi.`);
+      return;
+    }
+    if(!confirm(`DIQQAT!\n\n“${activeCategoryObj.name}” kategoriyasidagi BARCHA (${prodCount} ta) tovarlarni butunlay o‘chirishni tasdiqlaysizmi?\n\nBu amal qaytarilmaydi!`))return;
+    setCategoryDeleting(true);setError('');
+    try{
+      const res=await deleteCategoryProducts(applied.category,true);
+      const done=res?.deleted_count??prodCount;
+      setSelected([]);
+      if(toast)toast(`“${activeCategoryObj.name}” kategoriyasidagi ${done} ta tovar o‘chirildi`);
+      await load();
+    }catch(e){
+      try{
+        const{data:prods}=await client.from('products').select('id').in('category_id',catIds);
+        let done=0;
+        for(const p of(prods||[])){
+          await client.rpc('delete_product_cascade',{p_product_id:p.id});
+          done++;
+        }
+        setSelected([]);
+        if(toast)toast(`“${activeCategoryObj.name}” kategoriyasidagi ${done} ta tovar o‘chirildi`);
+        await load();
+      }catch(err2){setError(err2?.message||e?.message)}
+    }finally{setCategoryDeleting(false)}
+  };
+
   return <>
     <div className="inventory-tabs"><button className={tab==='catalog'?'active':''} onClick={()=>setTab('catalog')}>Mahsulot katalogi</button><button className={tab==='balance'?'active':''} onClick={()=>setTab('balance')}>Qoldiq (Balans)</button><button className={tab==='units'?'active':''} onClick={()=>setTab('units')}>Individual birliklar</button></div>
     <div className="page-head between"><div><h2>Ombor va advanced qidiruv</h2><p>Balans yoki QR/seriya/partiya/model/rang/o‘lcham/narx/sotuvchi/sana bo‘yicha individual birliklar</p></div><button className="btn btn-outline" onClick={load}><RefreshCw/>Yangilash</button><button className="btn btn-primary" onClick={()=>setNewProductModal(true)}><Plus/> Yangi tovar</button></div>
-    <div className="mini-kpis">{mode==='summary'?<><div><Boxes/><span><b>{summary.types?.size||rows.length}</b>Tovar turlari</span></div><div><Warehouse/><span><b>{summary.on}</b>Mavjud tovarlar</span></div><div><Boxes/><span><b><DualPrice value={summary.value} rate={rate}/></b>Sotish narxi</span></div><div><Warehouse/><span><b><DualPrice value={summary.cost} rate={rate}/></b>Tannarxi</span></div></>:<><div><Boxes/><span><b>{totalRows}</b>Tovar turlari</span></div><div><Warehouse/><span><b>{summary.available}</b>Mavjud tovarlar</span></div><div><Boxes/><span><b><DualPrice value={summary.value} rate={rate}/></b>Sotish narxi</span></div><div><Warehouse/><span><b><DualPrice value={summary.cost} rate={rate}/></b>Tannarxi</span></div></>}</div>
+    <div className="mini-kpis">{mode==='summary'?<><div><Boxes/><span><b>{totalRows}</b>Tovar turlari</span></div><div><Warehouse/><span><b>{aggregates.totalOnHand}</b>Mavjud tovarlar</span></div><div><Boxes/><span><b><DualPrice value={aggregates.totalValue} rate={rate}/></b>Sotish narxi</span></div><div><Warehouse/><span><b><DualPrice value={aggregates.totalCost} rate={rate}/></b>Tannarxi</span></div></>:<><div><Boxes/><span><b>{totalRows}</b>Tovar turlari</span></div><div><Warehouse/><span><b>{summary.available}</b>Mavjud tovarlar</span></div><div><Boxes/><span><b><DualPrice value={summary.value} rate={rate}/></b>Sotish narxi</span></div><div><Warehouse/><span><b><DualPrice value={summary.cost} rate={rate}/></b>Tannarxi</span></div></>}</div>
     <div className="card data-card">
       <div className="tw-tabs"><button className={mode==='summary'?'active':''} onClick={()=>switchMode('summary')}>Balans</button><button className={mode==='units'?'active':''} onClick={()=>switchMode('units')}>Individual advanced search</button></div>
       <form className="inventory-admin-filters" onSubmit={apply}>
@@ -94,7 +174,38 @@ function InventoryBalanceView({toast,tab,setTab}){
         </>}
         <button className="btn btn-primary">Qidirish</button><button type="button" className="btn btn-outline" onClick={reset}>Tozalash</button>
       </form>
-      {loading?<div className="employee-loading">Qoldiq yuklanmoqda…</div>:error?<div className="empty"><AlertTriangle/><h3>Xatolik</h3><p>{error}</p><button className="btn" onClick={load}>Qayta urinish</button></div>:rows.length===0?<Empty title="Qoldiq topilmadi" text="Filtrlarga mos mahsulot birliklari yo‘q."/>:mode==='summary'?<BalanceTable rows={rows} onEdit={editProduct} onDelete={deleteProduct} onSelect={setSelectedProduct} rate={rate}/>:<UnitTable rows={rows} rate={rate}/>}
+
+      {activeCategoryObj&&mode==='summary'&&(
+        <div className="category-action-strip">
+          <span>Kategoriya: <b>{activeCategoryObj.name}</b> ({totalRows} ta mahsulot)</span>
+          <div style={{display:'flex',gap:8,alignItems:'center'}}>
+            <button type="button" className="btn btn-outline btn-xs" onClick={()=>setSelected([...uniqueProductIds])}>Ushbu tovarlarni tanlash</button>
+            <button type="button" className="btn btn-danger-outline btn-xs" onClick={deleteActiveCategoryProducts} disabled={categoryDeleting}>
+              <Trash2 size={13}/>{categoryDeleting?'O‘chirilmoqda…':'Kategoriyadagi barcha tovarlarni o‘chirish'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {selected.length>0&&(
+        <div className="bulk-actions-bar">
+          <div className="bulk-actions-info">
+            <CheckSquare size={16}/>
+            <span><b>{selected.length} ta</b> mahsulot tanlandi</span>
+          </div>
+          <div className="bulk-actions-btns">
+            <button type="button" className="btn btn-danger btn-sm" onClick={bulkDelete} disabled={bulkDeleting}>
+              <Trash2 size={14}/>
+              {bulkDeleting?'O‘chirilmoqda…':`Tanlanganlarni o‘chirish (${selected.length})`}
+            </button>
+            <button type="button" className="btn btn-outline btn-sm" onClick={()=>setSelected([])}>
+              Bekor qilish
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading?<div className="employee-loading">Qoldiq yuklanmoqda…</div>:error?<div className="empty"><AlertTriangle/><h3>Xatolik</h3><p>{error}</p><button className="btn" onClick={load}>Qayta urinish</button></div>:rows.length===0?<Empty title="Qoldiq topilmadi" text="Filtrlarga mos mahsulot birliklari yo‘q."/>:mode==='summary'?<BalanceTable rows={rows} selected={selected} toggleSelect={toggleSelect} allSelected={allSelected} toggleSelectAll={toggleSelectAll} onEdit={editProduct} onDelete={deleteProduct} onSelect={setSelectedProduct} rate={rate}/>:<UnitTable rows={rows} rate={rate}/>}
       {!loading&&!error&&totalRows>0&&<><div className="unit-page-note">{(page-1)*PAGE_SIZE+1}–{Math.min(page*PAGE_SIZE,totalRows)} / {totalRows}</div><div className="inventory-search-pagination"><span>{page}-sahifa / {totalPages}</span><div><button className="btn btn-outline" disabled={page<=1} onClick={()=>setPage(current=>current-1)}>Oldingi</button><button className="btn btn-outline" disabled={page>=totalPages} onClick={()=>setPage(current=>current+1)}>Keyingi</button></div></div></>}
     </div>
 
@@ -103,8 +214,38 @@ function InventoryBalanceView({toast,tab,setTab}){
   </>
 }
 
-function BalanceTable({rows,onEdit,onDelete,onSelect,rate}){return <div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>Filial</th><th>Joylashuv</th><th>Turi</th><th>Jami</th><th>Mavjud</th><th>Sotish narxi</th><th>Tannarxi</th><th>Amal</th></tr></thead><tbody>{rows.map(item=><tr key={`${item.location_id}-${item.product_id}`} className="clickable-row" onClick={()=>onSelect&&onSelect(item)}><td><div className="product-cell">{item.image?<img src={item.image} alt=""/>:<span className="product-placeholder"><Boxes/></span>}<div><b>{item.product_name}</b><span>{item.sku}</span></div></div></td><td>{item.branch_name}</td><td>{item.location_name}</td><td><Status type={item.location_type==='warehouse'?'blue':'green'}>{item.location_type}</Status></td><td><b>{Number(item.on_hand)}</b></td><td><b>{Number(item.available)}</b></td><td><DualPrice value={Number(item.on_hand)*Number(item.retail_price)} rate={rate}/></td><td><DualPrice value={Number(item.on_hand)*Number(item.cost_price||0)} rate={rate}/></td><td><div className="master-actions"><button className="icon-btn" title="Tahrirlash" onClick={()=>onEdit&&onEdit(item)}><Pencil size={14}/></button><button className="icon-btn danger-icon" title="Ochirish" onClick={()=>onDelete&&onDelete(item)}><Trash2 size={14}/></button></div></td></tr>)}</tbody></table></div>}
-function UnitTable({rows,rate}){return <div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>QR / seriya</th><th>Partiya</th><th>Filial / joy</th><th>Status</th><th>Narx</th><th>Sotilgan sana</th></tr></thead><tbody>{rows.map(item=><tr key={item.id}><td><b>{item.product_name}</b><small>{item.sku}</small></td><td><code>{item.qr_code}</code><small>{item.serial_number||'—'}</small></td><td>{item.batch_reference||'—'}</td><td>{item.branch_name}<small>{item.location_name}</small></td><td><Status type={item.status==='available'?'green':item.status==='sold'?'blue':'orange'}>{item.status}</Status></td><td><DualPrice value={Number((item.promotion_price??item.retail_price)||0)} rate={rate}/></td><td>{item.sold_at?new Date(item.sold_at).toLocaleString('uz-UZ'):'—'}</td></tr>)}</tbody></table></div>}
+function BalanceTable({rows,selected=[],toggleSelect,allSelected=false,toggleSelectAll,onEdit,onDelete,onSelect,rate}){
+  return <div className="table-wrap"><table className="table">
+    <thead>
+      <tr>
+        <th style={{width:38,textAlign:'center'}}><input type="checkbox" checked={allSelected} onChange={toggleSelectAll} title="Barchasini tanlash"/></th>
+        <th>Mahsulot</th><th>Filial</th><th>Joylashuv</th><th>Turi</th><th>Jami</th><th>Mavjud</th><th>Sotish narxi</th><th>Tannarxi</th><th>Amal</th>
+      </tr>
+    </thead>
+    <tbody>{rows.map(item=><tr key={`${item.location_id}-${item.product_id}`} className={`clickable-row ${selected.includes(item.product_id)?'selected-row':''}`} onClick={()=>onSelect&&onSelect(item)}>
+      <td style={{textAlign:'center'}} onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selected.includes(item.product_id)} onChange={()=>toggleSelect(item.product_id)}/></td>
+      <td><div className="product-cell">{item.image?<img src={item.image} alt=""/>:<span className="product-placeholder"><Boxes/></span>}<div><b>{item.product_name}</b><span>{item.sku}</span></div></div></td>
+      <td>{item.branch_name}</td><td>{item.location_name}</td><td><Status type={item.location_type==='warehouse'?'blue':'green'}>{item.location_type}</Status></td>
+      <td><b>{Number(item.on_hand)}</b></td><td><b>{Number(item.available)}</b></td>
+      <td><DualPrice value={Number(item.on_hand)*Number(item.retail_price)} rate={rate}/></td>
+      <td><DualPrice value={Number(item.on_hand)*Number(item.cost_price||0)} rate={rate}/></td>
+      <td><div className="master-actions" onClick={e=>e.stopPropagation()}><button className="icon-btn" title="Tahrirlash" onClick={()=>onEdit&&onEdit(item)}><Pencil size={14}/></button><button className="icon-btn danger-icon" title="Ochirish" onClick={()=>onDelete&&onDelete(item)}><Trash2 size={14}/></button></div></td>
+    </tr>)}</tbody>
+  </table></div>;
+}
+
+function UnitTable({rows,rate}){
+  const[printUnit,setPrintUnit]=useState(null);
+  return <>
+    <div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>QR / seriya</th><th>Partiya</th><th>Filial / joy</th><th>Status</th><th>Narx</th><th>Sotilgan sana</th><th>Chop</th></tr></thead><tbody>{rows.map(item=><tr key={item.id}><td><b>{item.product_name}</b><small>{item.sku}</small></td><td><code>{item.qr_code}</code><small>{item.serial_number||'—'}</small></td><td>{item.batch_reference||'—'}</td><td>{item.branch_name}<small>{item.location_name}</small></td><td><Status type={item.status==='available'?'green':item.status==='sold'?'blue':'orange'}>{item.status}</Status></td><td><DualPrice value={Number((item.promotion_price??item.retail_price)||0)} rate={rate}/></td><td>{item.sold_at?new Date(item.sold_at).toLocaleString('uz-UZ'):'—'}</td><td><button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:11,display:'inline-flex',alignItems:'center',gap:4}} title="Detonger Bluetooth orqali chop etish" onClick={()=>setPrintUnit({ id: item.id, title: item.product_name, code: item.qr_code, date: new Date().toLocaleDateString('uz-UZ'), batch: item.batch_reference })}><Bluetooth size={12} color="var(--orange)"/><Printer size={12}/></button></td></tr>)}</tbody></table></div>
+    <DetongerPrintModal
+      open={Boolean(printUnit)}
+      onClose={()=>setPrintUnit(null)}
+      labels={printUnit?[printUnit]:[]}
+      batchTitle={printUnit?.batch?`Partiya #${printUnit.batch}`:''}
+    />
+  </>;
+}
 
 function ProductDetailModal({product,close,toast,rate}){
   const[detail,setDetail]=useState(null),[units,setUnits]=useState([]),[media,setMedia]=useState([]);
@@ -166,7 +307,6 @@ function ProductDetailModal({product,close,toast,rate}){
     const QRCode=await import('qrcode');
     const url=`${STOREFRONT}/qr/${encodeURIComponent(unit.qr_code)}`;
     const canvas=await QRCode.toCanvas(url,{width:300,margin:2,color:{dark:'#000000',light:'#ffffff'}});
-    // Add label text below QR
     const labeled=document.createElement('canvas');
     labeled.width=300;labeled.height=340;
     const ctx=labeled.getContext('2d');
@@ -225,93 +365,5 @@ function ProductDetailModal({product,close,toast,rate}){
 }
 
 export function NewProductModal({close,toast,onCreated}){
-  const rate=useExchangeRate();
-  const[form,setForm]=useState({name:'',sku:'',barcode:'',category_id:'',brand_id:'',cost_price:'',retail_price:'',wholesale_price:'',promotion_price:'',minimum_sale_price:'0',compare_at_price:'',tax_rate:'0',description:'',slug:'',video_url:''});
-  const[images,setImages]=useState([]);
-  const[categories,setCategories]=useState([]),[brands,setBrands]=useState([]),[catModal,setCatModal]=useState(false);
-  const[busy,setBusy]=useState(false),[error,setError]=useState('');
-  useEffect(()=>{const client=getBrowserClient();Promise.all([client.from('categories').select('id,name').eq('is_active',true),client.from('brands').select('id,name').eq('is_active',true)]).then(([{data:c},{data:b}])=>{setCategories(c||[]);setBrands(b||[])})},[]);
-  const submit=async e=>{e.preventDefault();setBusy(true);setError('');try{
-    const client=getBrowserClient();
-    const slug=(form.slug?.trim()||form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''))+'-'+Date.now().toString(36);
-    const{error:err}=await client.from('products').insert({
-      name:form.name.trim(),sku:form.sku.trim().toUpperCase()||('TB-'+Date.now()),
-      slug,category_id:form.category_id||undefined,brand_id:form.brand_id||null,
-      cost_price:Number(form.cost_price)||0,retail_price:Number(form.retail_price)||0,
-      description:form.description.trim()||null,status:'active',is_published:false,
-      track_individual_units:true,tax_rate:0,wholesale_price:null,promotion_price:null
-    });
-    if(err)throw err;
-    if(toast)toast('Mahsulot yaratildi');
-    await onCreated();
-  }catch(err){setError(err.message)}finally{setBusy(false)}};
-  return <Modal open onClose={close} title="Yangi mahsulot"><form className="employee-form-grid" onSubmit={submit}>{error&&<div className="employee-error wide">{error}</div>}<label className="wide"><span className="label">Mahsulot nomi</span><input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required minLength="2"/></label><label><span className="label">SKU</span><input className="input" value={form.sku} onChange={e=>setForm({...form,sku:e.target.value})} placeholder="Avtomatik"/></label><label><span className="label">Kategoriya</span><div style={{display:'flex',gap:6}}><select className="select" value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})} style={{flex:1}} required><option value="">Tanlang</option>{categories.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select><button type="button" className="btn btn-outline" style={{padding:'6px 12px'}} onClick={()=>setCatModal(true)}>+</button></div></label><label><span className="label">Brend</span><div style={{display:'flex',gap:6,position:'relative'}}><select className="select" style={{flex:1}} value={form.brand_id} onChange={e=>setForm({...form,brand_id:e.target.value})}><option value="">Brendsiz</option>{brands.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><NewBrandInline brands={brands} setBrands={setBrands} onCreated={b=>setForm({...form,brand_id:b.id})}/></div></label><DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v=>setForm({...form,cost_price:v})} rate={rate}/><DualPriceInput label="Sotish narxi" valueUzs={form.retail_price} onChangeUzs={v=>setForm({...form,retail_price:v})} rate={rate}/><DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v=>setForm({...form,wholesale_price:v})} rate={rate}/><label><span className="label">Aksiya narxi</span><input className="input" type="number" min="0" value={form.promotion_price} onChange={e=>setForm({...form,promotion_price:e.target.value})}/></label><label><span className="label">Minimal sotuv narxi</span><input className="input" type="number" min="0" value={form.minimum_sale_price} onChange={e=>setForm({...form,minimum_sale_price:e.target.value})}/></label><label><span className="label">Eski narx</span><input className="input" type="number" min="0" value={form.compare_at_price} onChange={e=>setForm({...form,compare_at_price:e.target.value})}/></label><label><span className="label">Shtrix-kod</span><input className="input" value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})}/></label><label className="wide"><span className="label">Slug</span><input className="input" value={form.slug} onChange={e=>setForm({...form,slug:e.target.value})} placeholder="Nomdan avtomatik yaratiladi"/></label><label className="wide"><span className="label">YouTube video URL</span><input className="input" value={form.video_url} onChange={e=>setForm({...form,video_url:e.target.value})} placeholder="https://youtube.com/watch?v=..."/></label><div className="wide"><span className="label">Tavsif</span><RichTextEditor value={form.description} onChange={v=>setForm({...form,description:v})}/></div><div className="wide"><span className="label">Rasmlar ({images.length} ta tanlangan)</span><div style={{display:'flex',gap:8,flexWrap:'wrap',marginBottom:8}}>{images.map((file,i)=><div key={i} className="product-media-item"><img src={URL.createObjectURL(file)} alt=""/><button type="button" className="media-delete-btn" onClick={()=>setImages(imgs=>imgs.filter((_,j)=>j!==i))}><Trash2 size={10}/></button></div>)}</div><label className="btn btn-outline btn-sm"><Upload size={14}/> Rasm tanlash<input type="file" accept="image/*" multiple hidden onChange={e=>{const files=[...e.target.files];if(files.length)setImages(prev=>[...prev,...files]);e.target.value=''}}/></label></div><button className="btn btn-primary wide" disabled={busy}>{busy?'Yaratilmoqda...':'Yaratish'}</button></form>{catModal&&<InlineCategoryModal categories={categories} close={()=>setCatModal(false)} onCreated={(id,name)=>{setCategories(prev=>[...prev,{id,name}]);setForm(f=>({...f,category_id:id}));setCatModal(false)}}/>}</Modal>;
-}
-
-function InlineCategoryModal({categories,close,onCreated}){
-  const[form,setForm]=useState({name:'',slug:'',description:'',sort_order:'0',seo_image_url:'',is_active:true,parent_id:''});
-  const[busy,setBusy]=useState(false),[error,setError]=useState(''),[uploading,setUploading]=useState(false);
-  const parents=categories.filter(c=>!c.parent_id);
-  const submit=async e=>{e.preventDefault();setBusy(true);setError('');try{
-    const client=getBrowserClient();
-    const slug=form.slug.trim()||form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-');
-    const{data,error:err}=await client.from('categories').insert({
-      name:form.name.trim(),slug,parent_id:form.parent_id||null,
-      description:form.description.trim()||null,
-      seo_image_url:form.seo_image_url.trim()||null,
-      sort_order:Number(form.sort_order)||0,is_active:form.is_active
-    }).select('id,name').single();
-    if(err)throw err;
-    onCreated(data.id,data.name);
-  }catch(err){setError(err.message)}finally{setBusy(false)}};
-  const uploadImage=async(e)=>{
-    const file=e.target.files?.[0];if(!file)return;setUploading(true);
-    try{const client=getBrowserClient();const path='categories/'+Date.now()+'-'+file.name.replace(/[^a-z0-9._-]/gi,'_');const{error:ue}=await client.storage.from('logos').upload(path,file,{upsert:true});if(ue)throw ue;const{data:{publicUrl}}=client.storage.from('logos').getPublicUrl(path);setForm(f=>({...f,seo_image_url:publicUrl}))}catch(err){alert(err.message)}finally{setUploading(false);e.target.value=''}
-  };
-  return <Modal open onClose={close} title="Yangi kategoriya"><form className="employee-form-grid" onSubmit={submit}>{error&&<div className="employee-error wide">{error}</div>}<label><span className="label">Ota kategoriya</span><select className="select" value={form.parent_id} onChange={e=>setForm({...form,parent_id:e.target.value})}><option value="">— Asosiy (yuqori daraja) —</option>{parents.map(p=><optgroup key={p.id} label={p.name}><option value={p.id}>{p.name} (ota)</option>{categories.filter(c=>c.parent_id===p.id).map(child=><option key={child.id} value={child.id}>&nbsp;&nbsp;↳ {child.name}</option>)}</optgroup>)}</select></label><label><span className="label">Nomi</span><input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required minLength="2"/></label><label><span className="label">Slug</span><input className="input" value={form.slug} onChange={e=>setForm({...form,slug:e.target.value})} placeholder="avtomatik"/></label><label><span className="label">Tartib</span><input className="input" type="number" min="0" value={form.sort_order} onChange={e=>setForm({...form,sort_order:e.target.value})}/></label><label className="wide"><span className="label">Tavsif</span><input className="input" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></label><label className="wide"><span className="label">Kategoriya rasmi</span><div style={{display:'flex',gap:8,alignItems:'center'}}><input className="input" value={form.seo_image_url} onChange={e=>setForm({...form,seo_image_url:e.target.value})} placeholder="URL yoki yuklang"/><label className="btn btn-outline btn-sm" style={{whiteSpace:'nowrap',cursor:'pointer'}}>{uploading?'...':'Yuklash'}<input type="file" accept="image/*" hidden onChange={uploadImage}/></label>{form.seo_image_url&&<img src={form.seo_image_url} alt="" style={{width:40,height:40,borderRadius:8,objectFit:'cover'}}/>}</div></label><label className="master-check wide"><input type="checkbox" checked={form.is_active} onChange={e=>setForm({...form,is_active:e.target.checked})}/><span>Faol</span></label><button className="btn btn-primary wide" disabled={busy}>{busy?'Yaratilmoqda...':'Yaratish'}</button></form></Modal>;
-}
-function NewBrandInline({brands,setBrands,onCreated}){
-  const[open,setOpen]=useState(false);
-  const[form,setForm]=useState({name:'',slug:'',logo_url:'',description:''});
-  const[busy,setBusy]=useState(false);
-  const[error,setError]=useState('');
-  const[uploading,setUploading]=useState(false);
-  const submit=async e=>{
-    e.preventDefault();
-    if(!form.name.trim())return;
-    setBusy(true);setError('');
-    try{
-      const slug=form.slug.trim()||form.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'');
-      const{data,error:insErr}=await getBrowserClient().from('brands').insert({
-        name:form.name.trim(),slug,logo_url:form.logo_url.trim()||null,description:form.description.trim()||null,is_active:true
-      }).select('id,name').single();
-      if(insErr)throw insErr;
-      if(setBrands)setBrands(prev=>[...prev,data]);
-      else brands.push(data);
-      onCreated(data);
-      setOpen(false);setForm({name:'',slug:'',logo_url:'',description:''});
-    }catch(e){setError(e.message)}finally{setBusy(false)}
-  };
-  const uploadLogo=async(e)=>{
-    const file=e.target.files?.[0];if(!file)return;
-    setUploading(true);
-    try{
-      const client=getBrowserClient();
-      const path='brands/'+Date.now()+'-'+file.name.replace(/[^a-z0-9._-]/gi,'_');
-      const{error:ue}=await client.storage.from('logos').upload(path,file,{upsert:true});
-      if(ue)throw ue;
-      const{data:{publicUrl}}=client.storage.from('logos').getPublicUrl(path);
-      setForm(f=>({...f,logo_url:publicUrl}));
-    }catch(er){alert(er.message)}finally{setUploading(false);e.target.value=''}
-  };
-  if(!open)return <button type="button" className="btn btn-outline" style={{padding:'8px 12px',whiteSpace:'nowrap'}} onClick={()=>setOpen(true)}>+</button>;
-  return <div style={{position:'absolute',right:0,top:'100%',zIndex:10,background:'#fff',border:'1px solid #e2e8f0',borderRadius:12,padding:16,display:'grid',gap:10,width:320,boxShadow:'0 8px 24px rgba(0,0,0,.12)'}}>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}><b style={{fontSize:13}}>Yangi brend</b><button type="button" style={{border:0,background:'none',fontSize:16,cursor:'pointer'}} onClick={()=>setOpen(false)}>&times;</button></div>
-    {error&&<div style={{color:'red',fontSize:11}}>{error}</div>}
-    <label><span className="label">Nomi</span><input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required/></label>
-    <label><span className="label">Slug</span><input className="input" value={form.slug} onChange={e=>setForm({...form,slug:e.target.value})} placeholder="avtomatik-yoki-qolda"/></label>
-    <label><span className="label">Logo</span><div style={{display:'flex',gap:8}}><input className="input" value={form.logo_url} onChange={e=>setForm({...form,logo_url:e.target.value})} placeholder="URL yoki fayl yuklang"/><label className="btn btn-outline btn-sm" style={{whiteSpace:'nowrap',cursor:'pointer'}}>{uploading?'...':'Yuklash'}<input type="file" accept="image/*" hidden onChange={uploadLogo}/></label></div></label>
-    <label><span className="label">Tavsif</span><input className="input" value={form.description} onChange={e=>setForm({...form,description:e.target.value})}/></label>
-    <button type="button" className="btn btn-primary" onClick={submit} disabled={busy}>{busy?'Yaratilmoqda...':'Saqlash'}</button>
-  </div>;
+  return <ProductEditor open={true} close={close} product={null} toast={toast} saved={onCreated}/>;
 }

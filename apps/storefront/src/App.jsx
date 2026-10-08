@@ -2,11 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight, BadgePercent, Check, ChevronLeft, ChevronRight, CreditCard, Grid2X2, Heart,
   Home as HomeIcon, LoaderCircle, MapPin, Menu, Minus, PackageCheck, Phone, Plus,
-  Search, Send, ShieldCheck, ShoppingCart, SlidersHorizontal, Sparkles, Star, Trash2, Truck,
+  QrCode, Search, Send, ShieldCheck, ShoppingCart, SlidersHorizontal, Sparkles, Star, Trash2, Truck,
   User, X,
 } from 'lucide-react';
+import FloatingCartButton from './FloatingCartButton.jsx';
 import { Empty, Status, ThemeToggle, Toast } from '@texnobazar/ui';
 import {
+  formatUzDate,
   createCheckoutToken, getBrowserClient, getOnlinePaymentStatus, getStorefrontSession, initiateOnlinePayment, listNotifications, loadCustomerAccount, loadCustomerOrders,
   loadStorefrontCatalog, loadStorefrontCms, loadStorefrontPaymentMethods, loadStorefrontProduct, loadStorefrontProducts, loadStorefrontReferences, loadProductReviews, markNotificationsRead, removeCustomerAddress, saveCustomerAddress,
   saveCustomerProfile, setCustomerCartItem, setCustomerFavorite, signInCustomer,
@@ -22,6 +24,21 @@ const errorText = error => error?.message || 'Kutilmagan xatolik yuz berdi.';
 const numberOf = value => Number.isFinite(Number(value)) ? Number(value) : 0;
 const safeArray = value => Array.isArray(value) ? value : [];
 const flattenCategoryTree = roots => safeArray(roots).flatMap(root => [root, ...flattenCategoryTree(root?.children).map(child => ({ ...child, parent_id: child.parent_id || root.id }))]);
+const getCategorySubtreeIds = (catId, categoriesList = []) => {
+  if (!catId) return new Set();
+  const set = new Set([String(catId)]);
+  let added = true;
+  while (added) {
+    added = false;
+    for (const c of categoriesList) {
+      if (c.parent_id && set.has(String(c.parent_id)) && !set.has(String(c.id))) {
+        set.add(String(c.id));
+        added = true;
+      }
+    }
+  }
+  return set;
+};
 const orderedProducts = (ids, catalog, fallback = catalog) => {
   const byId = new Map(catalog.map(product => [product.id, product]));
   const selected = safeArray(ids).map(String).map(id => byId.get(id)).filter(Boolean);
@@ -34,6 +51,8 @@ const storageWrite = (key, value) => {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage can be unavailable. */ }
 };
 const createKey = () => globalThis.crypto?.randomUUID?.() || `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+// Savatcha kaliti: mahsulot + (ixtiyoriy) rang varianti birgalikda noyob qatorni belgilaydi.
+const cartKey = item => `${item.id}::${item.variantId || ''}`;
 const normalizePhone = value => String(value || '').replace(/[\s()-]/g, '');
 const plainValue = value => {
   if (value == null) return '';
@@ -69,6 +88,18 @@ const adaptProduct = raw => ({
   attributes: safeArray(raw.attributes).map(item => ({ code: String(item.code || item.name || ''), name: String(item.name || item.code || ''), value: plainValue(item.value) })),
   categoryId: raw.category_id ? String(raw.category_id) : '',
   brandId: raw.brand_id ? String(raw.brand_id) : '',
+  avgRating: numberOf(raw.avg_rating),
+  reviewCount: Math.max(0, Math.trunc(numberOf(raw.review_count))),
+  // Rang variantlari: har biri o'z narxi, zaxirasi va (ixtiyoriy) rasmiga ega bo'lishi mumkin.
+  variants: safeArray(raw.variants).map(v => ({
+    id: String(v.id),
+    colorName: String(v.color_name || ''),
+    colorHex: v.color_hex || null,
+    price: numberOf(v.price),
+    stock: Math.max(0, Math.trunc(numberOf(v.stock))),
+    image: v.image || null,
+    media: safeArray(v.media),
+  })),
 });
 const parseRoute = () => {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
@@ -95,7 +126,7 @@ export default function App() {
   const [account, setAccount] = useState(null);
   const [accountError, setAccountError] = useState('');
   const [references, setReferences] = useState({ categories: {}, brands: {}, categoryRoots: [], categoryDetails: [] });
-  const [cart, setCart] = useState(() => safeArray(storageRead(ANON_CART_KEY, [])).map(item => ({ id: String(item.id), qty: Math.max(1, Math.trunc(numberOf(item.qty))) })));
+  const [cart, setCart] = useState(() => safeArray(storageRead(ANON_CART_KEY, [])).map(item => ({ id: String(item.id), variantId: item.variantId ? String(item.variantId) : null, qty: Math.max(1, Math.trunc(numberOf(item.qty))) })));
   const [favorites, setFavorites] = useState(() => safeArray(storageRead(ANON_FAV_KEY, [])).map(String));
   const anonymousCart = useRef(cart);
   const anonymousFavorites = useRef(favorites);
@@ -138,7 +169,25 @@ export default function App() {
     setCatalogState({ loading: true, error: '' });
     try {
       const first = await loadStorefrontCatalog({ page: 1, pageSize: 100, sort: 'name' });
-      mergeCatalogProducts(first?.items);
+      const items = [...safeArray(first?.items)];
+      const total = numberOf(first?.total);
+      const pageSize = items.length || 100;
+      if (total > items.length && pageSize > 0) {
+        const totalPages = Math.ceil(total / pageSize);
+        for (let p = 2; p <= totalPages; p += 3) {
+          const batch = [];
+          for (let b = p; b < Math.min(p + 3, totalPages + 1); b++) {
+            batch.push(loadStorefrontCatalog({ page: b, pageSize, sort: 'name' }));
+          }
+          const settled = await Promise.allSettled(batch);
+          settled.forEach(res => {
+            if (res.status === 'fulfilled') {
+              items.push(...safeArray(res.value?.items));
+            }
+          });
+        }
+      }
+      mergeCatalogProducts(items);
       setCatalogState({ loading: false, error: '' });
     } catch (error) {
       setCatalogState({ loading: false, error: errorText(error) });
@@ -234,7 +283,9 @@ export default function App() {
       setAccount(null);
       setCart(anonymousCart.current.map(item => {
         const product = productsById.get(item.id);
-        return { id: item.id, qty: product ? Math.min(item.qty, product.stock, 100) : Math.min(item.qty, 100) };
+        const variant = product && item.variantId ? product.variants?.find(v => v.id === item.variantId) : null;
+        const limit = variant ? variant.stock : product ? product.stock : 100;
+        return { id: item.id, variantId: item.variantId || null, qty: product ? Math.min(item.qty, limit, 100) : Math.min(item.qty, 100) };
       }).filter(item => item.qty > 0));
       setFavorites(anonymousFavorites.current);
     }
@@ -247,24 +298,34 @@ export default function App() {
     let cancelled = false;
     const marker = { userId, pending: true };
     mergedAccountUserId.current = marker;
-    const remoteCart = new Map(safeArray(account.cart).map(item => [String(item.product_id), Math.max(1, Math.trunc(numberOf(item.quantity))) ]));
-    const requestedCart = new Map([...remoteCart, ...cart.map(item => [item.id, Math.max(item.qty, remoteCart.get(item.id) || 0)])]);
+    const remoteCart = new Map(safeArray(account.cart).map(item => {
+      const entry = { id: String(item.product_id), variantId: item.variant_id ? String(item.variant_id) : null, qty: Math.max(1, Math.trunc(numberOf(item.quantity))) };
+      return [cartKey(entry), entry];
+    }));
+    const requestedCart = new Map(remoteCart);
+    cart.forEach(item => {
+      const key = cartKey(item);
+      const existing = requestedCart.get(key);
+      requestedCart.set(key, { ...item, qty: Math.max(item.qty, existing?.qty || 0) });
+    });
     const mergedCart = new Map();
-    requestedCart.forEach((qty, id) => {
-      const product = productsById.get(id);
-      const safeQuantity = product ? Math.min(qty, product.stock, 100) : Math.min(qty, 100);
-      if (safeQuantity > 0) mergedCart.set(id, safeQuantity);
+    requestedCart.forEach(entry => {
+      const product = productsById.get(entry.id);
+      const variant = product && entry.variantId ? product.variants?.find(v => v.id === entry.variantId) : null;
+      const limit = variant ? variant.stock : product ? product.stock : 100;
+      const safeQuantity = product ? Math.min(entry.qty, limit, 100) : Math.min(entry.qty, 100);
+      if (safeQuantity > 0) mergedCart.set(cartKey(entry), { ...entry, qty: safeQuantity });
     });
     const mergedFavorites = [...new Set([...safeArray(account.favorites).map(String), ...favorites])];
     const sync = async () => {
       if (activeUserId.current !== userId || accountOwnerId.current !== userId) return;
       const results = await Promise.allSettled([
-        ...[...mergedCart].map(([id, qty]) => setCustomerCartItem(id, qty)),
+        ...[...mergedCart.values()].map(entry => setCustomerCartItem(entry.id, entry.qty, entry.variantId || null)),
         ...mergedFavorites.map(id => setCustomerFavorite(id, true)),
       ]);
       if (!cancelled) {
         mergedAccountUserId.current = { userId, pending: false };
-        setCart([...mergedCart].map(([id, qty]) => ({ id, qty })));
+        setCart([...mergedCart.values()]);
         setFavorites(mergedFavorites);
         const failure = results.find(result => result.status === 'rejected');
         if (failure) setToast(errorText(failure.reason));
@@ -299,13 +360,15 @@ export default function App() {
     const changed = [];
     const next = cart.map(item => {
       const product = productsById.get(item.id);
-      const qty = product ? Math.min(item.qty, product.stock, 100) : item.qty;
-      if (product && qty !== item.qty) changed.push([item.id, qty]);
-      return qty > 0 ? { id: item.id, qty } : null;
+      const variant = product && item.variantId ? product.variants?.find(v => v.id === item.variantId) : null;
+      const limit = variant ? variant.stock : product ? product.stock : null;
+      const qty = limit != null ? Math.min(item.qty, limit, 100) : item.qty;
+      if (limit != null && qty !== item.qty) changed.push({ id: item.id, variantId: item.variantId || null, qty });
+      return qty > 0 ? { id: item.id, variantId: item.variantId || null, qty } : null;
     }).filter(Boolean);
     if (changed.length) {
       setCart(next);
-      if (session) Promise.all(changed.map(([id, qty]) => setCustomerCartItem(id, qty))).catch(error => setToast(errorText(error)));
+      if (session) Promise.all(changed.map(entry => setCustomerCartItem(entry.id, entry.qty, entry.variantId))).catch(error => setToast(errorText(error)));
     }
     // Reconcile only products actually present in the hydrated cache.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -314,12 +377,29 @@ export default function App() {
   useEffect(() => { if (!session) { anonymousCart.current = cart; storageWrite(ANON_CART_KEY, cart); } }, [cart]);
   useEffect(() => { if (!session) { anonymousFavorites.current = favorites; storageWrite(ANON_FAV_KEY, favorites); } }, [favorites]);
 
-  const cartItems = useMemo(() => cart.map(item => ({ ...productsById.get(item.id), id: item.id, qty: item.qty })).filter(item => item.name), [cart, productsById]);
+  const cartItems = useMemo(() => cart.map(item => {
+    const product = productsById.get(item.id);
+    if (!product) return { id: item.id, variantId: item.variantId, qty: item.qty };
+    const variant = item.variantId ? product.variants?.find(v => v.id === item.variantId) : null;
+    return {
+      ...product,
+      id: item.id,
+      variantId: item.variantId || null,
+      qty: item.qty,
+      price: variant ? variant.price || product.price : product.price,
+      stock: variant ? variant.stock : product.stock,
+      variantColorName: variant?.colorName || '',
+      image: variant?.image || product.image,
+    };
+  }).filter(item => item.name), [cart, productsById]);
   const selected = route.view === 'product' ? catalog.find(product => product.slug === route.slug) : null;
   useEffect(() => {
     if (route.view !== 'product' || selected?.hasDetail || !route.slug) return;
     let active = true;setDetailState({ loading: true, error: '' });
-    loadStorefrontProduct(route.slug).then(raw => { if (!active) return;if (!raw) throw new Error('Mahsulot topilmadi.');mergeCatalogProducts([raw]);setDetailState({loading:false,error:''}); }).catch(error => active&&setDetailState({loading:false,error:errorText(error)}));
+    loadStorefrontProduct(route.slug).then(raw => { if (!active) return;if (!raw) throw new Error('Mahsulot topilmadi.');mergeCatalogProducts([raw]);setDetailState({loading:false,error:''});
+      // O'xshash mahsulotlar uchun shu kategoriya tovarlarini serverdan yuklash
+      if (raw.category_id) loadStorefrontCatalog({ categoryId: String(raw.category_id), pageSize: 20 }).then(result => { if (active && result?.items?.length) mergeCatalogProducts(result.items); }).catch(() => {});
+    }).catch(error => active&&setDetailState({loading:false,error:errorText(error)}));
     return () => { active = false; };
   }, [route.view, route.slug, selected?.hasDetail, mergeCatalogProducts]);
   const selectedCategory = route.view === 'category' ? safeArray(references.categoryDetails).find(category => category.slug === route.slug) : null;
@@ -375,20 +455,27 @@ export default function App() {
     } catch { /* Ignore malformed CMS destinations. */ }
   };
 
-  const updateCart = async (product, nextQuantity, message = '') => {
+  const updateCart = async (product, nextQuantity, message = '', variantId = product.selectedVariantId || null) => {
     if (!customerStateReady) { setToast('Hisob ma’lumotlari sinxronlanmoqda. Biroz kuting.'); return; }
-    const quantity = Math.max(0, Math.min(Math.trunc(nextQuantity), product.stock));
-    setCart(current => quantity ? [...current.filter(item => item.id !== product.id), { id: product.id, qty: quantity }] : current.filter(item => item.id !== product.id));
+    const variant = variantId ? product.variants?.find(v => v.id === variantId) : null;
+    const stockLimit = variant ? variant.stock : product.stock;
+    const quantity = Math.max(0, Math.min(Math.trunc(nextQuantity), stockLimit));
+    setCart(current => {
+      const filtered = current.filter(item => !(item.id === product.id && (item.variantId || null) === (variantId || null)));
+      return quantity ? [...filtered, { id: product.id, variantId: variantId || null, qty: quantity }] : filtered;
+    });
     try {
-      if (session) await setCustomerCartItem(product.id, quantity);
+      if (session) await setCustomerCartItem(product.id, quantity, variantId || null);
       if (message) setToast(message);
     } catch (error) { setToast(errorText(error)); refreshAccount(); }
   };
-  const add = product => {
-    if (product.stock < 1) return;
-    const existing = cart.find(item => item.id === product.id)?.qty || 0;
-    if (existing >= product.stock) { setToast('Ombordagi mavjud miqdordan oshirib bo‘lmaydi.'); return; }
-    updateCart(product, existing + 1, 'Mahsulot savatchaga qo‘shildi');
+  const add = (product, variantId = product.selectedVariantId || null) => {
+    const variant = variantId ? product.variants?.find(v => v.id === variantId) : null;
+    const stockLimit = variant ? variant.stock : product.stock;
+    if (stockLimit < 1) return;
+    const existing = cart.find(item => item.id === product.id && (item.variantId || null) === (variantId || null))?.qty || 0;
+    if (existing >= stockLimit) { setToast('Ombordagi mavjud miqdordan oshirib bo‘lmaydi.'); return; }
+    updateCart(product, existing + 1, 'Mahsulot savatchaga qo‘shildi', variantId);
   };
   const toggleFavorite = async product => {
     if (!customerStateReady) { setToast('Hisob ma’lumotlari sinxronlanmoqda. Biroz kuting.'); return; }
@@ -399,10 +486,10 @@ export default function App() {
     catch (error) { setToast(errorText(error)); refreshAccount(); }
   };
   const clearCart = async () => {
-    const ids = cart.map(item => item.id);
+    const items = cart;
     setCart([]);
     storageWrite(ANON_CART_KEY, []);
-    if (session) await Promise.all(ids.map(id => setCustomerCartItem(id, 0)));
+    if (session) await Promise.all(items.map(item => setCustomerCartItem(item.id, 0, item.variantId || null)));
   };
 
   if (!authReady) return <div className="app-loading"><div className="app-loading-logo"><span>T</span></div><div className="app-loading-bar"><div className="app-loading-progress"/></div><b>Texnobazar yuklanmoqda...</b></div>;
@@ -410,13 +497,18 @@ export default function App() {
   return <>
   <Header {...{ go, cart, favorites, query, setQuery, menu, setMenu, session, navigateTarget, route, references }} settings={cms.settings} menuItems={safeArray(cms.menu_items)}/>
     <main>
-      {route.view === 'home' && <Home {...{ go, add, toggleFavorite, favorites, catalog, cms, catalogState, cmsState, loadCatalog, loadCms, navigateTarget, references, mergeCatalogProducts }}/>} 
-      {route.view === 'qr' && <QrResolver code={route.code} go={go}/>}
+      {route.view === 'home' && <Home {...{ go, add, toggleFavorite, favorites, catalog, cms, catalogState, cmsState, loadCatalog, loadCms, navigateTarget, references, mergeCatalogProducts }}/>}
+      {route.view === 'qr' && (
+        <>
+          <Home {...{ go, add, toggleFavorite, favorites, catalog, cms, catalogState, cmsState, loadCatalog, loadCms, navigateTarget, references, mergeCatalogProducts }}/>
+          <QrResolver code={route.code} go={go} add={add} setToast={setToast}/>
+        </>
+      )}
       {route.view === 'catalog' && <ServerCatalog {...{ go, add, toggleFavorite, favorites, query, setQuery, references, navigateTarget }} cmsBanners={safeArray(cms.banners)} onItemsLoaded={mergeCatalogProducts}/>} 
-      {route.view === 'product' && (selected ? <Product product={selected} {...{ go, add, toggleFavorite, favorites, session, setToast, setAuthOpen }} loved={favorites.includes(selected.id)} related={catalog.filter(item => item.id !== selected.id && (item.categoryId === selected.categoryId || item.brandId === selected.brandId)).slice(0, 50)}/> : <StatePanel loading={detailState.loading||catalogState.loading} error={detailState.error||catalogState.error} onRetry={()=>loadStorefrontProduct(route.slug).then(raw=>raw&&mergeCatalogProducts([raw]))} title="Mahsulot topilmadi"/>)}
+      {route.view === 'product' && (selected ? <Product product={selected} {...{ go, add, toggleFavorite, favorites, session, setToast, setAuthOpen }} loved={favorites.includes(selected.id)} related={(() => { const others = catalog.filter(item => item.id !== selected.id); const sameCat = others.filter(item => item.categoryId && item.categoryId === selected.categoryId); if (sameCat.length >= 5) return sameCat.slice(0, 50); const sameBrand = others.filter(item => item.categoryId && item.categoryId === selected.categoryId || (item.brandId && item.brandId === selected.brandId)); return sameBrand.length > sameCat.length ? sameBrand.slice(0, 50) : sameCat.slice(0, 50); })()}/> : <StatePanel loading={detailState.loading||catalogState.loading} error={detailState.error||catalogState.error} onRetry={()=>loadStorefrontProduct(route.slug).then(raw=>raw&&mergeCatalogProducts([raw]))} title="Mahsulot topilmadi"/>)}
       {route.view === 'category' && (selectedCategory ? <CategoryLanding key={selectedCategory.id} category={selectedCategory} {...{go,add,toggleFavorite,favorites,query,setQuery,references,navigateTarget}} cmsBanners={safeArray(cms.banners)} onItemsLoaded={mergeCatalogProducts}/> : <StatePanel loading={catalogState.loading} error={catalogState.error} onRetry={loadCatalog} title="Kategoriya topilmadi"/>)}
       {route.view === 'page' && (selectedPage ? <CmsPage page={selectedPage}/> : <StatePanel loading={cmsState.loading} error={cmsState.error} onRetry={loadCms} title="Sahifa topilmadi"/>)}
-      {route.view === 'block' && <HomeBlockPage blockId={route.blockId} blocks={safeArray(cms.home_blocks)} catalog={catalog} {...{go,add,toggleFavorite,favorites}} loading={cmsState.loading||catalogState.loading}/>}
+      {route.view === 'block' && <HomeBlockPage blockId={route.blockId} blocks={safeArray(cms.home_blocks)} catalog={catalog} references={references} {...{go,add,toggleFavorite,favorites}} loading={cmsState.loading||catalogState.loading}/>}
       {route.view === 'cart' && <Cart {...{ cartItems, go, updateCart }}/>}
       {route.view === 'favorites' && <FavoritesPage {...{ favorites, catalog, go, add, toggleFavorite }}/>}
       {route.view === 'checkout' && <Checkout {...{ cartItems, go, session, account, clearCart, setToast, customerStateReady }}/>} 
@@ -424,6 +516,7 @@ export default function App() {
     </main>
     <Footer go={go} settings={cms.settings} pages={safeArray(cms.pages)} menuItems={safeArray(cms.menu_items)} navigateTarget={navigateTarget}/>
     <MobileNav go={go} cart={cart} route={route} settings={cms.settings} favorites={favorites}/>
+    {route.view !== 'cart' && <FloatingCartButton count={cart.length} onClick={() => go('cart')} />}
     {authOpen && <AuthDialog onClose={() => setAuthOpen(false)} onSuccess={() => { setAuthOpen(false); refreshAccount(); }} setToast={setToast}/>} 
     <Toast message={toast} onClose={() => setToast('')}/>
   </>;
@@ -524,6 +617,8 @@ function Home({go,add,toggleFavorite,favorites,catalog,cms,catalogState,cmsState
   const hasProductBlock=blocks.some(block=>block.block_type==='products')||(!cmsState.loading&&!cmsState.error);
   const referencedProductIds=useMemo(()=>[...new Set([...promotions.flatMap(item=>safeArray(item.product_ids)),...blocks.flatMap(block=>safeArray(block.content?.product_ids))].map(String))],[promotions,blocks]);
   useEffect(()=>{const missing=referencedProductIds.filter(id=>!catalog.some(item=>item.id===id)&&!hydrationAttempts.current.has(id));if(!missing.length)return;missing.forEach(id=>hydrationAttempts.current.add(id));let activeRequest=true;loadStorefrontProducts(missing).then(items=>{if(activeRequest)mergeCatalogProducts(items)}).catch(error=>{missing.forEach(id=>hydrationAttempts.current.delete(id));if(activeRequest)console.warn('CMS mahsulotlari yuklanmadi:',errorText(error))});return()=>{activeRequest=false}},[referencedProductIds,catalog,mergeCatalogProducts]);
+  const categoryIdsToHydrate=useMemo(()=>[...new Set(blocks.map(b=>b.content?.category_id).filter(Boolean).map(String))],[blocks]);
+  useEffect(()=>{if(!categoryIdsToHydrate.length)return;let active=true;Promise.allSettled(categoryIdsToHydrate.map(catId=>loadStorefrontCatalog({categoryIds:[catId],pageSize:100}))).then(responses=>{if(!active)return;const allItems=responses.filter(r=>r.status==='fulfilled').flatMap(r=>safeArray(r.value?.items));if(allItems.length)mergeCatalogProducts(allItems)}).catch(err=>console.warn('Kategoriya mahsulotlari yuklanmadi:',err));return()=>{active=false}},[categoryIdsToHydrate,mergeCatalogProducts]);
   const promoBanners=safeArray(cms.banners).filter(item=>item.image_url&&item.placement==='home_promo');
   const heroSecondary=siteText(settings,'hero_secondary_label','Barcha mahsulotlar'),heroTrust=siteList(settings,'hero_trust_items',['Real ombor qoldig‘i','Rasmiy kafolat','Tezkor yetkazish']);
   const heroBadgeTitle=siteText(settings,'hero_badge_title','Omborda mavjud'),heroBadgeText=siteText(settings,'hero_badge_text','Qoldiq real vaqtda yangilanadi'),promoBannerLabel=siteText(settings,'promo_banner_label','MAXSUS TAKLIF');
@@ -545,7 +640,7 @@ function Home({go,add,toggleFavorite,favorites,catalog,cms,catalogState,cmsState
     {promoBanners.length>0&&<section className="container home-promo-banners">{promoBanners.map(banner=><button key={banner.id} onClick={()=>navigateTarget(banner.target_url)}><BannerMedia banner={banner} alt={plainValue(banner.title)}/><span><small>{promoBannerLabel}</small><b>{plainValue(banner.title)}</b><em>Batafsil <ArrowRight/></em></span></button>)}</section>}
     {promotions.length>0&&<section className="container section"><div className="section-head"><div><span className="section-kicker">{siteText(settings,'promotions_kicker','MAXSUS TAKLIFLAR')}</span><h2 className="section-title">{siteText(settings,'promotions_title','Foydali chegirmalar')}</h2></div></div><div className="promotion-modern-grid">{promotions.slice(0,3).map((promotion,index)=><article key={promotion.id} className={`promotion-modern${promotion.image_url?' has-image':''} tone-${index%3}`}>{promotion.image_url&&<img src={promotion.image_url} alt="" className="promo-bg" loading="lazy"/>}<span>{promotion.discount_type==='percent'?`${plainValue(promotion.discount_value)}% gacha`:'Maxsus narx'}</span><h2>{plainValue(promotion.name)}</h2><p>{plainValue(promotion.description)}</p><button onClick={()=>go('catalog')}>Takliflarni ko‘rish <ArrowRight/></button></article>)}</div></section>}
     <CmsHomeSections blocks={otherBlocks} catalog={catalog} references={references} settings={settings} {...{go,add,toggleFavorite,favorites,navigateTarget}}/>
-    {!hasProductBlock&&<ProductSection kicker={siteText(settings,'featured_kicker','TANLANGAN MAHSULOTLAR')} title={siteText(settings,'featured_title','Siz uchun tanladik')} subtitle={siteText(settings,'featured_subtitle','Ombordagi haqiqiy qoldiqqa ega yangi mahsulotlar')} list={[...catalog].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,10)} {...{go,add,toggleFavorite,favorites}} state={catalogState} onRetry={loadCatalog}/>}
+    {!hasProductBlock&&<ProductSection kicker={siteText(settings,'featured_kicker','TANLANGAN MAHSULOTLAR')} title={siteText(settings,'featured_title','Siz uchun tanladik')} subtitle={siteText(settings,'featured_subtitle','Ombordagi haqiqiy qoldiqqa ega yangi mahsulotlar')} list={[...catalog].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)).slice(0,10)} horizontal {...{go,add,toggleFavorite,favorites}} state={catalogState} onRetry={loadCatalog}/>}
     {safeArray(cms.pages).length>0&&<section className="container section info-section"><div className="section-head"><div><span className="section-kicker">{siteText(settings,'pages_kicker','YORDAM MARKAZI')}</span><h2 className="section-title">{siteText(settings,'pages_title','Kerakli ma’lumotlar')}</h2></div></div><div className="page-grid">{safeArray(cms.pages).slice(0,6).map(page=><button className="info-link card" key={page.id} onClick={()=>go('page',page)}><FileTextIcon/><span><b>{plainValue(page.title)}</b><small>Batafsil ma’lumot</small></span><ChevronRight/></button>)}</div></section>}
   </>;
 }
@@ -553,20 +648,273 @@ function FeatureStrip({settings}){
   const defaults=[['Tezkor yetkazib berish','Buyurtmangiz ko‘rsatilgan manzilga yetkaziladi'],['Rasmiy kafolat','Barcha mahsulotlar rasmiy kafolat bilan sotiladi'],['Qulay to‘lov','Naqd yoki onlayn to‘lov usulini tanlang'],['Real ombor qoldig‘i','Saytdagi miqdor ombor bilan bir xil']];
   const icons=[Truck,ShieldCheck,CreditCard,PackageCheck];
   const items=defaults.map((entry,index)=>({Icon:icons[index],title:siteText(settings,`feature_${index+1}_title`,entry[0]),text:siteText(settings,`feature_${index+1}_text`,entry[1])})).filter(item=>item.title);
-  if(!items.length)return null;
   return <section className="container feature-strip">{items.map(({Icon,title,text})=><article key={title}><span><Icon size={20}/></span><div><b>{title}</b><small>{text}</small></div></article>)}</section>;
 }
+
+function useAutoScrollRail({ enabled = true, count = 0 } = {}) {
+  const railRef = useRef(null);
+  const [edges, setEdges] = useState({ start: true, end: false });
+  const [isAutoActive, setIsAutoActive] = useState(false);
+  const isVisibleRef = useRef(false);
+  const pausedRef = useRef(false);
+  const resumeTimerRef = useRef(null);
+  const userInteractingRef = useRef(false);
+  const scrollPosRef = useRef(0);
+
+  const syncEdges = useCallback(() => {
+    const node = railRef.current;
+    if (!node) return;
+    const max = node.scrollWidth - node.clientWidth;
+    const nextStart = node.scrollLeft <= 4;
+    const nextEnd = node.scrollLeft >= max - 4;
+    setEdges(prev => (prev.start === nextStart && prev.end === nextEnd ? prev : { start: nextStart, end: nextEnd }));
+  }, []);
+
+  const pauseTemporarily = useCallback((ms = 1200) => {
+    pausedRef.current = true;
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+    resumeTimerRef.current = setTimeout(() => {
+      if (!userInteractingRef.current) {
+        pausedRef.current = false;
+        const node = railRef.current;
+        if (node) scrollPosRef.current = node.scrollLeft;
+        if (isVisibleRef.current) setIsAutoActive(true);
+      }
+    }, ms);
+  }, []);
+
+  const scrollBy = useCallback(direction => {
+    const node = railRef.current;
+    if (!node) return;
+    pauseTemporarily(2400);
+    node.scrollBy({ left: direction * Math.max(240, node.clientWidth * 0.8), behavior: 'smooth' });
+  }, [pauseTemporarily]);
+
+  // Observer for viewport visibility with generous margin
+  useEffect(() => {
+    if (!enabled) return;
+    const node = railRef.current;
+    if (!node) return;
+
+    if (typeof IntersectionObserver === 'undefined') {
+      isVisibleRef.current = true;
+      setIsAutoActive(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      entries => {
+        entries.forEach(entry => {
+          const visible = entry.isIntersecting;
+          isVisibleRef.current = visible;
+          if (visible) {
+            scrollPosRef.current = node.scrollLeft;
+            setIsAutoActive(true);
+          } else {
+            setIsAutoActive(false);
+          }
+        });
+      },
+      { threshold: 0, rootMargin: '120px 0px' }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [enabled]);
+
+  // Sync edges on resize & count changes
+  useEffect(() => {
+    if (!enabled) return;
+    syncEdges();
+    const node = railRef.current;
+    if (!node) return;
+    scrollPosRef.current = node.scrollLeft;
+    window.addEventListener('resize', syncEdges);
+    return () => window.removeEventListener('resize', syncEdges);
+  }, [syncEdges, enabled, count]);
+
+  // Smooth continuous autoscroll loop
+  useEffect(() => {
+    if (!enabled) return;
+    const node = railRef.current;
+    if (!node) return;
+
+    const prefersReducedMotion = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReducedMotion) return;
+
+    let rafId;
+    let lastTime = performance.now();
+    let waitEndUntil = 0;
+    let waitStartUntil = 0;
+    let returningToStart = false;
+    let rewindTimeout = 0;
+
+    scrollPosRef.current = node.scrollLeft;
+
+    const step = now => {
+      const dt = Math.min(now - lastTime, 50);
+      lastTime = now;
+
+      const rect = node.getBoundingClientRect();
+      const inView = isVisibleRef.current || (rect.bottom > -80 && rect.top < window.innerHeight + 80);
+
+      if (inView && !pausedRef.current && !userInteractingRef.current) {
+        const max = node.scrollWidth - node.clientWidth;
+        if (max > 10) {
+          if (returningToStart) {
+            if (node.scrollLeft <= 4 || now >= rewindTimeout) {
+              returningToStart = false;
+              scrollPosRef.current = 0;
+              node.scrollLeft = 0;
+              waitStartUntil = now + 600; // brief pause at beginning after loop
+            }
+          } else if (now >= waitStartUntil) {
+            if (node.scrollLeft >= max - 4) {
+              if (!waitEndUntil) {
+                waitEndUntil = now + 1200; // brief pause at end before rewinding
+              } else if (now >= waitEndUntil) {
+                waitEndUntil = 0;
+                returningToStart = true;
+                rewindTimeout = now + 1400; // max time for rewind animation
+                node.scrollTo({ left: 0, behavior: 'smooth' });
+              }
+            } else {
+              waitEndUntil = 0;
+              // Sync if user manually scrolled without setting interaction flag
+              if (Math.abs(node.scrollLeft - scrollPosRef.current) > 15) {
+                scrollPosRef.current = node.scrollLeft;
+              }
+              // Smooth, clearly visible speed: ~65px per second
+              scrollPosRef.current += 0.065 * dt;
+              if (scrollPosRef.current >= max) {
+                scrollPosRef.current = max;
+                node.scrollLeft = max;
+              } else {
+                node.scrollLeft = Math.round(scrollPosRef.current);
+              }
+            }
+          }
+        }
+      }
+
+      syncEdges();
+      rafId = requestAnimationFrame(step);
+    };
+
+    rafId = requestAnimationFrame(step);
+
+    const onPointerEnter = () => {
+      pauseTemporarily(700);
+    };
+
+    const onPointerLeave = () => {
+      userInteractingRef.current = false;
+      pauseTemporarily(300);
+    };
+
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let isVerticalSwipe = false;
+
+    const onTouchStart = e => {
+      const touch = e.touches?.[0];
+      if (touch) {
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
+      }
+      isVerticalSwipe = false;
+      userInteractingRef.current = true;
+      pausedRef.current = true;
+      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+    };
+
+    const onTouchMove = e => {
+      const touch = e.touches?.[0];
+      if (touch) {
+        const dx = Math.abs(touch.clientX - touchStartX);
+        const dy = Math.abs(touch.clientY - touchStartY);
+        if (dy > dx && dy > 8) {
+          // Vertical page scroll detected: release interaction lock immediately
+          isVerticalSwipe = true;
+          userInteractingRef.current = false;
+          pausedRef.current = false;
+        }
+      }
+    };
+
+    const onTouchEnd = () => {
+      userInteractingRef.current = false;
+      if (isVerticalSwipe) {
+        pausedRef.current = false;
+        scrollPosRef.current = node.scrollLeft;
+      } else {
+        scrollPosRef.current = node.scrollLeft;
+        pauseTemporarily(900);
+      }
+    };
+
+    const onWheel = e => {
+      // If predominantly vertical scroll, do not freeze horizontal autoscroll
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX) * 1.5) {
+        return;
+      }
+      scrollPosRef.current = node.scrollLeft;
+      pauseTemporarily(900);
+    };
+
+    const onScroll = () => {
+      if (userInteractingRef.current || pausedRef.current) {
+        scrollPosRef.current = node.scrollLeft;
+      }
+    };
+
+    const onFocusIn = () => {
+      userInteractingRef.current = true;
+      pausedRef.current = true;
+    };
+
+    const onFocusOut = () => {
+      userInteractingRef.current = false;
+      pauseTemporarily(1200);
+    };
+
+    node.addEventListener('mouseenter', onPointerEnter, { passive: true });
+    node.addEventListener('mouseleave', onPointerLeave, { passive: true });
+    node.addEventListener('touchstart', onTouchStart, { passive: true });
+    node.addEventListener('touchmove', onTouchMove, { passive: true });
+    node.addEventListener('touchend', onTouchEnd, { passive: true });
+    node.addEventListener('touchcancel', onTouchEnd, { passive: true });
+    node.addEventListener('wheel', onWheel, { passive: true });
+    node.addEventListener('scroll', onScroll, { passive: true });
+    node.addEventListener('focusin', onFocusIn);
+    node.addEventListener('focusout', onFocusOut);
+
+    return () => {
+      cancelAnimationFrame(rafId);
+      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+      node.removeEventListener('mouseenter', onPointerEnter);
+      node.removeEventListener('mouseleave', onPointerLeave);
+      node.removeEventListener('touchstart', onTouchStart);
+      node.removeEventListener('touchmove', onTouchMove);
+      node.removeEventListener('touchend', onTouchEnd);
+      node.removeEventListener('touchcancel', onTouchEnd);
+      node.removeEventListener('wheel', onWheel);
+      node.removeEventListener('scroll', onScroll);
+      node.removeEventListener('focusin', onFocusIn);
+      node.removeEventListener('focusout', onFocusOut);
+    };
+  }, [enabled, pauseTemporarily, syncEdges]);
+
+  return { railRef, edges, scrollBy, syncEdges, isAutoActive };
+}
+
 function CategoryRail({kicker='KATEGORIYALAR',title,categories,go,id}){
-  const railRef=useRef(null),[edges,setEdges]=useState({start:true,end:false});
-  const syncEdges=useCallback(()=>{const node=railRef.current;if(!node)return;const max=node.scrollWidth-node.clientWidth;setEdges({start:node.scrollLeft<=4,end:node.scrollLeft>=max-4})},[]);
-  useEffect(()=>{syncEdges();const node=railRef.current;if(!node)return;window.addEventListener('resize',syncEdges);return()=>window.removeEventListener('resize',syncEdges)},[syncEdges,categories.length]);
-  const scrollBy=direction=>{const node=railRef.current;if(!node)return;node.scrollBy({left:direction*Math.max(240,node.clientWidth*0.8),behavior:'smooth'})};
+  const { railRef, edges, scrollBy, syncEdges, isAutoActive } = useAutoScrollRail({ enabled: true, count: categories.length });
   if(!categories.length)return null;
   return <section id={id} tabIndex={id?-1:undefined} className="container section category-section cms-home-anchor">
     <div className="section-head"><div><span className="section-kicker">{kicker}</span><h2 className="section-title">{title}</h2></div><button onClick={()=>go('catalog')}>Barchasi <ArrowRight size={15}/></button></div>
-    <div className="category-rail-shell">
+    <div className={`category-rail-shell${!edges.end?' has-more':''}`}>
       <button type="button" className="category-rail-nav prev" hidden={edges.start} aria-label="Oldingi kategoriyalar" onClick={()=>scrollBy(-1)}><ChevronLeft size={18}/></button>
-      <div className="category-rail" ref={railRef} onScroll={syncEdges}>
+      <div className={`category-rail${isAutoActive?' autoscroll-active':''}`} ref={railRef} onScroll={syncEdges}>
         {categories.slice(0,16).map(category=><button key={category.id} className="category-tile" onClick={()=>go('category',category)}>
           <b>{plainValue(category.name)}</b>
           <span className="category-art">{category.seo_image_url?<ImageWithFallback src={category.seo_image_url} alt=""/>:<i className="category-fallback"><Grid2X2/></i>}</span>
@@ -576,25 +924,74 @@ function CategoryRail({kicker='KATEGORIYALAR',title,categories,go,id}){
     </div>
   </section>;
 }
-function CmsHomeSections({blocks,catalog,references,settings,go,add,toggleFavorite,favorites,navigateTarget}){const categoryMap=new Map(safeArray(references?.categoryDetails).map(category=>[String(category.id),category]));return blocks.map(block=>{const content=block.content||{},title=plainValue(block.title)||'Texnobazar',anchor=`home-block-${block.id}`;if(block.block_type==='categories'){const ids=safeArray(content.category_ids).map(String),categories=ids.length?ids.map(id=>categoryMap.get(id)).filter(Boolean):safeArray(references?.categoryRoots);return <CategoryRail key={block.id} id={anchor} kicker={plainValue(content.subtitle)||siteText(settings,'catalog_kicker','KATEGORIYALAR')} title={title} categories={categories} go={go}/>}if(block.block_type==='products'){const full=orderedProducts(content.product_ids,catalog,[...catalog].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)));const list=full.slice(0,10);return <ProductSection key={block.id} id={anchor} kicker={siteText(settings,'featured_kicker','TANLANGAN MAHSULOTLAR')} title={title} subtitle={plainValue(content.subtitle)} list={list} horizontal {...{go,add,toggleFavorite,favorites}} onViewAll={full.length>10?()=>go('block',{blockId:block.id}):undefined}/>}if(block.block_type==='promotion')return <section id={anchor} tabIndex="-1" className="container section cms-home-anchor" key={block.id}><article className="promotion-modern cms-promotion-block"><span>MAXSUS TAKLIF</span><h2>{title}</h2><p>{plainValue(content.text||content.subtitle)}</p>{content.cta_label&&<button onClick={()=>navigateTarget(content.cta_url)}>{plainValue(content.cta_label)} <ArrowRight/></button>}</article></section>;if(block.block_type==='rich_text'||block.block_type==='hero')return <section id={anchor} tabIndex="-1" className="container section cms-home-anchor" key={block.id}><article className="cms-rich-modern"><div><span className="section-kicker">TEXNOBAZAR</span><h2>{title}</h2><p>{plainValue(content.text||content.subtitle)}</p>{content.cta_label&&<button className="btn btn-primary" onClick={()=>navigateTarget(content.cta_url)}>{plainValue(content.cta_label)} <ArrowRight/></button>}</div><div className="cms-rich-pattern"><Grid2X2/></div></article></section>;return null})}
+function CmsHomeSections({blocks,catalog,references,settings,go,add,toggleFavorite,favorites,navigateTarget}){
+  const categoryMap=new Map(safeArray(references?.categoryDetails).map(category=>[String(category.id),category]));
+  return blocks.map(block=>{
+    const content=block.content||{},title=plainValue(block.title)||'Texnobazar',anchor=`home-block-${block.id}`;
+    if(block.block_type==='categories'){
+      const ids=safeArray(content.category_ids).map(String),categories=ids.length?ids.map(id=>categoryMap.get(id)).filter(Boolean):safeArray(references?.categoryRoots);
+      return <CategoryRail key={block.id} id={anchor} kicker={plainValue(content.subtitle)||siteText(settings,'catalog_kicker','KATEGORIYALAR')} title={title} categories={categories} go={go}/>;
+    }
+    if(block.block_type==='products'){
+      const selectedCatId=content.category_id?String(content.category_id):null;
+      const targetCategory=selectedCatId?categoryMap.get(selectedCatId):null;
+      const catSubtree=selectedCatId?getCategorySubtreeIds(selectedCatId,safeArray(references?.categoryDetails)):null;
+      const categoryFilteredCatalog=catSubtree?catalog.filter(p=>catSubtree.has(String(p.categoryId))):catalog;
+      const isManual=content.product_selection==='manual'&&Array.isArray(content.product_ids)&&content.product_ids.length>0;
+      const full=selectedCatId&&!isManual
+        ? [...categoryFilteredCatalog].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
+        : (isManual
+            ? orderedProducts(content.product_ids,catalog,categoryFilteredCatalog)
+            : (Array.isArray(content.product_ids)&&content.product_ids.length>0
+                ? orderedProducts(content.product_ids,catalog,categoryFilteredCatalog)
+                : [...categoryFilteredCatalog].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))));
+      const limit=Math.max(1,Number(content.limit)||12);
+      const list=full.slice(0,limit);
+      let onViewAll=undefined;
+      if(targetCategory){
+        onViewAll=()=>go('category',targetCategory);
+      }else if(content.cta_url){
+        onViewAll=()=>navigateTarget(content.cta_url);
+      }else if(full.length>10){
+        onViewAll=()=>go('block',{blockId:block.id});
+      }
+      return <ProductSection key={block.id} id={anchor} kicker={siteText(settings,'featured_kicker','TANLANGAN MAHSULOTLAR')} title={title} subtitle={plainValue(content.subtitle)} list={list} horizontal {...{go,add,toggleFavorite,favorites}} onViewAll={onViewAll} viewAllLabel={content.cta_label||'Barchasini ko‘rish'}/>;
+    }
+    if(block.block_type==='promotion')return <section id={anchor} tabIndex="-1" className="container section cms-home-anchor" key={block.id}><article className="promotion-modern cms-promotion-block"><span>MAXSUS TAKLIF</span><h2>{title}</h2><p>{plainValue(content.text||content.subtitle)}</p>{content.cta_label&&<button onClick={()=>navigateTarget(content.cta_url)}>{plainValue(content.cta_label)} <ArrowRight/></button>}</article></section>;
+    if(block.block_type==='rich_text'||block.block_type==='hero')return <section id={anchor} tabIndex="-1" className="container section cms-home-anchor" key={block.id}><article className="cms-rich-modern"><div><span className="section-kicker">TEXNOBAZAR</span><h2>{title}</h2><p>{plainValue(content.text||content.subtitle)}</p>{content.cta_label&&<button className="btn btn-primary" onClick={()=>navigateTarget(content.cta_url)}>{plainValue(content.cta_label)} <ArrowRight/></button>}</div><div className="cms-rich-pattern"><Grid2X2/></div></article></section>;
+    return null;
+  });
+}
 function FileTextIcon(){return <span className="info-icon"><PackageCheck/></span>}
 
-function ProductSection({ kicker, title, subtitle, list, go, add, toggleFavorite, favorites, state, onRetry, id, onViewAll, horizontal=false }) {
+function ProductSection({ kicker, title, subtitle, list, go, add, toggleFavorite, favorites, state, onRetry, id, onViewAll, viewAllLabel, horizontal=false }) {
   const[expanded,setExpanded]=useState(false);
+  const { railRef, edges, scrollBy, syncEdges, isAutoActive } = useAutoScrollRail({ enabled: horizontal, count: list.length });
   const visible=horizontal?list:(expanded?list:list.slice(0,5));
-  const hasMore=horizontal?Boolean(onViewAll):list.length>5;
+  const hasMore=horizontal?Boolean(onViewAll):(Boolean(onViewAll)||list.length>5);
   const showAllAction=horizontal?onViewAll:(onViewAll||(()=>go('catalog')));
   const toggle=horizontal?showAllAction:(onViewAll?onViewAll:()=>setExpanded(!expanded));
-  const label=horizontal?'Barchasi':(expanded?'Kamroq':'Barchasi');
-  return <section id={id} tabIndex={id?-1:undefined} className="container section cms-home-anchor"><div className="between section-head"><div>{kicker&&<span className="section-kicker">{kicker}</span>}<h2 className="section-title">{title}</h2>{subtitle&&<span className="muted">{subtitle}</span>}</div>{hasMore&&<button onClick={toggle}>{label} <ChevronRight size={16}/></button>}</div>{state?.loading ? <LoadingGrid/> : state?.error ? <StatePanel error={state.error} onRetry={onRetry}/> : visible.length ? <div className={horizontal?"product-grid product-scroll-row":"product-grid"}>{visible.map(product => <ProductCard key={product.id} product={product} {...{ go, add, toggleFavorite }} loved={favorites.includes(product.id)}/>)}</div> : <div className="card"><Empty title="Mahsulotlar mavjud emas" text="Katalog yangilangach bu yerda mahsulotlar chiqadi."/></div>}</section>;
+  const label=viewAllLabel||(horizontal?'Barchasini ko‘rish':(expanded?'Kamroq':'Barchasini ko‘rish'));
+  const grid=<div className={horizontal?`product-scroll-row${isAutoActive?' autoscroll-active':''}`:"product-grid"} ref={horizontal?railRef:undefined} onScroll={horizontal?syncEdges:undefined}>{visible.map(product => <ProductCard key={product.id} product={product} {...{ go, add, toggleFavorite }} loved={favorites.includes(product.id)}/>)}</div>;
+  return <section id={id} tabIndex={id?-1:undefined} className="container section cms-home-anchor"><div className="between section-head"><div>{kicker&&<span className="section-kicker">{kicker}</span>}<h2 className="section-title">{title}</h2>{subtitle&&<span className="muted">{subtitle}</span>}</div>{hasMore&&<button onClick={toggle}>{label} <ChevronRight size={16}/></button>}</div>{state?.loading ? <LoadingGrid/> : state?.error ? <StatePanel error={state.error} onRetry={onRetry}/> : visible.length ? (horizontal ? <div className={`product-scroll-shell${!edges.end?' has-more':''}`}><button type="button" className="product-scroll-nav prev" hidden={edges.start} aria-label="Oldingi mahsulotlar" onClick={()=>scrollBy(-1)}><ChevronLeft size={18}/></button>{grid}<button type="button" className="product-scroll-nav next" hidden={edges.end} aria-label="Keyingi mahsulotlar" onClick={()=>scrollBy(1)}><ChevronRight size={18}/></button></div> : grid) : <div className="card"><Empty title="Mahsulotlar mavjud emas" text="Katalog yangilangach bu yerda mahsulotlar chiqadi."/></div>}</section>;
 }
-function HomeBlockPage({blockId,blocks,catalog,go,add,toggleFavorite,favorites,loading}){
+function HomeBlockPage({blockId,blocks,catalog,references,go,add,toggleFavorite,favorites,loading}){
   const block=blocks.find(item=>String(item.id)===String(blockId));
   if(loading)return <StatePanel loading title="Yuklanmoqda"/>;
   if(!block)return <StatePanel error title="Blok topilmadi" onRetry={()=>go('home')}/>;
   const content=block.content||{};
   const title=plainValue(block.title)||'Mahsulotlar';
-  const list=orderedProducts(content.product_ids,catalog,[...catalog].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at)));
+  const selectedCatId=content.category_id?String(content.category_id):null;
+  const catSubtree=selectedCatId?getCategorySubtreeIds(selectedCatId,safeArray(references?.categoryDetails)):null;
+  const categoryFilteredCatalog=catSubtree?catalog.filter(p=>catSubtree.has(String(p.categoryId))):catalog;
+  const isManual=content.product_selection==='manual'&&Array.isArray(content.product_ids)&&content.product_ids.length>0;
+  const list=selectedCatId&&!isManual
+    ?[...categoryFilteredCatalog].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))
+    :(isManual
+        ?orderedProducts(content.product_ids,catalog,categoryFilteredCatalog)
+        :(Array.isArray(content.product_ids)&&content.product_ids.length>0
+            ?orderedProducts(content.product_ids,catalog,categoryFilteredCatalog)
+            :[...categoryFilteredCatalog].sort((a,b)=>new Date(b.created_at)-new Date(a.created_at))));
   return <section className="container section home-block-page">
     <div className="breadcrumbs"><button onClick={()=>go('home')}>Bosh sahifa</button><ChevronRight/>{title}</div>
     <div className="section-head"><div><h2 className="section-title">{title}</h2>{content.subtitle&&<span className="muted">{plainValue(content.subtitle)}</span>}</div></div>
@@ -639,13 +1036,14 @@ function ImageZoom({images=[],activeIndex=0,alt,onClose,onChangeIndex}){
   </div>;
 }
 function ProductCard({ product, go, add, toggleFavorite, loved, cartQty = 0, onUpdateQty }) {
+  const hasVariants = (product.variants || []).length > 0;
   const[localQty,setLocalQty]=useState(cartQty);
   useEffect(()=>setLocalQty(cartQty),[cartQty]);
   const discount=product.oldPrice>product.price?Math.max(1,Math.round((1-product.price/product.oldPrice)*100)):0,feature=product.attributes[0];
   const handleAdd=()=>{add(product);setLocalQty(q=>q+1)};
   const increment=()=>{if(onUpdateQty){onUpdateQty(product,localQty+1)}else{add(product)};setLocalQty(q=>Math.min(q+1,product.stock))};
   const decrement=()=>{const next=localQty-1;if(onUpdateQty)onUpdateQty(product,next);setLocalQty(next)};
-  return <article className="product-card modern-card"><div className="product-img"><ProductMedia product={product}/><div className="product-tags">{discount>0&&<span className="product-badge">-{discount}%</span>}{product.stock>0&&product.stock<4&&<span className="product-limited">Oxirgi {product.stock} dona</span>}</div><button type="button" className="product-open" onClick={()=>go('product',product)} aria-label={`${product.name} mahsulotini ochish`}/></div><button type="button" className={`product-heart ${loved?'loved':''}`} onClick={()=>toggleFavorite(product)} aria-label="Saralangan"><Heart size={19} fill={loved?'currentColor':'none'}/></button><div className="product-body"><span className={`stock-label ${product.stock?'':'out'}`}><i/>{product.stock?`${product.stock} dona mavjud`:'Sotuvda yo\u2019q'}</span><h3 onClick={()=>go('product',product)}>{product.name}</h3><div className="product-meta">{feature?`${feature.name}: ${plainValue(feature.value)}`:`SKU: ${product.sku||'\u2014'}`}</div><div className="product-price-row"><div>{discount>0&&<div className="old-price">{money(product.oldPrice)}</div>}<div className="price">{money(product.price)}</div></div>{localQty>0?<div className="card-qty"><button onClick={decrement} aria-label="Kamaytirish"><Minus size={15}/></button><b>{localQty}</b><button onClick={increment} disabled={localQty>=product.stock} aria-label="Ko\u2019paytirish"><Plus size={15}/></button></div>:<button className="cart-add" onClick={handleAdd} disabled={!product.stock} aria-label="Savatchaga qo\u2019shish"><ShoppingCart size={19}/></button>}</div></div></article>;
+  return <article className="product-card modern-card"><div className="product-img"><ProductMedia product={product}/><div className="product-tags">{discount>0&&<span className="product-badge">-{discount}%</span>}{product.stock>0&&product.stock<4&&<span className="product-limited">Oxirgi {product.stock} dona</span>}</div><button type="button" className="product-open" onClick={()=>go('product',product)} aria-label={`${product.name} mahsulotini ochish`}/></div><button type="button" className={`product-heart ${loved?'loved':''}`} onClick={()=>toggleFavorite(product)} aria-label="Saralangan"><Heart size={19} fill={loved?'currentColor':'none'}/></button><div className="product-body"><span className={`stock-label ${product.stock?'':'out'}`}><i/>{product.stock?`${product.stock} dona mavjud`:'Sotuvda yo\u2019q'}</span><h3 onClick={()=>go('product',product)}>{product.name}</h3>{hasVariants&&<div className="product-color-dots">{product.variants.slice(0,6).map(v=><span key={v.id} style={{background:v.colorHex||'#ccc'}} title={v.colorName}/>)}</div>}{product.reviewCount>0?<div className="product-card-rating"><Star size={13} fill="currentColor"/><b>{product.avgRating.toFixed(1)}</b><span>({product.reviewCount} sharh)</span></div>:<div className="product-meta">{feature?`${feature.name}: ${plainValue(feature.value)}`:'Sharh hali yo\u2019q'}</div>}<div className="product-price-row"><div>{discount>0&&<div className="old-price">{money(product.oldPrice)}</div>}<div className="price">{money(product.price)}</div></div>{hasVariants?<button className="cart-add" onClick={()=>go('product',product)} aria-label="Rangni tanlash"><ShoppingCart size={19}/></button>:localQty>0?<div className="card-qty"><button onClick={decrement} aria-label="Kamaytirish"><Minus size={15}/></button><b>{localQty}</b><button onClick={increment} disabled={localQty>=product.stock} aria-label="Ko\u2019paytirish"><Plus size={15}/></button></div>:<button className="cart-add" onClick={handleAdd} disabled={!product.stock} aria-label="Savatchaga qo\u2019shish"><ShoppingCart size={19}/></button>}</div></div></article>;
 }
 
 function CatalogTopBanner({banners,navigateTarget}){const banner=safeArray(banners).find(item=>item.image_url&&item.placement==='catalog_top');if(!banner)return null;return <button type="button" className="catalog-top-banner" onClick={()=>navigateTarget?.(banner.target_url||'/catalog')}><BannerMedia banner={banner} alt={plainValue(banner.title)}/><span><small>KATALOG TAKLIFI</small><b>{plainValue(banner.title)||'Maxsus taklif'}</b><em>Batafsil <ArrowRight/></em></span></button>}
@@ -720,19 +1118,211 @@ function ServerCatalog({go,add,toggleFavorite,favorites,query,setQuery,reference
   // --- Products view (after category selected or search) ---
   return <section className="container catalog-page"><CatalogTopBanner banners={cmsBanners} navigateTarget={navigateTarget}/><div className="breadcrumbs"><button onClick={()=>go('home')}>Bosh sahifa</button> <ChevronRight/> <button onClick={backToCategories}>Katalog</button>{selectedCategory&&<><ChevronRight/>{plainValue(selectedCategory.name)}</>}</div><div className="between catalog-title"><div><h1 className="title">{selectedCategory?plainValue(selectedCategory.name):title}</h1><span className="muted">{result.total} ta mahsulot topildi</span></div><div className="row"><button className="btn btn-outline mobile-filter" onClick={()=>setFiltersOpen(true)}><SlidersHorizontal/> Filtr</button><select className="select sort" value={filters.sort} onChange={e=>setFilters({...filters,sort:e.target.value})}><option value="name">Nomi bo'yicha</option><option value="new">Eng yangi</option><option value="cheap">Arzon narx</option><option value="expensive">Qimmat narx</option></select></div></div>{subcategories.length>0&&<div className="catalog-subcategory-chips"><button className={!filters.categoryIds.length?'active':''} onClick={()=>selectSubcategory('')}>Barchasi</button>{subcategories.map(sub=><button key={sub.id} className={filters.categoryIds.includes(String(sub.id))?'active':''} onClick={()=>selectSubcategory(String(sub.id))}>{sub.name}</button>)}</div>}<div className="catalog-layout">{renderFilter()}<div>{state.loading&&!result.items.length?<LoadingGrid/>:state.error?<StatePanel error={state.error} onRetry={()=>fetchPage(1,false)}/>:result.items.length?<><div className="product-grid catalog-products">{result.items.map(product=><ProductCard key={product.id} {...{product,go,add,toggleFavorite}} loved={favorites.includes(product.id)}/>)}</div>{result.items.length<result.total&&<div className="load-more"><button className="btn btn-outline" disabled={state.loading} onClick={()=>fetchPage(page+1,true)}>{state.loading?'Yuklanmoqda\u2026':'Yana yuklash'}</button></div>}</>:<div className="card"><Empty title="Mahsulot topilmadi" text="Qidiruv yoki filtrlarni o'zgartiring."/></div>}</div></div>{filtersOpen&&<div className="filter-overlay">{renderFilter()}</div>}</section>;
 }
-function QrResolver({code,go}){
-  const[state,setState]=useState({loading:true,error:''});
-  useEffect(()=>{
-    if(!code){setState({loading:false,error:'QR kod topilmadi'});return}
-    setState({loading:true,error:''});
-    getBrowserClient().rpc('resolve_qr_for_storefront',{p_code:code}).then(({data,error})=>{
-      if(error||!data||!data.slug){setState({loading:false,error:'Bu mahsulot hozircha saytda mavjud emas.'});return}
-      window.history.replaceState({},'','/product/'+encodeURIComponent(data.slug));
-      window.location.reload();
-    }).catch(()=>setState({loading:false,error:'QR kodni aniqlashda xatolik yuz berdi.'}));
-  },[code]);
-  if(state.loading)return <section className="container" style={{padding:'80px 20px',textAlign:'center'}}><p>QR kod tekshirilmoqda...</p></section>;
-  return <section className="container" style={{padding:'80px 20px',textAlign:'center'}}><h2>Mahsulot topilmadi</h2><p>{state.error}</p><button className="btn btn-primary" onClick={()=>go('home')}>Bosh sahifaga qaytish</button></section>;
+function QrResolver({ code, go, add, setToast }) {
+  const [state, setState] = useState({ loading: true, error: '', product: null });
+  const [selectedVariantId, setSelectedVariantId] = useState(null);
+  const [added, setAdded] = useState(false);
+
+  useEffect(() => {
+    if (!code) {
+      setState({ loading: false, error: 'QR kod topilmadi.', product: null });
+      return;
+    }
+    setState({ loading: true, error: '', product: null });
+
+    const resolve = async () => {
+      try {
+        const client = getBrowserClient();
+        let targetSlug = null;
+        let variantId = null;
+
+        // 1. Resolve QR code via RPC
+        const { data: rpcData, error: rpcError } = await client.rpc('resolve_qr_for_storefront', { p_code: code });
+        if (!rpcError && rpcData?.slug) {
+          targetSlug = rpcData.slug;
+        } else {
+          // Fallback direct lookup
+          const { data: fallbackUnit } = await client
+            .from('inventory_units')
+            .select('product_id, variant_id, qr_code, products!inner(slug, name, is_published, status)')
+            .or(`qr_code.eq.${code},serial_number.eq.${code}`)
+            .limit(1)
+            .maybeSingle();
+
+          if (fallbackUnit?.products?.slug) {
+            targetSlug = fallbackUnit.products.slug;
+            variantId = fallbackUnit.variant_id;
+          }
+        }
+
+        if (!targetSlug) {
+          setState({ loading: false, error: 'Ushbu QR kodga tegishli mahsulot topilmadi yoki hali saytda faol emas.', product: null });
+          return;
+        }
+
+        // 2. Load the storefront product
+        const rawProduct = await loadStorefrontProduct(targetSlug);
+        if (!rawProduct) {
+          setState({ loading: false, error: 'Mahsulot ma’lumotlarini yuklab bo‘lmadi.', product: null });
+          return;
+        }
+
+        const adapted = adaptProduct(rawProduct);
+        setState({ loading: false, error: '', product: adapted });
+        if (variantId) {
+          setSelectedVariantId(String(variantId));
+        } else if (adapted.variants?.length) {
+          setSelectedVariantId(String(adapted.variants[0].id));
+        }
+      } catch (err) {
+        setState({ loading: false, error: errorText(err), product: null });
+      }
+    };
+
+    resolve();
+  }, [code]);
+
+  const handleClose = () => {
+    window.history.replaceState({}, '', '/');
+    go('home');
+  };
+
+  const handleAddToCart = () => {
+    if (!state.product) return;
+    add(state.product, 1, selectedVariantId);
+    setAdded(true);
+    setToast?.('Mahsulot savatga muvaffaqiyatli qo‘shildi!');
+    setTimeout(() => setAdded(false), 2000);
+  };
+
+  const handleGoProduct = () => {
+    if (!state.product) return;
+    window.history.replaceState({}, '', `/product/${encodeURIComponent(state.product.slug)}`);
+    go('product', state.product);
+  };
+
+  const activeVariant = state.product?.variants?.find(v => String(v.id) === String(selectedVariantId)) || state.product?.variants?.[0];
+  const displayImage = activeVariant?.image || state.product?.image || '/placeholder.png';
+  const displayPrice = activeVariant?.price || state.product?.price || 0;
+
+  return (
+    <div className="overlay" style={{ display: 'grid', placeItems: 'center', zIndex: 1200, padding: 16 }} onClick={handleClose}>
+      <div className="card" style={{ maxWidth: 460, width: '100%', padding: 0, overflow: 'hidden', borderRadius: 20, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', animation: 'toastIn 0.25s ease' }} onClick={e => e.stopPropagation()}>
+        {/* Modal Header */}
+        <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', background: 'var(--surface-2, #f8fafc)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--orange)', fontWeight: 800, fontSize: 13 }}>
+            <QrCode size={18} />
+            <span style={{ color: 'var(--text-1)' }}>QR kod bo‘yicha topildi</span>
+          </div>
+          <button type="button" className="icon-btn" onClick={handleClose} aria-label="Yopish"><X size={18} /></button>
+        </div>
+
+        {/* Modal Body */}
+        {state.loading ? (
+          <div style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)' }}>
+            <LoaderCircle size={28} className="spinner" style={{ margin: '0 auto 10px', color: 'var(--orange)' }} />
+            <b>QR kod tekshirilmoqda…</b>
+            <p style={{ margin: '6px 0 0', fontSize: 12 }}>Mahsulot ma’lumotlari yuklanmoqda</p>
+          </div>
+        ) : state.error ? (
+          <div style={{ padding: '30px 20px', textAlign: 'center' }}>
+            <div style={{ width: 50, height: 50, borderRadius: '50%', background: '#fee2e2', color: '#ef4444', display: 'grid', placeItems: 'center', margin: '0 auto 12px' }}>
+              <X size={24} />
+            </div>
+            <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Mahsulot topilmadi</h3>
+            <p style={{ margin: '0 0 18px', fontSize: 13, color: 'var(--muted)', lineHeight: 1.5 }}>{state.error}</p>
+            <button type="button" className="btn btn-primary" onClick={handleClose}>Katalogga qaytish</button>
+          </div>
+        ) : state.product ? (
+          <div style={{ padding: '20px 20px 24px' }}>
+            {/* Image & Main Info */}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 16 }}>
+              <div style={{ width: 105, height: 105, borderRadius: 14, overflow: 'hidden', background: '#f1f5f9', flexShrink: 0, border: '1px solid var(--border)', display: 'grid', placeItems: 'center' }}>
+                <img src={displayImage} alt={state.product.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {state.product.brandName && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--orange)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{state.product.brandName}</span>
+                )}
+                <h3 style={{ margin: '2px 0 6px', fontSize: 15, fontWeight: 800, lineHeight: 1.3, color: 'var(--text-1)' }}>
+                  {state.product.name}
+                </h3>
+                <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--orange)' }}>
+                  {money(displayPrice)}
+                </div>
+                {state.product.oldPrice > displayPrice && (
+                  <del style={{ fontSize: 12, color: 'var(--muted)' }}>{money(state.product.oldPrice)}</del>
+                )}
+              </div>
+            </div>
+
+            {/* Ranglar / Variantlar tanlovi */}
+            {state.product.variants?.length > 1 && (
+              <div style={{ marginBottom: 16, padding: '10px 12px', background: '#f8fafc', borderRadius: 12, border: '1px solid var(--border)' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
+                  Rangi: <b>{activeVariant?.colorName || 'Standart'}</b>
+                </span>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  {state.product.variants.map(v => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      onClick={() => setSelectedVariantId(String(v.id))}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        padding: '4px 10px',
+                        borderRadius: 8,
+                        border: String(selectedVariantId) === String(v.id) ? '2px solid var(--orange)' : '1px solid var(--border)',
+                        background: '#fff',
+                        cursor: 'pointer',
+                        fontSize: 11,
+                        fontWeight: 700
+                      }}
+                    >
+                      {v.colorHex && <span style={{ width: 10, height: 10, borderRadius: '50%', background: v.colorHex, display: 'inline-block', border: '1px solid rgba(0,0,0,0.1)' }} />}
+                      {v.colorName || 'Variant'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Qoldiq va seriya ma'lumoti */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--muted)', marginBottom: 20 }}>
+              <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#16a34a', fontWeight: 700 }}>
+                <Check size={14} /> Omborda mavjud
+              </span>
+              <span style={{ fontFamily: 'monospace' }}>QR: {code}</span>
+            </div>
+
+            {/* Tugmalar */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ width: '100%', height: 46, fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                onClick={handleAddToCart}
+              >
+                <ShoppingCart size={18} />
+                {added ? 'Savatga qo‘shildi ✓' : 'Savatga qo‘shish'}
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{ width: '100%', height: 42, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                onClick={handleGoProduct}
+              >
+                Batafsil ko‘rish <ArrowRight size={15} />
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 function RichDescription({product}){const media=new Map(safeArray(product.media).map(item=>[String(item.id),item]));const blocks=safeArray(product.descriptionBlocks);const[zoomSrc,setZoomSrc]=useState(null);if(!blocks.length){if(!product.description)return <p>Mahsulot tavsifi kiritilmagan.</p>;return <>{zoomSrc&&<ImageZoom images={[zoomSrc]} activeIndex={0} alt={product.name} onClose={()=>setZoomSrc(null)} onChangeIndex={()=>{}}/>}<div className="product-html-description" dangerouslySetInnerHTML={{__html:product.description}} onClick={e=>{if(e.target.tagName==='IMG'&&e.target.src)setZoomSrc(e.target.src)}} style={{cursor:'auto'}}/></>};const descImages=blocks.filter(b=>b.type==="image"&&media.get(String(b.media_id))).map(b=>media.get(String(b.media_id)).url);return <>{zoomSrc&&<ImageZoom images={descImages.length?descImages:[zoomSrc]} activeIndex={Math.max(0,descImages.indexOf(zoomSrc))} alt={product.name} onClose={()=>setZoomSrc(null)} onChangeIndex={()=>{}}/>}<div className="structured-product-description">{blocks.map((block,index)=>{if(block.type==='text')return block.text?.includes('<')?<div key={index} dangerouslySetInnerHTML={{__html:block.text}}/>:<p key={index}>{block.text}</p>;if(block.type==='heading'){const Tag=`h${Math.min(4,Math.max(2,Number(block.level)||2))}`;return <Tag key={index}>{block.text}</Tag>}if(block.type==='list')return <ul key={index}>{safeArray(block.items).map((item,i)=><li key={i}>{plainValue(item)}</li>)}</ul>;if(block.type==='table')return <div className="table-wrap" key={index}><table className="table"><thead><tr>{safeArray(block.headers).map((cell,i)=><th key={i}>{plainValue(cell)}</th>)}</tr></thead><tbody>{safeArray(block.rows).map((row,i)=><tr key={i}>{safeArray(row).map((cell,j)=><td key={j}>{plainValue(cell)}</td>)}</tr>)}</tbody></table></div>;if(block.type==='image'){const item=media.get(String(block.media_id));return item?<figure key={index} className="desc-zoomable" onClick={()=>setZoomSrc(item.url)} style={{cursor:'zoom-in'}}><img src={item.url} alt={block.caption||item.alt||product.name}/>{block.caption&&<figcaption>{block.caption}</figcaption>}</figure>:null}if(block.type==='video'||block.type==='link')return <p key={index}><a href={block.url} target="_blank" rel="noopener noreferrer">{block.label||(block.type==='video'?'Videoni ko‘rish':'Havolani ochish')}</a></p>;return null})}</div></>}
@@ -779,17 +1369,26 @@ function ProductReviews({ productId, session, setToast, setAuthOpen }) {
   return <div className="reviews-section card detail-tabs">
     <div className="reviews-header"><h2>Sharhlar va baholar</h2>{total > 0 && <div className="reviews-summary"><StarRating value={Math.round(avg)}/><b>{avg}</b><span>({total} ta sharh)</span></div>}</div>
     {session ? <form className="review-form" onSubmit={submit}><h3>Sharh qoldirish</h3><div className="review-stars-input"><span>Bahoyingiz:</span><StarRating value={rating} onChange={setRating} size={24}/>{rating > 0 && <small>{rating} / 5</small>}</div><textarea className="textarea" value={body} onChange={e => setBody(e.target.value)} placeholder="Mahsulot haqida fikringizni yozing..." maxLength={2000} rows={3}/><button className="btn btn-primary" type="submit" disabled={submitting || !rating}>{submitting ? 'Yuborilmoqda...' : 'Sharh yuborish'}</button></form> : <p className="review-login-hint">Sharh qoldirish uchun <button type="button" className="review-login-link" onClick={()=>setAuthOpen?.(true)}>hisobingizga kiring</button>.</p>}
-    {loading ? <p className="muted">Sharhlar yuklanmoqda...</p> : reviews.length > 0 ? <div className="reviews-list">{reviews.map(item => <div className="review-item" key={item.id}><div className="review-item-head"><StarRating value={item.rating} size={16}/><b>{item.reviewer_name}</b><time>{new Date(item.created_at).toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short', year: 'numeric' })}</time></div>{item.body && <p>{item.body}</p>}</div>)}</div> : !loading && <p className="muted">Bu mahsulotga hali sharh yozilmagan. Birinchi bo'lib sharh qoldiring!</p>}
+    {loading ? <p className="muted">Sharhlar yuklanmoqda...</p> : reviews.length > 0 ? <div className="reviews-list">{reviews.map(item => <div className="review-item" key={item.id}><div className="review-item-head"><StarRating value={item.rating} size={16}/><b>{item.reviewer_name}</b><time>{formatUzDate(item.created_at, { day: true, month: 'long', year: true })}</time></div>{item.body && <p>{item.body}</p>}</div>)}</div> : !loading && <p className="muted">Bu mahsulotga hali sharh yozilmagan. Birinchi bo'lib sharh qoldiring!</p>}
   </div>;
 }
 
 function Product({ product, go, add, toggleFavorite, loved, related, favorites, session, setToast, setAuthOpen }) {
-  return <section className="container product-page"><div className="breadcrumbs"><button onClick={() => go('home')}>Bosh sahifa</button><ChevronRight/><button onClick={() => go('catalog')}>Katalog</button><ChevronRight/>{product.name}</div><div className="product-detail card"><div className="gallery single-media"><div className="main-img"><ProductMedia product={product}/>{product.oldPrice > product.price && <span className="badge">Aksiya</span>}</div>{product.seoImage&&product.seoImage.includes("youtu")&&<div className="product-video"><iframe src={product.seoImage.replace("watch?v=","embed/").replace("youtu.be/","youtube.com/embed/")} title="Video" allowFullScreen style={{width:"100%",height:300,border:"none",borderRadius:12,marginTop:12}}/></div>}</div><div className="detail-info"><div className="row"><Status type={product.stock ? 'green' : 'red'}>{product.stock ? 'Sotuvda mavjud' : "Sotuvda yo\u2019q"}</Status></div><h1>{product.name}</h1><p className="muted">Artikul: {product.sku || '\u2014'}</p><div className="divider"/>{product.oldPrice > product.price && <div className="old-price">{money(product.oldPrice)}</div>}<div className="detail-price">{money(product.price)}</div><div className={`stock ${product.stock ? '' : 'out'}`}>{product.stock ? <Check size={18}/> : <X size={18}/>} {product.stock ? `Omborda ${product.stock} dona mavjud` : 'Omborda mavjud emas'}</div><div className="detail-actions"><button className="btn btn-primary" onClick={() => add(product)} disabled={!product.stock}><ShoppingCart/> Savatchaga</button><button className={`btn btn-outline ${loved ? 'loved' : ''}`} onClick={() => toggleFavorite(product)}><Heart fill={loved ? 'currentColor' : 'none'}/> {loved ? "Sevimlilardan olib tashlash" : "Sevimliga qo\u2019shish"}</button></div></div></div><div className="detail-tabs card"><h2>Mahsulot haqida</h2><RichDescription product={product}/><h3>Asosiy xususiyatlar</h3>{product.attributes.length ? <div className="spec-grid">{product.attributes.map(item => <div key={`${item.code}-${item.value}`}><span>{item.name}</span><b>{item.value || '\u2014'}</b></div>)}</div> : <p className="muted">Xususiyatlar kiritilmagan.</p>}</div><ProductReviews productId={product.id} session={session} setToast={setToast} setAuthOpen={setAuthOpen}/>{related.length > 0 && <ProductSection title={'O\u2019xshash mahsulotlar'} subtitle="Sizga mos takliflar" list={related} {...{ go, add, toggleFavorite, favorites }} onViewAll={()=>go('category',{slug:product.categorySlug||product.categoryId})}/>}</section>;
+  const variants = product.variants || [];
+  const [variantId, setVariantId] = useState(variants[0]?.id || null);
+  useEffect(() => setVariantId(variants[0]?.id || null), [product.id]);
+  const activeVariant = variantId ? variants.find(v => v.id === variantId) : null;
+  const displayPrice = activeVariant?.price || product.price;
+  const displayStock = activeVariant ? activeVariant.stock : product.stock;
+  const displayMedia = activeVariant?.media?.length ? activeVariant.media : (activeVariant?.image ? [{ url: activeVariant.image }] : product.media);
+  const mediaProduct = { ...product, media: displayMedia, image: activeVariant?.image || product.image };
+  const cartProduct = { ...product, selectedVariantId: variantId };
+  return <section className="container product-page"><div className="breadcrumbs"><button onClick={() => go('home')}>Bosh sahifa</button><ChevronRight/><button onClick={() => go('catalog')}>Katalog</button><ChevronRight/>{product.name}</div><div className="product-detail card"><div className="gallery single-media"><div className="main-img"><ProductMedia product={mediaProduct}/>{product.oldPrice > displayPrice && <span className="badge">Aksiya</span>}</div>{product.seoImage&&product.seoImage.includes("youtu")&&<div className="product-video"><iframe src={product.seoImage.replace("watch?v=","embed/").replace("youtu.be/","youtube.com/embed/")} title="Video" allowFullScreen style={{width:"100%",height:300,border:"none",borderRadius:12,marginTop:12}}/></div>}</div><div className="detail-info"><div className="row"><Status type={displayStock ? 'green' : 'red'}>{displayStock ? 'Sotuvda mavjud' : "Sotuvda yo\u2019q"}</Status></div><h1>{product.name}</h1><p className="muted">Artikul: {product.sku || '\u2014'}</p>{variants.length > 0 && <div className="product-color-picker"><span className="label">Rang: {activeVariant ? <b>{activeVariant.colorName}</b> : ''}</span><div className="product-color-options">{variants.map(v => <button key={v.id} type="button" className={v.id === variantId ? 'product-color-option active' : 'product-color-option'} style={{ background: v.colorHex || '#ccc' }} title={v.colorName} onClick={() => setVariantId(v.id)}>{v.id === variantId && <Check size={13}/>}</button>)}</div></div>}<div className="divider"/>{product.oldPrice > displayPrice && <div className="old-price">{money(product.oldPrice)}</div>}<div className="detail-price">{money(displayPrice)}</div><div className={`stock ${displayStock ? '' : 'out'}`}>{displayStock ? <Check size={18}/> : <X size={18}/>} {displayStock ? `Omborda ${displayStock} dona mavjud` : 'Omborda mavjud emas'}</div><div className="detail-actions"><button className="btn btn-primary" onClick={() => add(cartProduct, variantId)} disabled={!displayStock}><ShoppingCart/> Savatchaga</button><button className={`btn btn-outline ${loved ? 'loved' : ''}`} onClick={() => toggleFavorite(product)}><Heart fill={loved ? 'currentColor' : 'none'}/> {loved ? "Sevimlilardan olib tashlash" : "Sevimliga qo\u2019shish"}</button></div></div></div><div className="detail-tabs card"><h2>Mahsulot haqida</h2><RichDescription product={product}/><h3>Asosiy xususiyatlar</h3>{product.attributes.length ? <div className="spec-grid">{product.attributes.map(item => <div key={`${item.code}-${item.value}`}><span>{item.name}</span><b>{item.value || '\u2014'}</b></div>)}</div> : <p className="muted">Xususiyatlar kiritilmagan.</p>}</div><ProductReviews productId={product.id} session={session} setToast={setToast} setAuthOpen={setAuthOpen}/>{related.length > 0 && <ProductSection title={'O\u2019xshash mahsulotlar'} subtitle="Sizga mos takliflar" list={related} {...{ go, add, toggleFavorite, favorites }} onViewAll={()=>go('category',{slug:product.categorySlug||product.categoryId})}/>}</section>;
 }
 
 function Cart({ cartItems, go, updateCart }) {
   const total = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
-  return <section className="container cart-page"><div className="breadcrumbs"><button onClick={()=>go('home')}>Bosh sahifa</button> <ChevronRight/> Savatcha</div><h1 className="title">Savatcha</h1>{cartItems.length ? <div className="cart-layout"><div className="stack">{cartItems.map(product => <div className="cart-item card" key={product.id}><ProductMedia product={product}/><div className="cart-name"><b>{product.name}</b><span className="muted">Omborda: {product.stock} dona</span><button onClick={() => updateCart(product, 0)}><Trash2/> O‘chirish</button></div><div className="qty"><button onClick={() => updateCart(product, product.qty - 1)} aria-label="Miqdorni kamaytirish"><Minus/></button><b>{product.qty}</b><button onClick={() => updateCart(product, product.qty + 1)} disabled={product.qty >= product.stock} aria-label="Miqdorni oshirish"><Plus/></button></div><div className="price">{money(product.price * product.qty)}</div></div>)}</div><OrderTotal total={total} count={cartItems.reduce((sum, item) => sum + item.qty, 0)} onClick={() => go('checkout')}/></div> : <div className="card"><Empty title="Savatchangiz bo‘sh" text="Katalogdan o‘zingizga yoqqan texnikani tanlang."/><div className="center-action"><button className="btn btn-primary" onClick={() => go('catalog')}>Katalogga o‘tish</button></div></div>}</section>;
+  return <section className="container cart-page"><div className="breadcrumbs"><button onClick={()=>go('home')}>Bosh sahifa</button> <ChevronRight/> Savatcha</div><h1 className="title">Savatcha</h1>{cartItems.length ? <div className="cart-layout"><div className="stack">{cartItems.map(product => <div className="cart-item card" key={`${product.id}::${product.variantId||''}`}><ProductMedia product={product}/><div className="cart-name"><b>{product.name}</b>{product.variantColorName && <em className="cart-variant-tag">{product.variantColorName}</em>}<span className="muted">Omborda: {product.stock} dona</span><button onClick={() => updateCart(product, 0, '', product.variantId)}><Trash2/> O‘chirish</button></div><div className="qty"><button onClick={() => updateCart(product, product.qty - 1, '', product.variantId)} aria-label="Miqdorni kamaytirish"><Minus/></button><b>{product.qty}</b><button onClick={() => updateCart(product, product.qty + 1, '', product.variantId)} disabled={product.qty >= product.stock} aria-label="Miqdorni oshirish"><Plus/></button></div><div className="price">{money(product.price * product.qty)}</div></div>)}</div><OrderTotal total={total} count={cartItems.reduce((sum, item) => sum + item.qty, 0)} onClick={() => go('checkout')}/></div> : <div className="card"><Empty title="Savatchangiz bo‘sh" text="Katalogdan o‘zingizga yoqqan texnikani tanlang."/><div className="center-action"><button className="btn btn-primary" onClick={() => go('catalog')}>Katalogga o‘tish</button></div></div>}</section>;
 }
 function OrderTotal({ total, count, onClick, disabled, loading }) { return <aside className="order-total card"><h3>Buyurtmangiz</h3><div className="between"><span>Mahsulotlar ({count})</span><b>{money(total)}</b></div><div className="between"><span>Yetkazib berish</span><b className="orange">Buyurtmada aniqlanadi</b></div><div className="divider"/><div className="between grand"><span>Jami</span><b>{money(total)}</b></div><button className="btn btn-primary btn-block" onClick={onClick} disabled={disabled || loading}>{loading ? 'Yuborilmoqda…' : 'Rasmiylashtirish'}</button><small className="muted">Davom etish orqali ommaviy oferta shartlariga rozilik bildirasiz.</small></aside>; }
 
@@ -874,7 +1473,7 @@ function Checkout({ cartItems, go, session, account, clearCart, setToast, custom
     if (!cartItems.length) return setToast('Savatcha bo‘sh.');
     if (cartItems.some(item => item.qty < 1 || item.qty > item.stock)) return setToast('Savatchadagi miqdor ombor qoldig‘iga mos emas.');
     if (!methods.some(item => item.code === payment)) return setToast('Faol to‘lov usulini tanlang.');
-    const payload = { customer: { name: form.name.trim(), phone, email: form.email.trim() || undefined }, shippingAddress: { address: form.address.trim() }, lines: cartItems.map(item => ({ product_id: item.id, quantity: item.qty })), paymentMethodCode: payment, notes: form.notes.trim() || null };
+    const payload = { customer: { name: form.name.trim(), phone, email: form.email.trim() || undefined }, shippingAddress: { address: form.address.trim() }, lines: cartItems.map(item => ({ product_id: item.id, variant_id: item.variantId || null, quantity: item.qty })), paymentMethodCode: payment, notes: form.notes.trim() || null };
     const fingerprint = JSON.stringify(payload);
     if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: createKey(), token: createCheckoutToken() };
     setSubmitting(true);
@@ -955,7 +1554,10 @@ function Profile({ go, session, account, accountError, refreshAccount, favorites
   if (!session) return <section className="container profile-page"><div className="auth-prompt card"><User size={54}/><h1>Shaxsiy kabinet</h1><p>Profil, manzillar va buyurtmalar tarixini ko‘rish uchun hisobingizga kiring.</p><button className="btn btn-primary" onClick={() => setAuthOpen(true)}>Kirish yoki ro‘yxatdan o‘tish</button></div></section>;
   if (!account) return <section className="container profile-page"><StatePanel loading={!accountError} error={accountError} onRetry={refreshAccount}/></section>;
   const profile = account.customer || account.profile || {};
-  const signOut = async () => { try { await signOutCustomer(); setToast('Hisobdan chiqdingiz.'); go('home'); } catch (error) { setToast(errorText(error)); } };
+  const signOut = async () => {
+    if (!window.confirm('Hisobdan chiqishni tasdiqlaysizmi?')) return;
+    try { await signOutCustomer(); setToast('Hisobdan chiqdingiz.'); go('home'); } catch (error) { setToast(errorText(error)); }
+  };
   return <section className="container profile-page"><h1 className="title">Shaxsiy kabinet</h1>{accountError && <InlineError text={accountError} onRetry={refreshAccount}/>}<div className="profile-layout"><aside className="card profile-menu"><div className="profile-user"><div className="avatar">{String(profile.full_name || profile.email || 'U').slice(0, 2).toUpperCase()}</div><div><b>{plainValue(profile.full_name) || 'Mijoz'}</b><span>{plainValue(profile.phone || profile.email)}</span></div></div>{[['orders', 'Buyurtmalarim'], ['notifications', `Bildirishnomalar${notifications.unread?` (${notifications.unread})`:''}`], ['info', 'Shaxsiy ma’lumotlar'], ['address', 'Manzillarim'], ['favorites', 'Saralanganlar']].map(item => <button className={tab === item[0] ? 'active' : ''} onClick={() => setTab(item[0])} key={item[0]}>{item[1]}<ChevronRight/></button>)}<button onClick={signOut}>Hisobdan chiqish<ChevronRight/></button></aside><div className="card pad">{tab === 'orders' && <OrdersPanel orders={orders} onRetry={loadOrders}/>} {tab === 'notifications' && <CustomerNotifications state={notifications} reload={loadNotifications}/>} {tab === 'info' && <ProfileForm profile={profile} onSaved={refreshAccount} setToast={setToast}/>} {tab === 'address' && <AddressesPanel addresses={safeArray(account?.addresses)} onSaved={refreshAccount} setToast={setToast}/>} {tab === 'favorites' && <FavoritesPanel favorites={favorites} catalog={catalog} go={go}/>}</div></div></section>;
 }
 function CustomerNotifications({state,reload}){const mark=async ids=>{await markNotificationsRead(ids);await reload()};if(state.loading)return <StatePanel loading/>;if(state.error)return <StatePanel error={state.error} onRetry={reload}/>;return <><div className="between"><h2>Bildirishnomalar</h2><button className="btn btn-outline" disabled={!state.unread} onClick={()=>mark(null)}>Barchasini o‘qish</button></div>{state.items.length?<div className="customer-notifications">{state.items.map(item=><button key={item.id} className={item.read_at?'':'unread'} onClick={()=>!item.read_at&&mark([item.id])}><span><b>{item.title}</b><small>{item.body}</small><time>{new Date(item.created_at).toLocaleString('uz-UZ')}</time></span>{!item.read_at&&<Status type="orange">Yangi</Status>}</button>)}</div>:<Empty title="Bildirishnoma yo‘q" text="Buyurtma yangiliklari shu yerda ko‘rinadi."/>}</>}

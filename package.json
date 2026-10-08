@@ -7,9 +7,12 @@
     "packages/*"
   ],
   "dependencies": {
-    "@supabase/supabase-js": "2.112.3"
+    "@supabase/supabase-js": "2.112.3",
+    "detonger-web-bt": "^1.0.2"
   },
   "scripts": {
+    "dev": "concurrently -n storefront,superadmin,manager,seller,courier -c blue,magenta,cyan,yellow,green \"npm:dev:storefront\" \"npm:dev:superadmin\" \"npm:dev:manager\" \"npm:dev:seller\" \"npm:dev:courier\"",
+    "dev:all": "npm run dev",
     "bootstrap:superadmin": "node scripts/bootstrap-superadmin.mjs",
     "dev:storefront": "npm run dev -w @texnobazar/storefront",
     "dev:superadmin": "npm run dev -w @texnobazar/superadmin",
@@ -17,10 +20,13 @@
     "dev:seller": "npm run dev -w @texnobazar/seller",
     "dev:courier": "npm run dev -w @texnobazar/courier",
     "build": "npm run build --workspaces --if-present",
-    "build:all": "npm run build"
+    "build:all": "npm run build",
+    "postinstall": "node scripts/patch-exceljs.cjs"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "5.0.4",
+    "concurrently": "^10.0.5",
+    "pg": "^8.23.0",
     "vite": "7.3.6"
   }
 }

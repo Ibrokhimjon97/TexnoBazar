@@ -3,7 +3,13 @@ import{Bell}from'lucide-react';
 import{Status}from'@texnobazar/ui';
 import{listNotifications,markNotificationsRead,subscribeNotifications}from'@texnobazar/data';
 const SOUND_URL='/notification.wav';
-export default function AdminNotificationCenter({profileId}){
+function resolveNotificationTarget(data){
+  if(!data)return null;
+  if(data.order_id)return{page:'orders',orderId:data.order_id,orderNo:data.order_no};
+  if(data.type?.startsWith('attendance'))return{page:'attendance'};
+  return null;
+}
+export default function AdminNotificationCenter({profileId,onNavigate}){
   const[open,setOpen]=useState(false),[items,setItems]=useState([]),[unread,setUnread]=useState(0),[loading,setLoading]=useState(false),[error,setError]=useState('');
   const prevUnread=useRef(-1);
   const audioRef=useRef(null);
@@ -30,11 +36,18 @@ export default function AdminNotificationCenter({profileId}){
 
   const mark=async ids=>{try{await markNotificationsRead(ids);await load()}catch(e){setError(e.message||String(e))}};
 
+  const openItem=item=>{
+    if(!item.read_at)mark([item.id]);
+    setOpen(false);
+    const target=resolveNotificationTarget(item.data);
+    if(target)onNavigate?.(target);
+  };
+
   return <div className="admin-notifications">
     <button className="icon-btn" onClick={()=>setOpen(v=>!v)} aria-label="Bildirishnomalar"><Bell/>{unread>0&&<i className="notif-badge">{unread}</i>}</button>
     {open&&<div className="admin-notification-panel">
       <header><div><b>Bildirishnomalar</b><small>{unread} ta o'qilmagan</small></div><button disabled={!unread} onClick={()=>mark(null)}>Barchasini o'qish</button></header>
-      {loading?<p>Yuklanmoqda\u2026</p>:error?<p className="error">{error}</p>:items.length===0?<p>Bildirishnoma yo'q.</p>:<div>{items.map(item=><button key={item.id} className={item.read_at?'':'unread'} onClick={()=>!item.read_at&&mark([item.id])}><span><b>{item.title}</b><small>{item.body}</small><time>{new Date(item.created_at).toLocaleString('uz-UZ')}</time></span>{!item.read_at&&<Status type="orange">Yangi</Status>}</button>)}</div>}
+      {loading?<p>Yuklanmoqda\u2026</p>:error?<p className="error">{error}</p>:items.length===0?<p>Bildirishnoma yo'q.</p>:<div>{items.map(item=><button key={item.id} className={item.read_at?'':'unread'} onClick={()=>openItem(item)}><span><b>{item.title}</b><small>{item.body}</small><time>{new Date(item.created_at).toLocaleString('uz-UZ')}</time></span>{!item.read_at&&<Status type="orange">Yangi</Status>}</button>)}</div>}
     </div>}
   </div>;
 }

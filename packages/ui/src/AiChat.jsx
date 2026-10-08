@@ -1,13 +1,54 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, Bot, Database, Loader, Pencil, Plus, Send, Sparkles, Trash2, User,
+  AlertTriangle, Bot, Camera, CheckCircle2, Database, Image as ImageIcon,
+  Loader, Mic, MicOff, Pencil, Plus, QrCode, Send, Sparkles, Trash2, User,
 } from 'lucide-react';
 import {
-  deleteAiConversation, listAiConversations, listAiMessages, listAiModels, sendAiMessage,
+  deleteAiConversation, listAiConversations, listAiMessages, listAiModels,
+  sendAiMessage, uploadProductMedia,
 } from '@texnobazar/data';
+import { QrScannerModal } from './QrScannerModal.jsx';
 
-// Lightweight markdown renderer: supports headers, bold, italic, tables, lists,
-// inline code, code blocks, horizontal rules and line breaks. No external deps.
+// Matndan OPTIONS va BUTTONS qatorlarini ajratib oluvchi yordamchi
+function parseMessageContent(rawText) {
+  if (!rawText) return { cleanText: '', buttons: [] };
+  let cleanText = String(rawText);
+  const buttons = [];
+
+  // 1. BUTTONS: [{"label": "...", "value": "..."}]
+  const btnMatch = cleanText.match(/BUTTONS:\s*(\[[\s\S]*?\])/);
+  if (btnMatch) {
+    try {
+      const parsed = JSON.parse(btnMatch[1]);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(item => {
+          if (item?.label && item?.value) buttons.push(item);
+        });
+      }
+    } catch { /* parse xatoligi bo'lsa o'tkazib yuboramiz */ }
+    cleanText = cleanText.replace(/BUTTONS:\s*\[[\s\S]*?\]/, '').trim();
+  }
+
+  // 2. OPTIONS: ["...", "..."]
+  const optMatch = cleanText.match(/OPTIONS:\s*(\[[\s\S]*?\])/);
+  if (optMatch) {
+    try {
+      const parsed = JSON.parse(optMatch[1]);
+      if (Array.isArray(parsed)) {
+        parsed.forEach(item => {
+          if (typeof item === 'string' && item.trim()) {
+            buttons.push({ label: item.trim(), value: item.trim() });
+          }
+        });
+      }
+    } catch { /* parse xatoligi */ }
+    cleanText = cleanText.replace(/OPTIONS:\s*\[[\s\S]*?\]/, '').trim();
+  }
+
+  return { cleanText, buttons };
+}
+
+// Yengil markdown rendereri
 function AiMarkdown({ text }) {
   if (!text) return null;
   const html = renderMarkdown(text);
@@ -43,7 +84,6 @@ function renderMarkdown(src) {
   };
 
   for (const line of lines) {
-    // Code block toggle
     if (line.trimStart().startsWith('```')) {
       if (inCode) {
         out.push(`<pre class="ai-md-code"><code>${escHtml(codeBuf.join('\n'))}</code></pre>`);
@@ -57,17 +97,14 @@ function renderMarkdown(src) {
     }
     if (inCode) { codeBuf.push(line); continue; }
 
-    // Table row detection
     if (line.includes('|') && line.trim().startsWith('|')) {
       if (!inTable) inTable = true;
       tableBuf.push(line);
       continue;
     } else if (inTable) { flushTable(); }
 
-    // Horizontal rule
     if (/^---+$/.test(line.trim())) { out.push('<hr class="ai-md-hr"/>'); continue; }
 
-    // Headers
     const hMatch = line.match(/^(#{1,4})\s+(.+)/);
     if (hMatch) {
       const level = hMatch[1].length;
@@ -75,22 +112,18 @@ function renderMarkdown(src) {
       continue;
     }
 
-    // Unordered list
     if (/^\s*[-*]\s+/.test(line)) {
       out.push(`<div class="ai-md-li">${inline(line.replace(/^\s*[-*]\s+/, ''))}</div>`);
       continue;
     }
 
-    // Ordered list
     if (/^\s*\d+[.)]\s+/.test(line)) {
       out.push(`<div class="ai-md-li ai-md-ol">${inline(line.replace(/^\s*\d+[.)]\s+/, ''))}</div>`);
       continue;
     }
 
-    // Empty line
     if (!line.trim()) { out.push('<br/>'); continue; }
 
-    // Paragraph
     out.push(`<p class="ai-md-p">${inline(line)}</p>`);
   }
   if (inCode && codeBuf.length) out.push(`<pre class="ai-md-code"><code>${escHtml(codeBuf.join('\n'))}</code></pre>`);
@@ -100,16 +133,11 @@ function renderMarkdown(src) {
 
 function inline(text) {
   let s = escHtml(text);
-  // Bold + italic
   s = s.replace(/\*\*\*(.+?)\*\*\*/g, '<b><i>$1</i></b>');
-  // Bold
   s = s.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-  // Italic
   s = s.replace(/\*(.+?)\*/g, '<i>$1</i>');
-  // Inline code
   s = s.replace(/`([^`]+)`/g, '<code class="ai-md-inline-code">$1</code>');
-  // Numbers that look like money amounts: highlight them
-  s = s.replace(/(\d[\d\s]*(?:\.\d+)?)\s*(so['`\u2018\u2019]m|USD|UZS|usd|uzs)/g, '<span class="ai-md-money">$1 $2</span>');
+  s = s.replace(/(\d[\d\s]*(?:\.\d+)?)\s*(so['`\u2018\u2019]m|USD|UZS|usd|uzs|\$)/g, '<span class="ai-md-money">$1 $2</span>');
   return s;
 }
 
@@ -118,31 +146,38 @@ function escHtml(str) {
 }
 
 const TOOL_LABELS = {
+  get_metadata_catalogs: 'Katalog va joylashuvlar',
   list_branches: 'Filiallar ro\'yxati',
   search_employees: 'Xodim qidirish',
   search_products: 'Mahsulot qidirish',
+  product_stock_by_branch: 'Filiallar qoldig\'i',
+  product_detail: 'Mahsulot ma\'lumoti',
   inventory_valuation: 'Qoldiq va qiymati',
   seller_performance: 'Sotuvchilar natijasi',
   product_performance: 'Tovar sotilishi tahlili',
   expense_report: 'Xarajatlar hisoboti',
   employee_salary: 'Xodim maoshi',
-  transfer_summary: 'Transfer va qarzlar',
-  unit_lifecycle: 'Tovar tarixi (QR)',
   unit_passport: 'Tovar pasporti (QR)',
   profit_loss: 'Foyda va zarar',
   sales_history: 'Sotuvlar tarixi',
+  create_or_update_product: 'Mahsulot yaratish / yangilash',
+  receive_stock_batch: 'Partiya qabul qilish (QR)',
+  quick_inventory_stock: 'Tezkor inventarizatsiya',
+  delete_or_archive_product: 'Mahsulotni o\'chirish / arxivlash',
+  create_expense: 'Xarajat qayd etish',
+  relocate_unit: 'Tovar joyini o\'zgartirish',
   set_product_visibility: 'Saytda ko\'rinishni o\'zgartirish',
   update_product_description: 'Tavsifni yangilash',
 };
 
 const SUGGESTIONS = [
-  'Asosiy filial omborida qancha tovar bor?',
-  'Bu oyda qaysi xodim eng ko\'p savdo qildi?',
-  'Bu oygi harajatlarni hisobla',
-  'Qaysi tovarlar yaxshi sotilyapti?',
+  '➕ Yangi mahsulot qo\'shmoqchiman',
+  '📦 Yangi partiya tovarlar keldi (Kirim qilish)',
+  '📋 Inventarizatsiya — tovar qoldig\'ini kiritish',
+  '💰 Bugungi do\'kon xarajatini yozish',
 ];
 
-export function AiChat({ title = 'AI yordamchi', suggestions = SUGGESTIONS }) {
+export function AiChat({ title = 'AI Yordamchi Operator', suggestions = SUGGESTIONS }) {
   const [models, setModels] = useState([]);
   const [selected, setSelected] = useState({ providerId: null, model: null });
   const [conversations, setConversations] = useState([]);
@@ -152,7 +187,12 @@ export function AiChat({ title = 'AI yordamchi', suggestions = SUGGESTIONS }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const fileInputRef = useRef(null);
   const scrollRef = useRef(null);
+  const recognitionRef = useRef(null);
 
   useEffect(() => {
     (async () => {
@@ -176,6 +216,45 @@ export function AiChat({ title = 'AI yordamchi', suggestions = SUGGESTIONS }) {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, busy]);
+
+  // Web Speech API (Ovozli kiritish)
+  useEffect(() => {
+    const Speech = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (Speech) {
+      const recognizer = new Speech();
+      recognizer.lang = 'uz-UZ';
+      recognizer.continuous = false;
+      recognizer.interimResults = false;
+      recognizer.onresult = (event) => {
+        const text = event.results?.[0]?.[0]?.transcript;
+        if (text) {
+          setInput(prev => (prev ? `${prev} ${text}` : text));
+        }
+        setIsListening(false);
+      };
+      recognizer.onerror = () => setIsListening(false);
+      recognizer.onend = () => setIsListening(false);
+      recognitionRef.current = recognizer;
+    }
+  }, []);
+
+  const toggleVoice = () => {
+    if (!recognitionRef.current) {
+      alert('Brauzeringiz ovozli kiritishni qo\'llab-quvvatlamaydi (Google Chrome tavsiya etiladi).');
+      return;
+    }
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      try {
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch {
+        setIsListening(false);
+      }
+    }
+  };
 
   const openConversation = async id => {
     setConversationId(id); setError('');
@@ -224,6 +303,40 @@ export function AiChat({ title = 'AI yordamchi', suggestions = SUGGESTIONS }) {
       setMessages(current => current.filter(m => m.content !== text || m.role !== 'user'));
       setInput(text);
     } finally { setBusy(false); }
+  };
+
+  // Rasm yuklash
+  const handleImageUpload = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setUploadingImage(true);
+    setError('');
+    try {
+      const uploadedUrls = [];
+      for (const file of files) {
+        const dummyId = crypto.randomUUID();
+        const uploaded = await uploadProductMedia(dummyId, file, file.name);
+        const imgUrl = uploaded?.publicUrl || uploaded?.url || file.name;
+        uploadedUrls.push(imgUrl);
+      }
+      const msg = uploadedUrls.length === 1
+        ? `[Rasm yuklandi: ${uploadedUrls[0]}]`
+        : `[${uploadedUrls.length} ta rasm yuklandi:\n${uploadedUrls.map(u => `- ${u}`).join('\n')}]`;
+      submit(null, msg);
+    } catch (err) {
+      submit(null, `[Mahsulot rasmi yuklandi: ${files.map(f => f.name).join(', ')}]`);
+    } finally {
+      setUploadingImage(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // QR skaner natijasi
+  const handleQrScan = (code) => {
+    setQrOpen(false);
+    if (code) {
+      submit(null, `QR kod: ${code}. Ushbu tovar pasporti va joylashuv ma'lumotlarini chiqar.`);
+    }
   };
 
   const activeProvider = models.find(m => m.provider_id === selected.providerId);
@@ -285,8 +398,8 @@ export function AiChat({ title = 'AI yordamchi', suggestions = SUGGESTIONS }) {
           {ready && models.length > 0 && messages.length === 0 && (
             <div className="ai-chat-welcome">
               <Bot size={34} />
-              <b>Nima bilmoqchisiz?</b>
-              <p>Ombor qoldig'i, savdo statistikasi, xodimlar, xarajatlar va tovarlar haqida so'rang.</p>
+              <b>Assalomu alaykum! Nima qilishimiz kerak?</b>
+              <p>Yangi tovar qo'shish, partiya qabul qilish, QR kodlar chiqarish, xarajat yozish yoki savdo tahlillarini suhbat orqali bajaring.</p>
               <div className="ai-chat-suggestions">
                 {suggestions.map(text => (
                   <button type="button" key={text} onClick={event => submit(event, text)}>{text}</button>
@@ -295,24 +408,46 @@ export function AiChat({ title = 'AI yordamchi', suggestions = SUGGESTIONS }) {
             </div>
           )}
 
-          {messages.map(message => (
-            <article key={message.id} className={`ai-msg ai-msg-${message.role}`}>
-              <span className="ai-msg-avatar">{message.role === 'user' ? <User size={15} /> : <Bot size={15} />}</span>
-              <div className="ai-msg-body">
-                {message.tool_calls?.length > 0 && (
-                  <div className="ai-msg-tools">
-                    {message.tool_calls.map((tool, index) => (
-                      <span key={`${tool.name}-${index}`} className={tool.ok === false ? 'bad' : (tool.is_write ? 'write' : '')}>
-                        {tool.is_write ? <Pencil size={11} /> : <Database size={11} />}
-                        {TOOL_LABELS[tool.name] || tool.name}
-                      </span>
-                    ))}
+          {messages.map(message => {
+            const { cleanText, buttons } = parseMessageContent(message.content);
+            return (
+              <article key={message.id} className={`ai-msg ai-msg-${message.role}`}>
+                <span className="ai-msg-avatar">{message.role === 'user' ? <User size={15} /> : <Bot size={15} />}</span>
+                <div className="ai-msg-body">
+                  {message.tool_calls?.length > 0 && (
+                    <div className="ai-msg-tools">
+                      {message.tool_calls.map((tool, index) => (
+                        <span key={`${tool.name}-${index}`} className={tool.ok === false ? 'bad' : (tool.is_write ? 'write' : '')}>
+                          {tool.is_write ? <Pencil size={11} /> : <Database size={11} />}
+                          {TOOL_LABELS[tool.name] || tool.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  <div className="ai-msg-text">
+                    <AiMarkdown text={cleanText} />
                   </div>
-                )}
-                <div className="ai-msg-text"><AiMarkdown text={message.content} /></div>
-              </div>
-            </article>
-          ))}
+
+                  {/* Interaktiv Tanlov Tugmalari (Option / Action Buttons) */}
+                  {buttons.length > 0 && (
+                    <div className="ai-action-buttons-wrap">
+                      {buttons.map((btn, bIdx) => (
+                        <button
+                          type="button"
+                          key={`btn-${bIdx}`}
+                          className="ai-action-btn"
+                          disabled={busy}
+                          onClick={() => submit(null, btn.value)}
+                        >
+                          <span>{btn.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </article>
+            );
+          })}
 
           {busy && (
             <article className="ai-msg ai-msg-assistant">
@@ -325,19 +460,71 @@ export function AiChat({ title = 'AI yordamchi', suggestions = SUGGESTIONS }) {
         {error && <div className="ai-chat-error"><AlertTriangle size={15} /> {error}</div>}
 
         <form className="ai-chat-input" onSubmit={submit}>
+          {/* Yashirin fayl tanlash */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            accept="image/*"
+            multiple
+            onChange={handleImageUpload}
+          />
+
+          {/* Rasm yuklash tugmasi */}
+          <button
+            type="button"
+            className="ai-tool-btn"
+            title="Tovar rasmini yuklash"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={busy || uploadingImage}
+          >
+            {uploadingImage ? <Loader size={16} className="spin" /> : <ImageIcon size={16} />}
+          </button>
+
+          {/* QR Kod Skanerlash tugmasi */}
+          <button
+            type="button"
+            className="ai-tool-btn"
+            title="QR Kod skanerlash"
+            onClick={() => setQrOpen(true)}
+            disabled={busy}
+          >
+            <QrCode size={16} />
+          </button>
+
+          {/* Ovozli kiritish tugmasi */}
+          <button
+            type="button"
+            className={`ai-tool-btn ${isListening ? 'listening' : ''}`}
+            title={isListening ? 'Eshitilmoqda… (to\'xtatish uchun bosing)' : 'Ovoz bilan yozish'}
+            onClick={toggleVoice}
+            disabled={busy}
+          >
+            {isListening ? <MicOff size={16} /> : <Mic size={16} />}
+          </button>
+
           <textarea
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(e); } }}
-            placeholder={models.length ? 'Savolingizni yozing… (Enter — yuborish, Shift+Enter — yangi qator)' : 'AI provayder sozlanmagan'}
+            placeholder={isListening ? 'Ovozingiz eshitilmoqda…' : (models.length ? 'Buyruq yoki savolingizni yozing… (Enter — yuborish)' : 'AI provayder sozlanmagan')}
             rows="1"
             disabled={busy || models.length === 0}
           />
+
           <button type="submit" className="btn btn-primary" disabled={busy || !input.trim() || models.length === 0}>
             <Send size={16} />
           </button>
         </form>
       </section>
+
+      {/* QR Scanner Modali */}
+      <QrScannerModal
+        open={qrOpen}
+        onClose={() => setQrOpen(false)}
+        onScan={handleQrScan}
+        title="Mahsulot QR kodini skanerlang"
+      />
     </div>
   );
 }

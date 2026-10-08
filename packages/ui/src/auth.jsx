@@ -4,6 +4,9 @@ import { changeOwnPassword, getBrowserClient, getMyAccessContext, requestPasswor
 
 const AuthContext = createContext(null);
 const labels = { superadmin: 'Superadmin', admin: 'Administrator', manager: 'Menejer', seller: 'Sotuvchi', courier: 'Kuryer', warehouse: 'Omborchi', accountant: 'Hisobchi' };
+export function confirmLogout(logout) {
+  if (window.confirm('Hisobdan chiqishni tasdiqlaysizmi?')) logout();
+}
 function friendlyError(error) {
   const message = String(error?.message ?? '').toLowerCase();
   if (message.includes('invalid login')) return 'Email yoki parol noto‘g‘ri.';
@@ -55,10 +58,10 @@ export function ProtectedApp({ expectedRoles, panelLabel, children }) {
   const auth = useAuth();
   if (auth.loading) return <div className="auth-loading"><span className="auth-spinner"/><b>Texnobazar yuklanmoqda…</b></div>;
   if (!auth.session) return <LoginPage panelLabel={panelLabel} initialError={auth.error}/>;
-  if (!auth.context) return <div className="auth-state"><ShieldCheck/><h1>Kirish cheklangan</h1><p>{auth.error || 'Faol profil va rol topilmadi.'}</p><button className="btn btn-primary" onClick={auth.logout}><LogOut/> Tizimdan chiqish</button></div>;
+  if (!auth.context) return <div className="auth-state"><ShieldCheck/><h1>Kirish cheklangan</h1><p>{auth.error || 'Faol profil va rol topilmadi.'}</p><button className="btn btn-primary" onClick={() => confirmLogout(auth.logout)}><LogOut/> Tizimdan chiqish</button></div>;
   if (auth.session.user?.user_metadata?.must_change_password === true) return <PasswordChangePage/>;
   const allowed = auth.roles.some((item) => expectedRoles.includes(item.role));
-  if (!allowed) return <div className="auth-state"><ShieldCheck/><h1>Bu panelga ruxsat yo‘q</h1><p>Sizning rolingiz: {auth.roles.map(r => labels[r.role] ?? r.role).join(', ') || 'biriktirilmagan'}.</p><button className="btn btn-primary" onClick={auth.logout}><LogOut/> Tizimdan chiqish</button></div>;
+  if (!allowed) return <div className="auth-state"><ShieldCheck/><h1>Bu panelga ruxsat yo‘q</h1><p>Sizning rolingiz: {auth.roles.map(r => labels[r.role] ?? r.role).join(', ') || 'biriktirilmagan'}.</p><button className="btn btn-primary" onClick={() => confirmLogout(auth.logout)}><LogOut/> Tizimdan chiqish</button></div>;
   return children;
 }
 
@@ -74,7 +77,7 @@ function PasswordChangePage() {
     catch (error) { setMessage(error?.message || 'Parol almashtirilmadi.'); }
     finally { setBusy(false); }
   };
-  return <main className="auth-page"><section className="auth-brand"><div className="auth-mark">T</div><p>XAVFSIZLIK TALABI</p><h1>Hisobingizni yangi shaxsiy parol bilan himoyalang.</h1></section><section className="auth-form-wrap"><form className="auth-form" onSubmit={submit}><div className="auth-logo"><b>texnobazar</b><span>Birinchi kirish</span></div><h2>Parolni almashtiring</h2><p>Vaqtinchalik parol bilan davom etib bo‘lmaydi.</p>{message&&<div className="auth-message">{message}</div>}<label><span>Yangi parol</span><div className="auth-password"><input className="input" type={show?'text':'password'} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} required minLength="10"/><button type="button" aria-label={show?'Parolni yashirish':'Parolni ko‘rsatish'} onClick={()=>setShow(!show)}>{show?<EyeOff/>:<Eye/>}</button></div></label><label><span>Yangi parolni takrorlang</span><input className="input" type={show?'text':'password'} autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)} required minLength="10"/></label><ul className="auth-password-requirements"><li>Kamida 10 ta belgi</li><li>Katta va kichik lotin harfi</li><li>Kamida bitta raqam</li></ul><button className="btn btn-primary btn-block" disabled={busy}>{busy?'Saqlanmoqda…':'Yangi parolni saqlash'}</button><button className="auth-link" type="button" onClick={logout}>Tizimdan chiqish</button></form></section></main>;
+  return <main className="auth-page"><section className="auth-brand"><div className="auth-mark">T</div><p>XAVFSIZLIK TALABI</p><h1>Hisobingizni yangi shaxsiy parol bilan himoyalang.</h1></section><section className="auth-form-wrap"><form className="auth-form" onSubmit={submit}><div className="auth-logo"><b>texnobazar</b><span>Birinchi kirish</span></div><h2>Parolni almashtiring</h2><p>Vaqtinchalik parol bilan davom etib bo‘lmaydi.</p>{message&&<div className="auth-message">{message}</div>}<label><span>Yangi parol</span><div className="auth-password"><input className="input" type={show?'text':'password'} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)} required minLength="10"/><button type="button" aria-label={show?'Parolni yashirish':'Parolni ko‘rsatish'} onClick={()=>setShow(!show)}>{show?<EyeOff/>:<Eye/>}</button></div></label><label><span>Yangi parolni takrorlang</span><input className="input" type={show?'text':'password'} autoComplete="new-password" value={confirm} onChange={e=>setConfirm(e.target.value)} required minLength="10"/></label><ul className="auth-password-requirements"><li>Kamida 10 ta belgi</li><li>Katta va kichik lotin harfi</li><li>Kamida bitta raqam</li></ul><button className="btn btn-primary btn-block" disabled={busy}>{busy?'Saqlanmoqda…':'Yangi parolni saqlash'}</button><button className="auth-link" type="button" onClick={() => confirmLogout(logout)}>Tizimdan chiqish</button></form></section></main>;
 }
 
 function LoginPage({ panelLabel, initialError }) {
@@ -94,5 +97,5 @@ export function AccountMenu({ compact = false }) {
   const { profile, primaryRole, branch, logout } = useAuth();
   const [open, setOpen] = useState(false);
   const initials = (profile?.full_name || profile?.email || 'TX').split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase();
-  return <div className="auth-account"><button className="auth-account-trigger" aria-expanded={open} onClick={()=>setOpen(!open)}>{profile?.avatar_url?<img className="avatar avatar-img" src={profile.avatar_url} alt=""/>:<div className="avatar">{initials}</div>}{!compact&&<span><b>{profile?.full_name || profile?.email}</b><small>{labels[primaryRole?.role] || primaryRole?.role}{branch?.name?` · ${branch.name}`:''}</small></span>}</button>{open&&<div className="auth-account-menu"><b>{profile?.full_name || profile?.email}</b><span>{profile?.email}</span><button onClick={logout}><LogOut/> Tizimdan chiqish</button></div>}</div>;
+  return <div className="auth-account"><button className="auth-account-trigger" aria-expanded={open} onClick={()=>setOpen(!open)}>{profile?.avatar_url?<img className="avatar avatar-img" src={profile.avatar_url} alt=""/>:<div className="avatar">{initials}</div>}{!compact&&<span><b>{profile?.full_name || profile?.email}</b><small>{labels[primaryRole?.role] || primaryRole?.role}{branch?.name?` · ${branch.name}`:''}</small></span>}</button>{open&&<div className="auth-account-menu"><b>{profile?.full_name || profile?.email}</b><span>{profile?.email}</span><button onClick={() => confirmLogout(logout)}><LogOut/> Tizimdan chiqish</button></div>}</div>;
 }

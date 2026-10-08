@@ -7,6 +7,9 @@ node_modules
 .DS_Store
 login parol.txt
 supabase/.temp
+*.xlsx
+*.xls
+*.sql
 
 # Local Netlify folder
 .netlify

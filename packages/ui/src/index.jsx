@@ -1,6 +1,12 @@
 export {DualPriceInput, DualPrice, useExchangeRate, formatDualMoney} from './DualPriceInput.jsx';
 export {QrScannerModal, QrScanButton} from './QrScannerModal.jsx';
 export {AiChat} from './AiChat.jsx';
+export {ColorVariantEditor, BASE_COLOR_PALETTE} from './ColorVariantEditor.jsx';
+export {ProductExcelImportModal} from './ProductExcelImportModal.jsx';
+export * from './thermalReceipt.jsx';
+export * from './detongerBluetooth.js';
+export * from './DetongerPrintModal.jsx';
+export * from './Skeleton.jsx';
 import React,{useEffect} from 'react';
 export * from './auth.jsx';
 import {X,CheckCircle2,Inbox} from 'lucide-react';
@@ -17,7 +23,7 @@ export const products=[
 ];
 export const formatMoney=n=>new Intl.NumberFormat('uz-UZ').format(n)+' so‘m';
 export function Toast({message,onClose}){useEffect(()=>{const t=setTimeout(onClose,2600);return()=>clearTimeout(t)},[message]);return message?<div className="toast"><CheckCircle2 size={19} color="#4ade80"/>{message}<button onClick={onClose} style={{background:'none',border:0,color:'#fff',marginLeft:8}}><X size={17}/></button></div>:null}
-export function Modal({open,onClose,title,children,wide=false}){useEffect(()=>{if(!open)return;const handler=e=>{if(e.key==='Escape')onClose?.()};document.addEventListener('keydown',handler);return()=>document.removeEventListener('keydown',handler)},[open,onClose]);if(!open)return null;return <div className="overlay"><div className={"modal"+(wide?' modal-wide':'')}><div className="between" style={{marginBottom:18}}><h2 className="section-title">{title}</h2><button className="icon-btn" onClick={onClose}><X size={19}/></button></div>{children}</div></div>}
+export function Modal({open,onClose,title,children,wide=false}){useEffect(()=>{if(!open)return;const handler=e=>{if(e.key==='Escape')onClose?.()};document.addEventListener('keydown',handler);return()=>document.removeEventListener('keydown',handler)},[open,onClose]);if(!open)return null;return <div className="overlay" onMouseDown={e=>e.target===e.currentTarget&&onClose?.()}><div className={"modal"+(wide?' modal-wide':'')}><div className="modal-header between"><h2 className="section-title">{title}</h2><button type="button" className="icon-btn modal-close-btn" onClick={onClose} aria-label="Yopish"><X size={19}/></button></div><div className="modal-body-scroll">{children}</div></div></div>}
 export function Empty({title='Ma’lumot topilmadi',text='Bu bo‘limda hozircha yozuvlar mavjud emas.'}){return <div className="empty"><Inbox size={42} strokeWidth={1.5}/><h3>{title}</h3><p>{text}</p></div>}
 export function Status({children,type='gray'}){return <span className={'badge '+type}>{children}</span>}
 export function KpiCard({icon:Icon,label,value,change,color='orange'}){return <div className="card pad kpi"><div className={'kpi-icon '+color}><Icon size={21}/></div><div><div className="muted small">{label}</div><div className="kpi-value">{value}</div>{change&&<div className="small" style={{color:change.startsWith('+')?'var(--green)':'var(--muted)'}}>{change}</div>}</div></div>}

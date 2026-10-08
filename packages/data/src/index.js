@@ -17,6 +17,16 @@ export * from './delivery.js';
 export * from './admin.js';
 export * from './realtime.js';
 export * from './reviews.js';
+export * from './mediaCompress.js';
+export * from './backup.js';
+export * from './attendance.js';
+export * from './date.js';
+export {
+  getBackupSummary,
+  exportBackupArchive,
+  inspectBackupArchive,
+  restoreBackupArchive,
+} from './backup.js';
 
 /**
  * Browser uchun Supabase client yaratadi. Bu modul faqat VITE_ bilan ochiq

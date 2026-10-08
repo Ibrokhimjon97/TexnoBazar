@@ -74,13 +74,14 @@ export async function handler(event) {
     try { body = JSON.parse(event.body||'{}'); } catch { return response(400,'So‘rov formati noto‘g‘ri.','INVALID_JSON'); }
     if (!/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(body.productId||'') || typeof body.key !== 'string') return response(400,'Rasm ma’lumoti noto‘g‘ri.','INVALID_DATA');
     if (!body.key.startsWith(`products/${body.productId}/`)) return response(400,'Rasm kaliti mahsulotga mos emas.','KEY_MISMATCH');
+    if (body.variantId != null && !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(body.variantId)) return response(400,'Variant identifikatori noto‘g‘ri.','INVALID_DATA');
 
     const head = await r2Client().send(new HeadObjectCommand({ Bucket:requiredEnv('R2_BUCKET'),Key:body.key }));
     if (!ALLOWED.includes(head.ContentType) || !Number.isSafeInteger(head.ContentLength) || head.ContentLength <= 0 || head.ContentLength > MAX) return response(400,'R2 dagi fayl turi yoki hajmi noto‘g‘ri.','INVALID_FILE');
 
     const base = requiredEnv('R2_PUBLIC_BASE_URL').replace(/\/$/,'');
     const publicUrl = `${base}/${body.key}`;
-    const { data,error } = await admin.rpc('attach_product_media',{ p_actor_id:user.id,p_product_id:body.productId,p_r2_key:body.key,p_public_url:publicUrl,p_mime_type:head.ContentType,p_bytes:head.ContentLength,p_alt_text:body.altText||null });
+    const { data,error } = await admin.rpc('attach_product_media',{ p_actor_id:user.id,p_product_id:body.productId,p_r2_key:body.key,p_public_url:publicUrl,p_mime_type:head.ContentType,p_bytes:head.ContentLength,p_alt_text:body.altText||null,p_variant_id:body.variantId||null });
     if (error?.code === '42501') return response(403,'Rasmni mahsulotga biriktirish uchun ruxsat yo‘q.','FORBIDDEN');
     if (error?.code === 'P0002') return response(404,'Mahsulot topilmadi.','PRODUCT_NOT_FOUND');
     if (error) throw error;

@@ -26,7 +26,7 @@ function State({loading,error,retry,children}){
   return children;
 }
 
-export default function TransferWorkspace({branchId,toast}){
+export default function TransferWorkspace({branchId,toast,focusTransferId,clearFocus}){
   const rate=useExchangeRate();
   const[refs,setRefs]=useState({source_locations:[],destination_branches:[]});
   const[rows,setRows]=useState([]);
@@ -58,6 +58,12 @@ export default function TransferWorkspace({branchId,toast}){
     setDetailBusy(true);setError('');
     try{setDetail(await getBranchTransfer(id))}catch(e){setError(message(e))}finally{setDetailBusy(false)}
   };
+  useEffect(()=>{
+    if(!focusTransferId)return;
+    openDetail(focusTransferId).then(()=>clearFocus?.()).catch(()=>clearFocus?.());
+    // Only re-run when the focus target itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[focusTransferId]);
   const editTransfer=async(transferId,lines)=>{
     setDetailBusy(true);setError('');
     try{const updated=await editBranchTransfer(transferId,lines);setDetail(updated);await load();toast?.('Transfer tahrirlandi');return true}

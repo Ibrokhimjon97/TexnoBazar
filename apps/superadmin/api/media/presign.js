@@ -28,9 +28,7 @@ export default async function handler(req, res) {
     if (body?.scope !== 'products' || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(String(body?.ownerId ?? ''))) {
       throw new ApiError(400, 'Mahsulot media ma’lumotlari noto‘g‘ri.', 'INVALID_MEDIA_OWNER');
     }
-    const { data: product, error: productError } = await admin.from('products').select('id').eq('id', body.ownerId).maybeSingle();
-    if (productError) throw productError;
-    if (!product) throw new ApiError(404, 'Mahsulot topilmadi.', 'PRODUCT_NOT_FOUND');
+    // Actor already has catalog permission. Allow presigning for existing products or newly drafted ones.
     const result = await createPresignedMediaPut({
       contentType: body?.contentType,
       size: body?.size,

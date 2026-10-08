@@ -58,10 +58,10 @@ export async function getActiveActor(admin, token) {
 
 export async function requireCatalogPermission(admin, actorId) {
   const { data: roles, error } = await admin.from('profile_roles').select('role,branch_id')
-    .eq('profile_id', actorId).in('role', ['superadmin', 'admin']);
+    .eq('profile_id', actorId).in('role', ['superadmin', 'admin', 'manager']);
   if (error) throw error;
-  if (!roles?.some(({ branch_id: branchId }) => branchId === null)) {
-    throw new ApiError(403, 'Global katalog administratori roli talab qilinadi.', 'FORBIDDEN');
+  if (!roles || roles.length === 0) {
+    throw new ApiError(403, 'Katalog boshqaruvi uchun admin yoki manager roli talab qilinadi.', 'FORBIDDEN');
   }
 }
 
@@ -70,25 +70,13 @@ export async function requireMediaPermission(admin, actorId) {
     .from('profile_roles')
     .select('role,branch_id')
     .eq('profile_id', actorId)
-    .in('role', ['superadmin', 'manager']);
+    .in('role', ['superadmin', 'admin', 'manager']);
   if (error) throw error;
-
-  const isGlobalSuperadmin = roles?.some(({ role, branch_id: branchId }) => role === 'superadmin' && branchId === null);
-  const managerBranchIds = (roles ?? []).filter(({ role, branch_id: branchId }) => role === 'manager' && branchId).map(({ branch_id: branchId }) => branchId);
-  let isActiveBranchManager = false;
-  if (!isGlobalSuperadmin && managerBranchIds.length) {
-    const { data: branches, error: branchError } = await admin.from('branches').select('id').in('id', managerBranchIds).eq('is_active', true).limit(1);
-    if (branchError) throw branchError;
-    isActiveBranchManager = Boolean(branches?.length);
-  }
-  if (!isGlobalSuperadmin && !isActiveBranchManager) {
-    throw new ApiError(
-      403,
-      'Global superadmin yoki filial manageri roli talab qilinadi.',
-      'FORBIDDEN',
-    );
+  if (!roles || roles.length === 0) {
+    throw new ApiError(403, 'Rasm yuklash uchun admin yoki manager roli talab qilinadi.', 'FORBIDDEN');
   }
 }
+
 
 export async function requireEmployeeCreationPermission(admin, actorId) {
   const { data: roles, error } = await admin

@@ -32,3 +32,11 @@ export function listMyPosPendingSalesByDate({ branchId, date = null, page = 1, p
   return rpc('list_my_pos_pending_sales_by_date', { p_branch_id: branchId, p_date: date || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
 }
 export const getSaleReceipt = id => rpc('get_safe_sale_receipt', { p_sale_id: id });
+export async function getPendingSaleReceipt(pendingSaleId) {
+  const saleId = await confirmPosSale(pendingSaleId, null);
+  if (!saleId) throw new Error('Ushbu kassa so‘rovi uchun tasdiqlangan sotuv topilmadi');
+  return getSaleReceipt(saleId);
+}
+export const getPosBatchUnits = (branchId, code, count = 1, excludeIds = []) =>
+  rpc('get_pos_batch_units', { p_branch_id: branchId, p_code: code, p_count: count, p_exclude_ids: excludeIds });
+

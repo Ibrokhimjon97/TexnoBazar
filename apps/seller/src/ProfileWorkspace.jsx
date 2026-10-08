@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from'react';
 import{Camera,Check,ChevronLeft,ChevronRight,DollarSign,Pencil,Save,User,Wallet}from'lucide-react';
 import{DualPrice,useAuth,useExchangeRate}from'@texnobazar/ui';
-import{getBrowserClient,uploadProfileAvatar}from'@texnobazar/data';
+import{getBrowserClient,uploadProfileAvatar,getUzMonthName}from'@texnobazar/data';
 
 const msg=e=>String(e?.message||'Xatolik yuz berdi');
 
@@ -117,7 +117,7 @@ function SalaryHistory({profile,rate}){
 
   const prevMonth=()=>{const d=new Date(month+'-01');d.setMonth(d.getMonth()-1);setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`)};
   const nextMonth=()=>{const d=new Date(month+'-01');d.setMonth(d.getMonth()+1);if(d<=now)setMonth(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`)};
-  const monthLabel=new Date(month+'-01').toLocaleDateString('uz-UZ',{year:'numeric',month:'long'});
+  const monthLabel=getUzMonthName(month+'-01', { withYear: true });
 
   const items=data?.items||[];
   const totals=data?.totals||{gross:0,bonus:0,advance:0,salary_paid:0,extra:0,net:0,remaining:0};

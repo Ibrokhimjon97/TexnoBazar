@@ -7,7 +7,7 @@ const message=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 const labels={new:'Yangi',confirmed:'Tasdiqlangan',processing:'Tayyorlanmoqda',ready:'Tayyor',assigned:'Kuryer biriktirilgan',shipped:'Yo‘lda',delivered:'Yetkazilgan',cancelled:'Bekor qilingan',returned:'Qaytarilgan'};
 const colors={new:'blue',confirmed:'orange',processing:'orange',ready:'green',assigned:'green',shipped:'blue',delivered:'green',cancelled:'red',returned:'gray'};
 const next={new:'confirmed',confirmed:'processing',processing:'ready'};
-export default function OnlineOrderWorkspace({branchId,toast}){
+export default function OnlineOrderWorkspace({branchId,toast,focusOrderId,clearFocus}){
   const rate=useExchangeRate();
   const[refs,setRefs]=useState({couriers:[]}),[rows,setRows]=useState([]),[detail,setDetail]=useState(null),[status,setStatus]=useState(''),[query,setQuery]=useState(''),[loading,setLoading]=useState(true),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const load=async(focusId,silent=false)=>{if(!branchId){setLoading(false);return;}if(!silent)setLoading(true);setError('');try{const[result,reference]=await Promise.all([listManagerOnlineOrders({branchId,status:status||null,query,pageSize:60}),getManagerWorkspaceReferences(branchId)]);setRows(result.items||[]);setRefs(reference||{couriers:[]});if(focusId)setDetail((result.items||[]).find(x=>x.id===focusId)||null);}catch(e){setError(message(e));}finally{if(!silent)setLoading(false);}};
@@ -15,6 +15,13 @@ export default function OnlineOrderWorkspace({branchId,toast}){
   useEffect(()=>{if(!branchId)return;return subscribeOrders(()=>load(detail?.id,true),e=>setError(message(e)),branchId);},[branchId,status,query,detail?.id]);
   // Unassigned new orders have no branch_id and cannot match a branch-filtered realtime channel.
   useEffect(()=>{if(!branchId)return;const timer=setInterval(()=>load(detail?.id,true),20000);return()=>clearInterval(timer);},[branchId,status,query,detail?.id]);
+  useEffect(()=>{
+    if(!focusOrderId||!branchId)return;
+    setStatus('');setQuery('');
+    load(focusOrderId).then(()=>clearFocus?.()).catch(()=>clearFocus?.());
+    // Only re-run when the focus target itself changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[focusOrderId,branchId]);
   const transition=async target=>{if(!detail||!window.confirm(target==='confirmed'?'Buyurtma uchun real birliklar rezerv qilinadi. Tasdiqlaysizmi?':`Buyurtmani “${labels[target]}” holatiga o‘tkazasizmi?`))return;setBusy(true);setError('');try{await transitionOnlineOrder(detail.id,target,branchId);await load(detail.id);toast?.(target==='confirmed'?'Buyurtma tasdiqlandi va zaxira rezerv qilindi':`Buyurtma: ${labels[target]}`);}catch(e){setError(message(e));}finally{setBusy(false);}};
   const cancel=async()=>{if(!detail||!window.confirm('Buyurtmani bekor qilib rezervlarni bo‘shatasizmi?'))return;const reason=window.prompt('Bekor qilish sababi:','')||'';if(!reason.trim())return;setBusy(true);setError('');try{await managerCancelOnlineOrder(detail.id,branchId,reason);await load(detail.id);toast?.('Buyurtma bekor qilindi');}catch(e){setError(message(e));}finally{setBusy(false);}};
   const assign=async courierId=>{if(!courierId)return;setBusy(true);setError('');try{await assignOrderCourier(detail.id,courierId);await load(detail.id);toast?.('Kuryer biriktirildi');}catch(e){setError(message(e));}finally{setBusy(false);}};
