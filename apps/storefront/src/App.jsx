@@ -68,6 +68,16 @@ const siteList = (settings, key, fallback = []) => {
   const items = piped.length > 1 ? piped : raw.split(',').map(item => item.trim()).filter(Boolean);
   return items.length ? items : fallback;
 };
+const getYouTubeEmbedUrl = url => {
+  if (!url) return null;
+  const str = String(url).trim();
+  const match = str.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=|shorts\/))([\w-]{11})/);
+  if (match && match[1]) {
+    return `https://www.youtube.com/embed/${match[1]}`;
+  }
+  if (str.includes('youtube.com/embed/')) return str;
+  return null;
+};
 const adaptProduct = raw => ({
   ...raw,
   id: String(raw.id),
@@ -82,6 +92,8 @@ const adaptProduct = raw => ({
   seoTitle: String(raw.seo_title || ''),
   seoDescription: String(raw.seo_description || ''),
   seoImage: String(raw.seo_image_url || raw.primary_media_url || ''),
+  videoUrl: String(raw.video_url || ''),
+  brandName: String(raw.brand_name || raw.brands?.name || raw.brand?.name || ''),
   price: numberOf(raw.promotion_price || raw.retail_price),
   oldPrice: numberOf(raw.compare_at_price || (raw.promotion_price ? raw.retail_price : 0)),
   stock: Math.max(0, Math.trunc(numberOf(raw.available_stock))),
@@ -96,8 +108,11 @@ const adaptProduct = raw => ({
     colorName: String(v.color_name || ''),
     colorHex: v.color_hex || null,
     price: numberOf(v.price),
+    retailPrice: numberOf(v.retail_price || v.price),
+    compareAtPrice: numberOf(v.compare_at_price),
+    costPrice: numberOf(v.cost_price),
     stock: Math.max(0, Math.trunc(numberOf(v.stock))),
-    image: v.image || null,
+    image: v.image || v.media?.[0]?.url || null,
     media: safeArray(v.media),
   })),
 });
@@ -1006,7 +1021,7 @@ function ProductMedia({ product, className = '' }) {
   const[active,setActive]=useState(0);
   const[zoom,setZoom]=useState(false);
   const current = images[active] || '';
-  useEffect(()=>setActive(0),[product.id]);
+  useEffect(() => setActive(0), [product.id, product.selectedVariantId, product.image, images[0]]);
   return <>{zoom&&current&&<ImageZoom images={images} activeIndex={active} alt={product.name} onClose={()=>setZoom(false)} onChangeIndex={setActive}/>}
     <div className={`product-media-carousel ${className}`}>
       <span className="product-media-main" onClick={()=>{if(current)setZoom(true)}} style={{cursor:current?'zoom-in':'default'}}><ImageWithFallback src={current} alt={product.name}/></span>
@@ -1379,11 +1394,116 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
   useEffect(() => setVariantId(variants[0]?.id || null), [product.id]);
   const activeVariant = variantId ? variants.find(v => v.id === variantId) : null;
   const displayPrice = activeVariant?.price || product.price;
+  const displayOldPrice = activeVariant?.compareAtPrice || product.oldPrice;
   const displayStock = activeVariant ? activeVariant.stock : product.stock;
   const displayMedia = activeVariant?.media?.length ? activeVariant.media : (activeVariant?.image ? [{ url: activeVariant.image }] : product.media);
-  const mediaProduct = { ...product, media: displayMedia, image: activeVariant?.image || product.image };
+  const mediaProduct = { ...product, media: displayMedia, image: activeVariant?.image || product.image, selectedVariantId: variantId };
   const cartProduct = { ...product, selectedVariantId: variantId };
-  return <section className="container product-page"><div className="breadcrumbs"><button onClick={() => go('home')}>Bosh sahifa</button><ChevronRight/><button onClick={() => go('catalog')}>Katalog</button><ChevronRight/>{product.name}</div><div className="product-detail card"><div className="gallery single-media"><div className="main-img"><ProductMedia product={mediaProduct}/>{product.oldPrice > displayPrice && <span className="badge">Aksiya</span>}</div>{product.seoImage&&product.seoImage.includes("youtu")&&<div className="product-video"><iframe src={product.seoImage.replace("watch?v=","embed/").replace("youtu.be/","youtube.com/embed/")} title="Video" allowFullScreen style={{width:"100%",height:300,border:"none",borderRadius:12,marginTop:12}}/></div>}</div><div className="detail-info"><div className="row"><Status type={displayStock ? 'green' : 'red'}>{displayStock ? 'Sotuvda mavjud' : "Sotuvda yo\u2019q"}</Status></div><h1>{product.name}</h1><p className="muted">Artikul: {product.sku || '\u2014'}</p>{variants.length > 0 && <div className="product-color-picker"><span className="label">Rang: {activeVariant ? <b>{activeVariant.colorName}</b> : ''}</span><div className="product-color-options">{variants.map(v => <button key={v.id} type="button" className={v.id === variantId ? 'product-color-option active' : 'product-color-option'} style={{ background: v.colorHex || '#ccc' }} title={v.colorName} onClick={() => setVariantId(v.id)}>{v.id === variantId && <Check size={13}/>}</button>)}</div></div>}<div className="divider"/>{product.oldPrice > displayPrice && <div className="old-price">{money(product.oldPrice)}</div>}<div className="detail-price">{money(displayPrice)}</div><div className={`stock ${displayStock ? '' : 'out'}`}>{displayStock ? <Check size={18}/> : <X size={18}/>} {displayStock ? `Omborda ${displayStock} dona mavjud` : 'Omborda mavjud emas'}</div><div className="detail-actions"><button className="btn btn-primary" onClick={() => add(cartProduct, variantId)} disabled={!displayStock}><ShoppingCart/> Savatchaga</button><button className={`btn btn-outline ${loved ? 'loved' : ''}`} onClick={() => toggleFavorite(product)}><Heart fill={loved ? 'currentColor' : 'none'}/> {loved ? "Sevimlilardan olib tashlash" : "Sevimliga qo\u2019shish"}</button></div></div></div><div className="detail-tabs card"><h2>Mahsulot haqida</h2><RichDescription product={product}/><h3>Asosiy xususiyatlar</h3>{product.attributes.length ? <div className="spec-grid">{product.attributes.map(item => <div key={`${item.code}-${item.value}`}><span>{item.name}</span><b>{item.value || '\u2014'}</b></div>)}</div> : <p className="muted">Xususiyatlar kiritilmagan.</p>}</div><ProductReviews productId={product.id} session={session} setToast={setToast} setAuthOpen={setAuthOpen}/>{related.length > 0 && <ProductSection title={'O\u2019xshash mahsulotlar'} subtitle="Sizga mos takliflar" list={related} {...{ go, add, toggleFavorite, favorites }} onViewAll={()=>go('category',{slug:product.categorySlug||product.categoryId})}/>}</section>;
+  const ytVideo = getYouTubeEmbedUrl(product.videoUrl || product.video_url || product.seoImage);
+
+  return <section className="container product-page">
+    <div className="breadcrumbs">
+      <button onClick={() => go('home')}>Bosh sahifa</button>
+      <ChevronRight />
+      <button onClick={() => go('catalog')}>Katalog</button>
+      <ChevronRight />
+      {product.name}
+    </div>
+    <div className="product-detail card">
+      <div className="gallery single-media">
+        <div className="main-img">
+          <ProductMedia product={mediaProduct} />
+          {displayOldPrice > displayPrice && <span className="badge">Aksiya</span>}
+        </div>
+        {ytVideo && (
+          <div className="product-video" style={{ marginTop: 14 }}>
+            <iframe
+              src={ytVideo}
+              title={`${product.name} videosi`}
+              allowFullScreen
+              style={{ width: '100%', height: 320, border: 'none', borderRadius: 12 }}
+            />
+          </div>
+        )}
+      </div>
+      <div className="detail-info">
+        <div className="row">
+          <Status type={displayStock ? 'green' : 'red'}>
+            {displayStock ? 'Sotuvda mavjud' : "Sotuvda yo\u2019q"}
+          </Status>
+        </div>
+        {product.brandName && (
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--orange)', textTransform: 'uppercase', letterSpacing: 0.5, display: 'block', marginBottom: 2 }}>
+            {product.brandName}
+          </span>
+        )}
+        <h1>{product.name}</h1>
+        <p className="muted">Artikul: {product.sku || '\u2014'}</p>
+        {variants.length > 0 && (
+          <div className="product-color-picker">
+            <span className="label">Rang: {activeVariant ? <b>{activeVariant.colorName}</b> : ''}</span>
+            <div className="product-color-options">
+              {variants.map(v => (
+                <button
+                  key={v.id}
+                  type="button"
+                  className={v.id === variantId ? 'product-color-option active' : 'product-color-option'}
+                  style={{ background: v.colorHex || '#ccc' }}
+                  title={v.colorName}
+                  onClick={() => setVariantId(v.id)}
+                >
+                  {v.id === variantId && <Check size={13} />}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="divider" />
+        {displayOldPrice > displayPrice && <div className="old-price">{money(displayOldPrice)}</div>}
+        <div className="detail-price">{money(displayPrice)}</div>
+        <div className={`stock ${displayStock ? '' : 'out'}`}>
+          {displayStock ? <Check size={18} /> : <X size={18} />}
+          {displayStock ? `Omborda ${displayStock} dona mavjud` : 'Omborda mavjud emas'}
+        </div>
+        <div className="detail-actions">
+          <button className="btn btn-primary" onClick={() => add(cartProduct, variantId)} disabled={!displayStock}>
+            <ShoppingCart /> Savatchaga
+          </button>
+          <button className={`btn btn-outline ${loved ? 'loved' : ''}`} onClick={() => toggleFavorite(product)}>
+            <Heart fill={loved ? 'currentColor' : 'none'} />
+            {loved ? "Sevimlilardan olib tashlash" : "Sevimliga qo\u2019shish"}
+          </button>
+        </div>
+      </div>
+    </div>
+    <div className="detail-tabs card">
+      <h2>Mahsulot haqida</h2>
+      <RichDescription product={product} />
+      <h3>Asosiy xususiyatlar</h3>
+      {product.attributes.length ? (
+        <div className="spec-grid">
+          {product.attributes.map(item => (
+            <div key={`${item.code}-${item.value}`}>
+              <span>{item.name}</span>
+              <b>{item.value || '\u2014'}</b>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="muted">Xususiyatlar kiritilmagan.</p>
+      )}
+    </div>
+    <ProductReviews productId={product.id} session={session} setToast={setToast} setAuthOpen={setAuthOpen} />
+    {related.length > 0 && (
+      <ProductSection
+        title={'O\u2019xshash mahsulotlar'}
+        subtitle="Sizga mos takliflar"
+        list={related}
+        {...{ go, add, toggleFavorite, favorites }}
+        onViewAll={() => go('category', { slug: product.categorySlug || product.categoryId })}
+      />
+    )}
+  </section>;
 }
 
 function Cart({ cartItems, go, updateCart }) {

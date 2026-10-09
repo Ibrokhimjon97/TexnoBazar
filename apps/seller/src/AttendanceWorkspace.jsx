@@ -83,19 +83,81 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
     }
   }, [tab, loadHistory]);
 
-  // Handle Clock In
+  // GPS state
+  const [gpsState, setGpsState] = useState({
+    status: 'idle', // 'idle' | 'checking' | 'ready' | 'error'
+    loc: null,
+    error: null,
+    code: null,
+  });
+
+  // Verify and obtain high-accuracy GPS location
+  const checkLocation = useCallback(async () => {
+    setGpsState(prev => ({ ...prev, status: 'checking', error: null }));
+    try {
+      const loc = await getBrowserLocation(12000);
+      if (!loc || loc.lat == null || loc.lng == null) {
+        setGpsState({
+          status: 'error',
+          loc: null,
+          error: loc?.error || 'GPS signali topilmadi yoki qurilmada GPS o‘chiq.',
+          code: loc?.code || 'POSITION_UNAVAILABLE',
+        });
+        return null;
+      }
+      setGpsState({
+        status: 'ready',
+        loc,
+        error: null,
+        code: null,
+      });
+      return loc;
+    } catch (err) {
+      setGpsState({
+        status: 'error',
+        loc: null,
+        error: err?.message || 'GPS lokatsiyani aniqlab bo‘lmadi.',
+        code: 'UNKNOWN',
+      });
+      return null;
+    }
+  }, []);
+
+  const openClockInModal = () => {
+    setConfirmModal('in');
+    checkLocation();
+  };
+
+  const openClockOutModal = () => {
+    setConfirmModal('out');
+    checkLocation();
+  };
+
+  const closeModal = () => {
+    setConfirmModal(null);
+    setGpsState({ status: 'idle', loc: null, error: null, code: null });
+  };
+
+  // Handle Clock In (GPS is strictly mandatory)
   const handleClockInConfirm = async () => {
+    let currentLoc = gpsState.loc;
+    if (!currentLoc || currentLoc.lat == null || currentLoc.lng == null) {
+      currentLoc = await checkLocation();
+      if (!currentLoc || currentLoc.lat == null || currentLoc.lng == null) {
+        toast?.('GPS o‘chiq! Davomatni qayd etish uchun GPS yoqilishi shart.');
+        return;
+      }
+    }
+
     setConfirmModal(null);
     setSubmitting(true);
     setError('');
     try {
-      toast?.('GPS lokatsiya aniqlanmoqda…');
-      const loc = await getBrowserLocation(10000);
       const res = await clockIn({
         branchId,
-        lat: loc.lat,
-        lng: loc.lng,
-        accuracy: loc.accuracy,
+        lat: currentLoc.lat,
+        lng: currentLoc.lng,
+        accuracy: currentLoc.accuracy,
       });
       setTodayRecord(res);
       toast?.('Ishga kelganingiz muvaffaqiyatli qayd etildi! Menejerga xabar yuborildi.');
@@ -106,21 +168,29 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
       toast?.(msg);
     } finally {
       setSubmitting(false);
+      setGpsState({ status: 'idle', loc: null, error: null, code: null });
     }
   };
 
-  // Handle Clock Out
+  // Handle Clock Out (GPS is strictly mandatory)
   const handleClockOutConfirm = async () => {
+    let currentLoc = gpsState.loc;
+    if (!currentLoc || currentLoc.lat == null || currentLoc.lng == null) {
+      currentLoc = await checkLocation();
+      if (!currentLoc || currentLoc.lat == null || currentLoc.lng == null) {
+        toast?.('GPS o‘chiq! Ishni yakunlash uchun GPS yoqilishi shart.');
+        return;
+      }
+    }
+
     setConfirmModal(null);
     setSubmitting(true);
     setError('');
     try {
-      toast?.('GPS lokatsiya aniqlanmoqda…');
-      const loc = await getBrowserLocation(10000);
       const res = await clockOut({
-        lat: loc.lat,
-        lng: loc.lng,
-        accuracy: loc.accuracy,
+        lat: currentLoc.lat,
+        lng: currentLoc.lng,
+        accuracy: currentLoc.accuracy,
       });
       setTodayRecord(res);
       toast?.('Ish kuni yakunlandi! Ishlagan soatingiz hisoblandi va saqlandi.');
@@ -131,6 +201,7 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
       toast?.(msg);
     } finally {
       setSubmitting(false);
+      setGpsState({ status: 'idle', loc: null, error: null, code: null });
     }
   };
 
@@ -290,7 +361,7 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
             <button
               type="button"
               disabled={hasClockedIn || submitting || loading}
-              onClick={() => setConfirmModal('in')}
+              onClick={openClockInModal}
               style={{
                 border: 0,
                 borderRadius: 14,
@@ -311,7 +382,7 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
               <LogIn size={26} />
               <b style={{ fontSize: 14 }}>Ishga keldim</b>
               <small style={{ fontSize: 10, opacity: 0.9 }}>
-                {hasClockedIn ? `Kelingan: ${formatTime(todayRecord.check_in_at)}` : 'Kuniga 1 marta'}
+                {hasClockedIn ? `Kelingan: ${formatTime(todayRecord.check_in_at)}` : 'Kuniga 1 marta (GPS shart)'}
               </small>
             </button>
 
@@ -319,7 +390,7 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
             <button
               type="button"
               disabled={!hasClockedIn || hasClockedOut || submitting || loading}
-              onClick={() => setConfirmModal('out')}
+              onClick={openClockOutModal}
               style={{
                 border: 0,
                 borderRadius: 14,
@@ -344,9 +415,29 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
                   ? `Yakunlangan: ${formatTime(todayRecord.check_out_at)}`
                   : !hasClockedIn
                   ? 'Avval kelishni bosing'
-                  : 'Kuniga 1 marta'}
+                  : 'Kuniga 1 marta (GPS shart)'}
               </small>
             </button>
+          </div>
+
+          {/* GPS Requirement Notice */}
+          <div
+            style={{
+              padding: '10px 14px',
+              borderRadius: 12,
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 10,
+              fontSize: 12,
+              color: '#475569',
+            }}
+          >
+            <MapPin size={18} style={{ color: '#0284c7', flexShrink: 0 }} />
+            <span>
+              Davomatni qayd etish uchun <b>GPS (geolokatsiya)</b> yoqilgan bo‘lishi majburiy. Agar GPS o‘chiq bo‘lsa, tizim amalni bajarmaydi.
+            </span>
           </div>
 
           {/* Today Details Card */}
@@ -473,12 +564,25 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
                       className={`salary-status ${
                         item.status === 'completed'
                           ? 'salary-status-paid'
+                          : item.status === 'missed_checkout'
+                          ? 'salary-status-pending'
                           : 'salary-status-approved'
                       }`}
+                      style={item.status === 'missed_checkout' ? { background: '#fee2e2', color: '#b91c1c' } : {}}
                     >
-                      {item.status === 'completed' ? 'Yakunlangan' : 'Ishda'}
+                      {item.status === 'completed'
+                        ? 'Yakunlangan'
+                        : item.status === 'missed_checkout'
+                        ? '⚠️ Ketish belgilanmagan'
+                        : 'Ishda'}
                     </span>
                   </div>
+
+                  {item.status === 'missed_checkout' && (
+                    <div style={{ margin: '4px 0 8px', fontSize: 11, color: '#b91c1c', background: '#fef2f2', padding: '6px 10px', borderRadius: 6, border: '1px solid #fee2e2' }}>
+                      ⚠️ Ishni yakunlash belgilanmagan (00:00 da smena yopilgan). Menejer yoki admin tomonidan kiritilmaguncha bu kun ishlanmagan hisobida turadi.
+                    </div>
+                  )}
 
                   <div className="salary-item-grid" style={{ gridTemplateColumns: '1fr 1fr' }}>
                     <div>
@@ -559,7 +663,7 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
       {/* Confirmation Modal for Clock In */}
       <Modal
         open={confirmModal === 'in'}
-        onClose={() => setConfirmModal(null)}
+        onClose={closeModal}
         title="Ishga kelishni tasdiqlash"
       >
         <div style={{ padding: '6px 0', textAlign: 'center' }}>
@@ -575,42 +679,177 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
               margin: '0 auto 12px',
             }}
           >
-            <AlertTriangle size={28} />
+            <MapPin size={28} />
           </div>
 
-          <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Diqqat!</h3>
-          <p style={{ margin: '0 0 16px', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+          <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Ishga kelishni qayd etish</h3>
+          <p style={{ margin: '0 0 12px', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
             Haqiqatan ham <b>ishga kelganingizni</b> tasdiqlaysizmi?
             <br />
             Qurilmangizdan <b>GPS lokatsiya</b> olinadi va menejer hamda adminga yuboriladi.
-            <br />
-            <span style={{ color: 'var(--orange)', fontWeight: 600, display: 'inline-block', marginTop: 6 }}>
-              ⚠️ Bu amalni kunda faqat 1 marta bajarish mumkin!
-            </span>
           </p>
+
+          {/* GPS Status / Prompt Box */}
+          {gpsState.status === 'checking' && (
+            <div
+              style={{
+                padding: '16px',
+                borderRadius: 12,
+                background: '#f8fafc',
+                border: '1.5px solid #cbd5e1',
+                margin: '12px 0 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <RefreshCw size={24} className="spin" style={{ color: 'var(--orange, #f97316)' }} />
+              <b style={{ fontSize: 13, color: '#1e293b' }}>GPS lokatsiya aniqlanmoqda…</b>
+              <small style={{ color: '#64748b', fontSize: 11 }}>
+                Qurilmangizdan joriy koordinatalar olinmoqda, iltimos kuting.
+              </small>
+            </div>
+          )}
+
+          {gpsState.status === 'ready' && gpsState.loc && (
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: 12,
+                background: '#f0fdf4',
+                border: '1.5px solid #86efac',
+                margin: '12px 0 16px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12,
+                textAlign: 'left',
+              }}
+            >
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: '50%',
+                  background: '#dcfce7',
+                  color: '#16a34a',
+                  display: 'grid',
+                  placeItems: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <CheckCircle2 size={18} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <b style={{ color: '#15803d', fontSize: 13, display: 'block', marginBottom: 2 }}>
+                  ✓ GPS lokatsiya muvaffaqiyatli aniqlandi
+                </b>
+                <span style={{ fontSize: 12, color: '#334155', display: 'block' }}>
+                  Koordinatalar: <strong>{gpsState.loc.lat}, {gpsState.loc.lng}</strong>
+                </span>
+                {gpsState.loc.accuracy && (
+                  <small style={{ fontSize: 11, color: '#16a34a', display: 'block', marginTop: 2 }}>
+                    Aniqlik: ±{gpsState.loc.accuracy} metr
+                  </small>
+                )}
+              </div>
+            </div>
+          )}
+
+          {gpsState.status === 'error' && (
+            <div
+              style={{
+                padding: '14px',
+                borderRadius: 12,
+                background: '#fef2f2',
+                border: '1.5px solid #fca5a5',
+                margin: '12px 0 16px',
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#b91c1c', marginBottom: 6 }}>
+                <AlertTriangle size={20} />
+                <b style={{ fontSize: 13 }}>GPS o‘chiq yoki lokatsiyaga ruxsat berilmagan!</b>
+              </div>
+              <p style={{ margin: '0 0 10px', fontSize: 12, color: '#475569', lineHeight: 1.5 }}>
+                {gpsState.error || 'Qurilmangizda GPS yoqilmagan. Davomatni qayd etish uchun joriy lokatsiyangiz olinishi shart!'}
+              </p>
+              <div
+                style={{
+                  background: '#fff',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  fontSize: 12,
+                  color: '#334155',
+                  border: '1px solid #fee2e2',
+                  marginBottom: 12,
+                  lineHeight: 1.5,
+                }}
+              >
+                <strong style={{ display: 'block', marginBottom: 4, color: '#991b1b' }}>Davomat uchun majburiy:</strong>
+                <ol style={{ margin: '0 0 0 16px', padding: 0 }}>
+                  <li>Qurilmangiz (telefon/kompyuter) sozlamalaridan <b>GPS / Joylashuv</b>ni yoqing.</li>
+                  <li>Brauzer manzil qatoridagi <b>qulf (🔒) yoki sozlamalar</b> tugmasini bosib, saytga <b>Joylashuv</b>ga ruxsat bering.</li>
+                </ol>
+              </div>
+              <button
+                type="button"
+                className="btn"
+                onClick={checkLocation}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  background: '#ef4444',
+                  borderColor: '#ef4444',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  fontWeight: 600,
+                  fontSize: 13,
+                }}
+              >
+                <RefreshCw size={16} /> GPSni yoqdim, qayta tekshirish
+              </button>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
             <button
               type="button"
               className="btn secondary"
               style={{ flex: 1, padding: 11 }}
-              onClick={() => setConfirmModal(null)}
+              onClick={closeModal}
             >
               Bekor qilish
             </button>
             <button
               type="button"
               className="btn"
+              disabled={gpsState.status !== 'ready' || submitting}
               style={{
                 flex: 1,
                 padding: 11,
-                background: '#16a34a',
-                borderColor: '#16a34a',
+                background: gpsState.status === 'ready' ? '#16a34a' : '#94a3b8',
+                borderColor: gpsState.status === 'ready' ? '#16a34a' : '#94a3b8',
                 color: '#fff',
+                cursor: gpsState.status === 'ready' && !submitting ? 'pointer' : 'not-allowed',
+                opacity: gpsState.status === 'ready' ? 1 : 0.65,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
               }}
               onClick={handleClockInConfirm}
             >
-              Ha, tasdiqlayman
+              {gpsState.status === 'checking'
+                ? 'GPS kutilmoqda…'
+                : gpsState.status === 'error'
+                ? 'GPS yoqilmagan'
+                : submitting
+                ? 'Saqlanmoqda…'
+                : 'Ha, tasdiqlayman'}
             </button>
           </div>
         </div>
@@ -619,7 +858,7 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
       {/* Confirmation Modal for Clock Out */}
       <Modal
         open={confirmModal === 'out'}
-        onClose={() => setConfirmModal(null)}
+        onClose={closeModal}
         title="Ishni yakunlashni tasdiqlash"
       >
         <div style={{ padding: '6px 0', textAlign: 'center' }}>
@@ -635,42 +874,181 @@ export default function AttendanceWorkspace({ branchId, profile, toast }) {
               margin: '0 auto 12px',
             }}
           >
-            <AlertTriangle size={28} />
+            <MapPin size={28} />
           </div>
 
-          <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Diqqat!</h3>
-          <p style={{ margin: '0 0 16px', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
+          <h3 style={{ margin: '0 0 8px', fontSize: 16 }}>Ishni yakunlash</h3>
+          <p style={{ margin: '0 0 12px', color: 'var(--muted)', fontSize: 13, lineHeight: 1.5 }}>
             Bugungi <b>ishni yakunlashni</b> tasdiqlaysizmi?
             <br />
             GPS lokatsiyangiz olinadi, ishlagan umumiy soatingiz yakuniy hisoblanadi va menejerga yuboriladi.
             <br />
-            <span style={{ color: '#ea580c', fontWeight: 600, display: 'inline-block', marginTop: 6 }}>
+            <span style={{ color: '#ea580c', fontWeight: 600, display: 'inline-block', marginTop: 4 }}>
               ⚠️ Yakunlangach, bugun qayta ish boshlash mumkin emas!
             </span>
           </p>
+
+          {/* GPS Status / Prompt Box */}
+          {gpsState.status === 'checking' && (
+            <div
+              style={{
+                padding: '16px',
+                borderRadius: 12,
+                background: '#f8fafc',
+                border: '1.5px solid #cbd5e1',
+                margin: '12px 0 16px',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: 8,
+              }}
+            >
+              <RefreshCw size={24} className="spin" style={{ color: 'var(--orange, #f97316)' }} />
+              <b style={{ fontSize: 13, color: '#1e293b' }}>GPS lokatsiya aniqlanmoqda…</b>
+              <small style={{ color: '#64748b', fontSize: 11 }}>
+                Qurilmangizdan joriy koordinatalar olinmoqda, iltimos kuting.
+              </small>
+            </div>
+          )}
+
+          {gpsState.status === 'ready' && gpsState.loc && (
+            <div
+              style={{
+                padding: '12px 14px',
+                borderRadius: 12,
+                background: '#f0fdf4',
+                border: '1.5px solid #86efac',
+                margin: '12px 0 16px',
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 12,
+                textAlign: 'left',
+              }}
+            >
+              <div
+                style={{
+                  width: 34,
+                  height: 34,
+                  borderRadius: '50%',
+                  background: '#dcfce7',
+                  color: '#16a34a',
+                  display: 'grid',
+                  placeItems: 'center',
+                  flexShrink: 0,
+                }}
+              >
+                <CheckCircle2 size={18} />
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <b style={{ color: '#15803d', fontSize: 13, display: 'block', marginBottom: 2 }}>
+                  ✓ GPS lokatsiya muvaffaqiyatli aniqlandi
+                </b>
+                <span style={{ fontSize: 12, color: '#334155', display: 'block' }}>
+                  Koordinatalar: <strong>{gpsState.loc.lat}, {gpsState.loc.lng}</strong>
+                </span>
+                {gpsState.loc.accuracy && (
+                  <small style={{ fontSize: 11, color: '#16a34a', display: 'block', marginTop: 2 }}>
+                    Aniqlik: ±{gpsState.loc.accuracy} metr
+                  </small>
+                )}
+              </div>
+            </div>
+          )}
+
+          {gpsState.status === 'error' && (
+            <div
+              style={{
+                padding: '14px',
+                borderRadius: 12,
+                background: '#fef2f2',
+                border: '1.5px solid #fca5a5',
+                margin: '12px 0 16px',
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: '#b91c1c', marginBottom: 6 }}>
+                <AlertTriangle size={20} />
+                <b style={{ fontSize: 13 }}>GPS o‘chiq yoki lokatsiyaga ruxsat berilmagan!</b>
+              </div>
+              <p style={{ margin: '0 0 10px', fontSize: 12, color: '#475569', lineHeight: 1.5 }}>
+                {gpsState.error || 'Qurilmangizda GPS yoqilmagan. Ishni yakunlash uchun joriy lokatsiyangiz olinishi shart!'}
+              </p>
+              <div
+                style={{
+                  background: '#fff',
+                  borderRadius: 8,
+                  padding: '10px 12px',
+                  fontSize: 12,
+                  color: '#334155',
+                  border: '1px solid #fee2e2',
+                  marginBottom: 12,
+                  lineHeight: 1.5,
+                }}
+              >
+                <strong style={{ display: 'block', marginBottom: 4, color: '#991b1b' }}>Yakunlash uchun majburiy:</strong>
+                <ol style={{ margin: '0 0 0 16px', padding: 0 }}>
+                  <li>Qurilmangiz (telefon/kompyuter) sozlamalaridan <b>GPS / Joylashuv</b>ni yoqing.</li>
+                  <li>Brauzer manzil qatoridagi <b>qulf (🔒) yoki sozlamalar</b> tugmasini bosib, saytga <b>Joylashuv</b>ga ruxsat bering.</li>
+                </ol>
+              </div>
+              <button
+                type="button"
+                className="btn"
+                onClick={checkLocation}
+                style={{
+                  width: '100%',
+                  padding: '10px',
+                  background: '#ef4444',
+                  borderColor: '#ef4444',
+                  color: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  fontWeight: 600,
+                  fontSize: 13,
+                }}
+              >
+                <RefreshCw size={16} /> GPSni yoqdim, qayta tekshirish
+              </button>
+            </div>
+          )}
 
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
             <button
               type="button"
               className="btn secondary"
               style={{ flex: 1, padding: 11 }}
-              onClick={() => setConfirmModal(null)}
+              onClick={closeModal}
             >
               Bekor qilish
             </button>
             <button
               type="button"
               className="btn danger"
+              disabled={gpsState.status !== 'ready' || submitting}
               style={{
                 flex: 1,
                 padding: 11,
-                background: '#ea580c',
-                borderColor: '#ea580c',
+                background: gpsState.status === 'ready' ? '#ea580c' : '#94a3b8',
+                borderColor: gpsState.status === 'ready' ? '#ea580c' : '#94a3b8',
                 color: '#fff',
+                cursor: gpsState.status === 'ready' && !submitting ? 'pointer' : 'not-allowed',
+                opacity: gpsState.status === 'ready' ? 1 : 0.65,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
               }}
               onClick={handleClockOutConfirm}
             >
-              Ha, yakunlayman
+              {gpsState.status === 'checking'
+                ? 'GPS kutilmoqda…'
+                : gpsState.status === 'error'
+                ? 'GPS yoqilmagan'
+                : submitting
+                ? 'Saqlanmoqda…'
+                : 'Ha, yakunlayman'}
             </button>
           </div>
         </div>

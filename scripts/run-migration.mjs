@@ -13,8 +13,12 @@ for (const line of envText.split('\n')) {
 }
 
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+let dbUrl = env.SUPABASE_DB_URL;
+if (dbUrl && dbUrl.includes(':5432')) {
+  dbUrl = dbUrl.replace(':5432', ':6543');
+}
 const client = new pg.Client({ 
-  connectionString: env.SUPABASE_DB_URL,
+  connectionString: dbUrl,
   ssl: { rejectUnauthorized: false }
 });
 

@@ -12,9 +12,15 @@ async function rpc(name, args = {}) {
  * @param {number} [timeoutMs=10000]
  * @returns {Promise<{lat: number|null, lng: number|null, accuracy: number|null, error: string|null}>}
  */
-export async function getBrowserLocation(timeoutMs = 10000) {
+export async function getBrowserLocation(timeoutMs = 12000) {
   if (typeof navigator === 'undefined' || !navigator.geolocation) {
-    return { lat: null, lng: null, accuracy: null, error: 'Qurilmada geolokatsiya qo‘llab-quvvatlanmaydi' };
+    return {
+      lat: null,
+      lng: null,
+      accuracy: null,
+      error: 'Qurilmangizda yoki brauzerda geolokatsiya (GPS) qo‘llab-quvvatlanmaydi.',
+      code: 'UNSUPPORTED',
+    };
   }
   return new Promise(resolve => {
     navigator.geolocation.getCurrentPosition(
@@ -24,16 +30,25 @@ export async function getBrowserLocation(timeoutMs = 10000) {
           lng: Number(pos.coords.longitude.toFixed(7)),
           accuracy: Math.round(pos.coords.accuracy || 0),
           error: null,
+          code: null,
         });
       },
       err => {
-        let msg = 'Lokatsiyani aniqlab bo‘lmadi';
-        if (err.code === 1) msg = 'Geolokatsiyaga ruxsat berilmadi';
-        else if (err.code === 2) msg = 'GPS signali topilmadi';
-        else if (err.code === 3) msg = 'Lokatsiyani aniqlash vaqti tugadi';
-        resolve({ lat: null, lng: null, accuracy: null, error: msg });
+        let msg = 'GPS lokatsiyasini aniqlab bo‘lmadi.';
+        let code = 'UNKNOWN';
+        if (err.code === 1) {
+          code = 'PERMISSION_DENIED';
+          msg = 'Geolokatsiyaga ruxsat berilmadi. Iltimos, brauzer sozlamalaridan joylashuvga (GPS) ruxsat bering.';
+        } else if (err.code === 2) {
+          code = 'POSITION_UNAVAILABLE';
+          msg = 'GPS signali topilmadi yoki qurilmangizda GPS (joylashuv) o‘chiq. Iltimos, qurilmada GPS-ni yoqing.';
+        } else if (err.code === 3) {
+          code = 'TIMEOUT';
+          msg = 'Lokatsiyani aniqlash vaqti tugadi. GPS signali zaif yoki o‘chiq. Qayta urinib ko‘ring.';
+        }
+        resolve({ lat: null, lng: null, accuracy: null, error: msg, code });
       },
-      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 30000 }
+      { enableHighAccuracy: true, timeout: timeoutMs, maximumAge: 0 }
     );
   });
 }
@@ -42,6 +57,9 @@ export async function getBrowserLocation(timeoutMs = 10000) {
  * Ishga kelishni qayd etish (Clock In)
  */
 export function clockIn({ branchId = null, lat = null, lng = null, accuracy = null, address = null } = {}) {
+  if (lat == null || lng == null) {
+    throw new Error('GPS lokatsiyasi majburiy! Ishga kelishni qayd etish uchun qurilmada GPS-ni yoqing.');
+  }
   return rpc('clock_in', {
     p_branch_id: branchId,
     p_lat: lat,
@@ -55,6 +73,9 @@ export function clockIn({ branchId = null, lat = null, lng = null, accuracy = nu
  * Ishni yakunlashni qayd etish (Clock Out)
  */
 export function clockOut({ lat = null, lng = null, accuracy = null, address = null } = {}) {
+  if (lat == null || lng == null) {
+    throw new Error('GPS lokatsiyasi majburiy! Ishni yakunlashni qayd etish uchun qurilmada GPS-ni yoqing.');
+  }
   return rpc('clock_out', {
     p_lat: lat,
     p_lng: lng,
@@ -99,6 +120,18 @@ export function getAttendanceList({ branchId = null, employeeId = null, from = n
 export function listBranchEmployees(branchId = null) {
   return rpc('list_branch_employees', {
     p_branch_id: branchId || null,
+  });
+}
+
+/**
+ * Admin yoki Menejer tomonidan xodimning ketish/kelish vaqtini qo'lda kiritish
+ */
+export function adminManualSetAttendance({ attendanceId, checkInTime = null, checkOutTime = null, notes = null } = {}) {
+  return rpc('admin_manual_set_attendance', {
+    p_attendance_id: attendanceId,
+    p_check_in_time: checkInTime || null,
+    p_check_out_time: checkOutTime || null,
+    p_notes: notes || null,
   });
 }
 

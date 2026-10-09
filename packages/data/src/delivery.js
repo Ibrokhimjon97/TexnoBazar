@@ -32,6 +32,7 @@ export async function deleteDeliveryProof({deliveryId,proofId,key}){const token=
 export const listCourierPendingCash = () => rpc('list_courier_pending_cash', {});
 export const listBranchCourierCash = branchId => rpc('list_branch_courier_cash', { p_branch_id: branchId });
 export const acceptCourierCash = handoverId => rpc('accept_courier_cash', { p_handover_id: handoverId });
+export const rejectCourierDelivery = (handoverId, reason = null) => rpc('reject_courier_delivery', { p_handover_id: handoverId, p_reason: reason });
 
 
 // Order unit QR verification (manager assigns exact physical unit, courier confirms by scan)

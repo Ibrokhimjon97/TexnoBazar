@@ -1,19 +1,22 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   Calendar,
   CheckCircle2,
   Clock,
   Download,
   ExternalLink,
   MapPin,
+  Pencil,
   RefreshCw,
   Search,
   Store,
   User,
   Users,
 } from 'lucide-react';
-import { Status } from '@texnobazar/ui';
+import { Modal, Status } from '@texnobazar/ui';
 import {
+  adminManualSetAttendance,
   formatUzDate,
   formatUzTime,
   formatWorkedDuration,
@@ -111,6 +114,56 @@ export default function AdminAttendanceWorkspace({ toast }) {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Edit / Manual Attendance Modal State
+  const [editItem, setEditItem] = useState(null);
+  const [editForm, setEditForm] = useState({ checkInTime: '', checkOutTime: '', notes: '' });
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  const extractTimeStr = iso => {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      const str = d.toLocaleTimeString('uz-UZ', { timeZone: 'Asia/Tashkent', hour: '2-digit', minute: '2-digit', hour12: false });
+      return str;
+    } catch {
+      return '';
+    }
+  };
+
+  const openEditModal = item => {
+    setEditItem(item);
+    setEditForm({
+      checkInTime: extractTimeStr(item.check_in_at) || '09:00',
+      checkOutTime: extractTimeStr(item.check_out_at) || (item.status === 'missed_checkout' || (!item.check_out_at && item.work_date < todayStr) ? '18:00' : ''),
+      notes: item.notes || '',
+    });
+  };
+
+  const handleSaveEdit = async e => {
+    e?.preventDefault();
+    if (!editItem) return;
+    if (!editForm.checkOutTime) {
+      toast?.('Ketish vaqtini kiritish majburiy!');
+      return;
+    }
+    setEditSubmitting(true);
+    try {
+      await adminManualSetAttendance({
+        attendanceId: editItem.id,
+        checkInTime: editForm.checkInTime || null,
+        checkOutTime: editForm.checkOutTime || null,
+        notes: editForm.notes || null,
+      });
+      toast?.('Davomat ma’lumotlari muvaffaqiyatli saqlandi!');
+      setEditItem(null);
+      loadData();
+    } catch (err) {
+      toast?.(err?.message || 'Davomatni saqlashda xatolik yuz berdi.');
+    } finally {
+      setEditSubmitting(false);
+    }
+  };
 
   // Export to Excel
   const handleExport = async () => {
@@ -445,6 +498,7 @@ export default function AdminAttendanceWorkspace({ toast }) {
                 <th>Ketgan vaqti & Lokatsiya</th>
                 <th>Ishlagan vaqti</th>
                 <th>Holati</th>
+                <th>Amallar</th>
               </tr>
             </thead>
             <tbody>
@@ -452,6 +506,7 @@ export default function AdminAttendanceWorkspace({ toast }) {
                 const checkInUrl = getGoogleMapsUrl(row.check_in_lat, row.check_in_lng);
                 const checkOutUrl = getGoogleMapsUrl(row.check_out_lat, row.check_out_lng);
                 const isWorking = row.status === 'checked_in';
+                const isMissed = row.status === 'missed_checkout' || (!row.check_out_at && row.work_date < todayStr);
 
                 return (
                   <tr key={row.id}>
@@ -575,11 +630,35 @@ export default function AdminAttendanceWorkspace({ toast }) {
                       </b>
                     </td>
                     <td>
-                      {isWorking ? (
+                      {isMissed ? (
+                        <Status type="red">⚠️ Ketish kiritilmagan</Status>
+                      ) : isWorking ? (
                         <Status type="green">● Ishda</Status>
                       ) : (
                         <Status type="gray">✓ Yakunlangan</Status>
                       )}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="btn secondary"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          padding: '4px 8px',
+                          fontSize: 11,
+                          borderRadius: 7,
+                          background: isMissed ? '#fff1f2' : '#f8fafc',
+                          borderColor: isMissed ? '#fecdd3' : '#e2e8f0',
+                          color: isMissed ? '#e11d48' : '#334155',
+                          fontWeight: 600,
+                        }}
+                        onClick={() => openEditModal(row)}
+                      >
+                        <Pencil size={11} />
+                        {isMissed ? 'Vaqt kiritish' : 'Tahrirlash'}
+                      </button>
                     </td>
                   </tr>
                 );
@@ -588,6 +667,93 @@ export default function AdminAttendanceWorkspace({ toast }) {
           </table>
         </div>
       )}
+
+      {/* Edit / Set Attendance Modal */}
+      <Modal
+        open={Boolean(editItem)}
+        onClose={() => setEditItem(null)}
+        title="Davomat vaqtini kiritish / tahrirlash"
+      >
+        {editItem && (
+          <form onSubmit={handleSaveEdit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ padding: '10px 12px', background: '#f8fafc', borderRadius: 10, border: '1px solid #e2e8f0' }}>
+              <b style={{ fontSize: 13, display: 'block', color: 'var(--navy)' }}>{editItem.employee_name}</b>
+              <small style={{ color: 'var(--muted)', fontSize: 11 }}>
+                {editItem.branch_name} • {formatUzDate(editItem.work_date, { day: true, month: 'long', year: true, weekday: 'long' })}
+              </small>
+            </div>
+
+            {(editItem.status === 'missed_checkout' || (!editItem.check_out_at && editItem.work_date < todayStr)) && (
+              <div style={{ padding: '10px 12px', background: '#fef2f2', border: '1px solid #fecdd3', borderRadius: 10, color: '#991b1b', fontSize: 12, lineHeight: 1.5 }}>
+                ⚠️ Xodim ketish tugmasini bosishni unutgan (kechasi 00:00 da smena yopilgan). Ketish vaqtini kiritsangiz, umumiy ishlangan vaqt avtomatik hisoblanadi.
+              </div>
+            )}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  Kelgan vaqti:
+                </label>
+                <input
+                  type="time"
+                  className="input"
+                  style={{ width: '100%', padding: '8px 10px', fontSize: 13 }}
+                  value={editForm.checkInTime}
+                  onChange={e => setEditForm(prev => ({ ...prev, checkInTime: e.target.value }))}
+                  required
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  Ketgan vaqti:
+                </label>
+                <input
+                  type="time"
+                  className="input"
+                  style={{ width: '100%', padding: '8px 10px', fontSize: 13 }}
+                  value={editForm.checkOutTime}
+                  onChange={e => setEditForm(prev => ({ ...prev, checkOutTime: e.target.value }))}
+                  required
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: 12, fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                Izoh / Sababi:
+              </label>
+              <textarea
+                className="input"
+                rows={2}
+                placeholder="Masalan: Xodim 18:00 gacha ishlagan, tizimda tugmani bosishni unutgan"
+                style={{ width: '100%', padding: '8px 10px', fontSize: 12, resize: 'vertical' }}
+                value={editForm.notes}
+                onChange={e => setEditForm(prev => ({ ...prev, notes: e.target.value }))}
+              />
+            </div>
+
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 4 }}>
+              <button
+                type="button"
+                className="btn secondary"
+                onClick={() => setEditItem(null)}
+                disabled={editSubmitting}
+              >
+                Bekor qilish
+              </button>
+              <button
+                type="submit"
+                className="btn"
+                disabled={editSubmitting}
+                style={{ background: 'var(--orange)', borderColor: 'var(--orange)', color: '#fff' }}
+              >
+                {editSubmitting ? 'Saqlanmoqda…' : 'Saqlash'}
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
     </div>
   );
 }

@@ -10,6 +10,7 @@ supabase/.temp
 *.xlsx
 *.xls
 *.sql
+!supabase/migrations/*.sql
 
 # Local Netlify folder
 .netlify

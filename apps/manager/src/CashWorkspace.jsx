@@ -10,8 +10,18 @@ import {
   acceptCourierCash,
   listPosPendingSales,
   rejectPosPendingSale,
-  releaseExpiredPosSales
+  releaseExpiredPosSales,
+  getBrowserClient
 } from '@texnobazar/data';
+
+const rejectCourierDelivery = async (handoverId, reason = null) => {
+  const { data, error } = await getBrowserClient().rpc('reject_courier_delivery', {
+    p_handover_id: handoverId,
+    p_reason: reason,
+  });
+  if (error) throw new Error(error.message);
+  return data;
+};
 
 const msg = e => String(e?.message || 'Amalni bajarib bo\'lmadi.');
 const date = x => x ? new Date(x).toLocaleString('uz-UZ') : '—';
@@ -579,6 +589,10 @@ function CourierCashTab({ branchId, toast }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(null);
+  const [rejectRow, setRejectRow] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectBusy, setRejectBusy] = useState(false);
+  const [rejectError, setRejectError] = useState('');
 
   const load = async () => {
     if (!branchId) return;
@@ -609,6 +623,23 @@ function CourierCashTab({ branchId, toast }) {
       setError(msg(e));
     } finally {
       setBusy(null);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!rejectRow) return;
+    setRejectBusy(true);
+    setRejectError('');
+    try {
+      await rejectCourierDelivery(rejectRow.id, rejectReason.trim() || null);
+      toast?.('Tovar qaytarildi deb belgilandi. Tovar omborga qaytarildi va sotilmagan deb hisoblandi.');
+      setRejectRow(null);
+      setRejectReason('');
+      await load();
+    } catch (e) {
+      setRejectError(msg(e));
+    } finally {
+      setRejectBusy(false);
     }
   };
 
@@ -659,21 +690,119 @@ function CourierCashTab({ branchId, toast }) {
                     <b><DualPrice value={Number(row.amount)} rate={rate} /></b>
                   </td>
                   <td>{new Date(row.created_at).toLocaleString('uz-UZ')}</td>
-                  <td>
-                    <button
-                      className="btn btn-primary"
-                      style={{ padding: '6px 14px', fontSize: 12 }}
-                      disabled={busy === row.id}
-                      onClick={() => accept(row.id)}
-                    >
-                      {busy === row.id ? 'Qabul…' : 'Pulni qabul qildim'}
-                    </button>
+                  <td style={{ whiteSpace: 'nowrap' }}>
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <button
+                        className="btn btn-primary"
+                        style={{ padding: '6px 14px', fontSize: 12 }}
+                        disabled={busy === row.id || rejectBusy}
+                        onClick={() => accept(row.id)}
+                        title="Mijoz pulni kuryerdan bergan bo‘lsa, kassaga kirim qilish"
+                      >
+                        {busy === row.id ? 'Qabul…' : 'Pulni qabul qildim'}
+                      </button>
+                      <button
+                        className="btn btn-outline"
+                        style={{ padding: '6px 12px', fontSize: 12, borderColor: '#fca5a5', color: '#b91c1c' }}
+                        disabled={busy === row.id || rejectBusy}
+                        onClick={() => {
+                          setRejectError('');
+                          setRejectReason('');
+                          setRejectRow(row);
+                        }}
+                        title="Mijoz tovardan voz kechgan bo‘lsa, bekor qilish va tovarni omborga qaytarish"
+                      >
+                        Dostavka qaytdi
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* Rejection / Returned Goods Confirmation Modal */}
+      {rejectRow && (
+        <Modal
+          open={Boolean(rejectRow)}
+          onClose={() => !rejectBusy && setRejectRow(null)}
+          title="Dostavka qaytdi / Tovarni bekor qilish"
+        >
+          <div style={{ padding: '4px 0' }}>
+            <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 12, marginBottom: 14 }}>
+              <p style={{ margin: '0 0 6px 0', fontWeight: 700, color: '#92400e', fontSize: 14 }}>
+                Diqqat: Ushbu amal tovar sotilishini bekor qiladi!
+              </p>
+              <p style={{ margin: 0, fontSize: 13, color: '#78350f' }}>
+                Agar mijozga tovar yoqmagan yoki yetkazib berish boshqa sabab bilan qaytgan bo‘lsa, tovar qaytganini tasdiqlang.
+              </p>
+            </div>
+
+            <div style={{ display: 'grid', gap: 8, fontSize: 13, marginBottom: 16, background: '#f8fafc', padding: 12, borderRadius: 8, border: '1px solid var(--border)' }}>
+              <div className="between">
+                <span className="muted">Buyurtma:</span>
+                <b>{rejectRow.order_no}</b>
+              </div>
+              <div className="between">
+                <span className="muted">Kuryer:</span>
+                <b>{rejectRow.courier_name} <span className="muted">({rejectRow.courier_phone})</span></b>
+              </div>
+              <div className="between">
+                <span className="muted">Mijoz:</span>
+                <b>{rejectRow.customer_name} <span className="muted">({rejectRow.customer_phone})</span></b>
+              </div>
+              <div className="between">
+                <span className="muted">Summasi:</span>
+                <strong style={{ color: 'var(--orange-dark)' }}>
+                  <DualPrice value={Number(rejectRow.amount)} rate={rate} />
+                </strong>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, color: 'var(--text-2)', marginBottom: 14, background: '#f1f5f9', padding: '10px 14px', borderRadius: 6 }}>
+              <ul style={{ margin: 0, paddingLeft: 16, lineHeight: 1.6 }}>
+                <li>Tovar <b>sotilmagan</b> deb belgilanadi va uning soni ombor qoldig‘iga qaytariladi.</li>
+                <li>Kassaga hech qanday savdo puli kirim qilinmaydi.</li>
+                <li>Kuryerdan ushbu naqd pulni topshirish talabi bekor qilinadi.</li>
+              </ul>
+            </div>
+
+            <label className="field" style={{ marginBottom: 16 }}>
+              <span className="label">Qaytarilish sababi (ixtiyoriy)</span>
+              <input
+                className="input"
+                placeholder="Masalan: Tovar yoqmadi, mijoz rad etdi"
+                value={rejectReason}
+                onChange={e => setRejectReason(e.target.value)}
+                autoFocus
+              />
+            </label>
+
+            {rejectError && <div className="cash-real-inline-error" style={{ marginBottom: 12 }}>{rejectError}</div>}
+
+            <div className="between" style={{ gap: 10 }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={rejectBusy}
+                onClick={() => setRejectRow(null)}
+              >
+                Orqaga
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                disabled={rejectBusy}
+                onClick={handleReject}
+              >
+                {rejectBusy ? 'Bekor qilinmoqda…' : 'Tovar qaytdi (Bekor qilish)'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   );
