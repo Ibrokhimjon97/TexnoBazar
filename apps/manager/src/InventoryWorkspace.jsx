@@ -1,21 +1,48 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{createPortal}from'react-dom';
-import{AlertTriangle,ArrowRight,Bluetooth,Boxes,Calendar,CheckCircle2,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileSpreadsheet,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,Warehouse,X}from'lucide-react';
+import{AlertTriangle,ArrowRight,Bluetooth,Boxes,Calendar,CheckCircle2,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,ProductExcelImportModal,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal}from'@texnobazar/ui';
 import QRCode from'qrcode';
 import RichTextEditor from'./RichTextEditor';
 import{CreateProductInline}from'./InventoryRegisterModal';
-import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia}from'@texnobazar/data';
+import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia,exportBatchesBackup,exportReceiptBackup,inspectBatchesBackupFile,restoreBatchesBackupFile}from'@texnobazar/data';
 const err=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 // Visual marker only: INV-* kirimlar inventarizatsiya orqali ro‘yxatga olingan,
 // qolganlari esa oddiy yetkazib berish partiyasi.
 const isInventoryReceipt=receiptNo=>/^INV-/i.test(String(receiptNo||'').trim());
-export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInventory}){
+export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInventory,toast}){
   const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[query,setQuery]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
   const[passwordModal,setPasswordModal]=useState(null);
   const[selectedDate,setSelectedDate]=useState(null);
   const[calMonth,setCalMonth]=useState(()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1)});
   const[rate,setRate]=useState(null);
+  const[exportingAll,setExportingAll]=useState(false);
+  const[exportingId,setExportingId]=useState(null);
+  const[restoreModalOpen,setRestoreModalOpen]=useState(false);
+
+  const handleExportAll=async()=>{
+    setExportingAll(true);
+    try{
+      const res=await exportBatchesBackup(branchId);
+      toast?.(`${res.counts.receipts} ta partiya va inventarizatsiya JSON faylga yuklandi`);
+    }catch(e){
+      alert(err(e));
+    }finally{
+      setExportingAll(false);
+    }
+  };
+
+  const handleExportSingle=async(receiptId,receiptNo)=>{
+    setExportingId(receiptId);
+    try{
+      const res=await exportReceiptBackup(receiptId);
+      toast?.(`"${receiptNo}" partiyasi (${res.counts.units} dona tovar) JSON zahiraga yuklandi`);
+    }catch(e){
+      alert(err(e));
+    }finally{
+      setExportingId(null);
+    }
+  };
   useEffect(()=>{getLatestExchangeRate().then(r=>setRate(Number(r)||null)).catch(()=>{})},[]);
   const load=async()=>{if(!branchId)return;setLoading(true);setError('');try{const r=await listStockReceipts({branchId,query,pageSize:100});setRows(r.items||[]);setTotal(Number(r.total)||0)}catch(e){setError(err(e))}finally{setLoading(false)}};
   useEffect(()=>{const t=setTimeout(load,query?250:0);return()=>clearTimeout(t)},[branchId,query]);
@@ -79,12 +106,18 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       <h2>Partiyalar va Inventarizatsiya</h2>
       <p>Yetkazib beruvchilardan kirimlar va ombordagi tovarlar inventarizatsiyasi</p>
     </div>
-    <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
       <button className="btn btn-primary" onClick={handleCreateBatch}>
         <Plus size={16}/>Yangi partiya
       </button>
       <button className="btn btn-outline" style={{borderColor:'#7c3aed',color:'#7c3aed',background:'#f5f3ff',fontWeight:600}} onClick={handleCreateInventory}>
         <Boxes size={16}/>Inventarizatsiya
+      </button>
+      <button className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6}} onClick={handleExportAll} disabled={exportingAll} title="Barcha partiya va inventarizatsiyalarni JSON faylga yuklash">
+        <Download size={15}/>{exportingAll?'Eksport qilinmoqda…':'Zahira olish'}
+      </button>
+      <button className="btn btn-outline" style={{borderColor:'#2563eb',color:'#2563eb',background:'#eff6ff',display:'inline-flex',alignItems:'center',gap:6,fontWeight:600}} onClick={()=>setRestoreModalOpen(true)} title="Zahira faylidan partiyalarni qayta tiklash">
+        <Upload size={15}/>Zahiradan tiklash
       </button>
     </div>
   </div>
@@ -129,6 +162,9 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       <div className="between small" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,paddingTop:8,borderTop:'1px solid var(--line,#f1f5f9)',flexWrap:'wrap',gap:8}}>
         <span>{x.line_count} xil tovar · Tan: <DualPrice value={Number(x.total_cost||0)} rate={rate}/> · Sotish: <DualPrice value={Number(x.total_retail||0)} rate={rate}/></span>
         <div style={{display:'flex',alignItems:'center',gap:6}}>
+          <button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:12,display:'inline-flex',alignItems:'center',gap:4,height:28}} title="Zahiraga yuklab olish (JSON)" disabled={exportingId===x.id} onClick={()=>handleExportSingle(x.id,x.receipt_no)}>
+            <Download size={13}/>{exportingId===x.id?'…':'Zahira'}
+          </button>
           <button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:12,display:'inline-flex',alignItems:'center',gap:4,height:28}} title="Tahrirlash" onClick={()=>open(x.id,true)}>
             <Pencil size={13}/>Tahrirlash
           </button>
@@ -142,7 +178,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       </div>
     </article>;
   })}</div>}
-  <ReceiptDetail receipt={detail} initialEditing={detailEdit} close={()=>{setDetail(null);setDetailEdit(false);}} onUpdated={()=>{setDetail(null);setDetailEdit(false);load();}}/>
+  <ReceiptDetail receipt={detail} initialEditing={detailEdit} close={()=>{setDetail(null);setDetailEdit(false);}} onUpdated={()=>{setDetail(null);setDetailEdit(false);load();}} onExportSingle={handleExportSingle}/>
   {passwordModal && (
     <Modal open={Boolean(passwordModal)} onClose={() => setPasswordModal(null)} title="Sotilgan tovarlar mavjud — Parol talab qilinadi">
       <form
@@ -205,6 +241,13 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       </form>
     </Modal>
   )}
+  <BatchBackupRestoreModal
+    open={restoreModalOpen}
+    onClose={()=>setRestoreModalOpen(false)}
+    branchId={branchId}
+    onRestored={()=>{load();toast?.('Partiyalar va tovarlar muvaffaqiyatli tiklandi');}}
+    toast={toast}
+  />
   </>;
 }
 function BatchCalendar({month,setMonth,batchDates,selectedDate,onDateClick}){
@@ -459,7 +502,260 @@ function ProductDetailModal({product,close,branchId,rate}){
 }
 
 function ErrorState({message,retry}){return <div className="inventory-error"><AlertTriangle/><b>Xatolik</b><p>{message}</p><div style={{display:'flex',gap:8,justifyContent:'center',marginTop:8}}><button className="btn btn-primary" onClick={retry}>Qayta urinish (Ro‘yxatni ko‘rish)</button></div></div>}
-function ReceiptDetail({receipt,close,onUpdated,initialEditing=false}){
+
+function BatchBackupRestoreModal({ open, onClose, branchId, onRestored, toast }) {
+  const [file, setFile] = useState(null);
+  const [inspecting, setInspecting] = useState(false);
+  const [inspected, setInspected] = useState(null);
+  const [inspectError, setInspectError] = useState('');
+  const [restoring, setRestoring] = useState(false);
+  const [progress, setProgress] = useState(null);
+  const [restoreSuccess, setRestoreSuccess] = useState(null);
+
+  const reset = () => {
+    setFile(null);
+    setInspecting(false);
+    setInspected(null);
+    setInspectError('');
+    setRestoring(false);
+    setProgress(null);
+    setRestoreSuccess(null);
+  };
+
+  const handleClose = () => {
+    if (restoring) return;
+    reset();
+    onClose();
+  };
+
+  const handleFileChange = async (selectedFile) => {
+    if (!selectedFile) return;
+    reset();
+    setFile(selectedFile);
+    setInspecting(true);
+    try {
+      const info = await inspectBatchesBackupFile(selectedFile);
+      setInspected(info);
+    } catch (e) {
+      setInspectError(e.message || 'Faylni tahlil qilib bo‘lmadi');
+    } finally {
+      setInspecting(false);
+    }
+  };
+
+  const handleStartRestore = async () => {
+    if (!file || !inspected) return;
+    setRestoring(true);
+    setInspectError('');
+    try {
+      const res = await restoreBatchesBackupFile(file, {
+        onProgress: setProgress,
+      });
+      setRestoreSuccess(res);
+      toast?.(`${res.counts?.receipts || inspected.counts.receipts} ta partiya va inventarizatsiya muvaffaqiyatli tiklandi!`);
+      setTimeout(() => {
+        onRestored?.();
+        handleClose();
+      }, 1500);
+    } catch (e) {
+      setInspectError(e.message || 'Tiklashda xatolik yuz berdi');
+      setRestoring(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={handleClose} title="Partiyalar va Inventarizatsiyani tiklash">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--muted, #64748b)', lineHeight: 1.5 }}>
+          Ushbu bo‘lim orqali avval eksport qilingan <b>.json</b> yoki <b>.zip</b> formatidagi zahira fayllaridan o‘chirilgan yoki saqlangan partiyalar, ularning qabul sanalari, narxlari va tovar birliklarini to‘liq qayta tiklashingiz mumkin.
+        </p>
+
+        {!inspected && !restoring && !restoreSuccess && (
+          <div
+            style={{
+              border: '2px dashed #cbd5e1',
+              borderRadius: 12,
+              padding: '28px 16px',
+              textAlign: 'center',
+              background: '#f8fafc',
+              cursor: 'pointer',
+              transition: 'border-color 0.2s',
+            }}
+            onClick={() => document.getElementById('batch-restore-file-input')?.click()}
+            onDragOver={e => { e.preventDefault(); e.stopPropagation(); }}
+            onDrop={e => {
+              e.preventDefault();
+              e.stopPropagation();
+              const dropped = e.dataTransfer.files?.[0];
+              if (dropped) handleFileChange(dropped);
+            }}
+          >
+            <input
+              id="batch-restore-file-input"
+              type="file"
+              accept=".json,.zip"
+              style={{ display: 'none' }}
+              onChange={e => {
+                const f = e.target.files?.[0];
+                if (f) handleFileChange(f);
+              }}
+            />
+            <div style={{ display: 'inline-flex', padding: 12, borderRadius: '50%', background: '#eff6ff', color: '#2563eb', marginBottom: 10 }}>
+              <UploadCloud size={30} />
+            </div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: '#1e293b', marginBottom: 4 }}>
+              Zahira faylini tanlang yoki shu yerga tashlang
+            </div>
+            <div style={{ fontSize: 12, color: '#64748b' }}>
+              Qo‘llab-quvvatlanadi: <b>.json</b> (partiyalar zahirasi) va <b>.zip</b> (tizim arxivi)
+            </div>
+          </div>
+        )}
+
+        {inspecting && (
+          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--muted, #64748b)' }}>
+            <Loader2 size={24} className="spin" style={{ marginBottom: 8, display: 'inline-block' }} />
+            <div>Zahira fayli tahlil qilinmoqda…</div>
+          </div>
+        )}
+
+        {inspectError && (
+          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: '12px 14px', color: '#dc2626', fontSize: 13, display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <AlertTriangle size={18} style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ flex: 1 }}>
+              <b>Xatolik:</b> {inspectError}
+            </div>
+          </div>
+        )}
+
+        {inspected && !restoring && !restoreSuccess && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div>
+                  <b style={{ fontSize: 14, color: '#0f172a' }}>{inspected.fileName}</b>
+                  <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                    Formati: <span style={{ textTransform: 'uppercase', fontWeight: 600 }}>{inspected.fileType}</span>
+                    {inspected.exported_at && ` · Eksport sanasi: ${new Date(inspected.exported_at).toLocaleString('uz-UZ')}`}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  style={{ fontSize: 12, padding: '4px 8px' }}
+                  onClick={reset}
+                >
+                  Boshqa fayl
+                </button>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8, marginBottom: 12 }}>
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>Partiyalar</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{inspected.counts.receipts} ta</div>
+                </div>
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>Tovar turlari</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{inspected.counts.products || inspected.counts.batches} xil</div>
+                </div>
+                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 11, color: '#64748b' }}>Birliklar (soni)</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>{inspected.counts.units} dona</div>
+                </div>
+              </div>
+
+              {inspected.receiptsList?.length > 0 && (
+                <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: '#475569', marginBottom: 6 }}>
+                    Fayldagi partiya va inventarizatsiyalar ({inspected.receiptsList.length} ta):
+                  </div>
+                  <div style={{ maxHeight: 150, overflowY: 'auto', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12 }}>
+                    {inspected.receiptsList.slice(0, 20).map((r, idx) => (
+                      <div
+                        key={r.id || idx}
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          padding: '6px 10px',
+                          borderBottom: idx < inspected.receiptsList.length - 1 ? '1px solid #f1f5f9' : 'none',
+                        }}
+                      >
+                        <b style={{ color: '#1e293b' }}>{r.receipt_no}</b>
+                        <span style={{ color: '#64748b' }}>
+                          {r.received_at ? new Date(r.received_at).toLocaleDateString('uz-UZ') : '—'}
+                        </span>
+                      </div>
+                    ))}
+                    {inspected.receiptsList.length > 20 && (
+                      <div style={{ padding: '6px 10px', textAlign: 'center', color: '#64748b', fontSize: 11 }}>
+                        ... va yana {inspected.receiptsList.length - 20} ta
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '10px 12px', fontSize: 12, color: '#1e40af', lineHeight: 1.5 }}>
+              <b>Eslatma:</b> Tiklash jarayonida fayldagi barcha partiyalar, narxlar va birliklar bazaga kiritiladi. Mavjud yozuvlar yangilanadi, o‘chirilganlari esa qayta tiklanadi.
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+              <button type="button" className="btn btn-outline" onClick={handleClose}>
+                Bekor qilish
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ background: '#2563eb', borderColor: '#2563eb' }}
+                onClick={handleStartRestore}
+              >
+                <Upload size={15} style={{ marginRight: 6 }} />
+                Tiklashni boshlash
+              </button>
+            </div>
+          </div>
+        )}
+
+        {restoring && (
+          <div style={{ padding: '24px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+            <Loader2 size={32} className="spin" color="#2563eb" />
+            <div>
+              <b style={{ fontSize: 15, color: '#0f172a' }}>Ma’lumotlar tiklanmoqda…</b>
+              <div style={{ fontSize: 13, color: '#64748b', marginTop: 4 }}>
+                {progress?.message || 'Partiyalar va tovarlar bazaga yozilmoqda…'}
+              </div>
+            </div>
+            <div style={{ width: '100%', height: 6, background: '#e2e8f0', borderRadius: 999, overflow: 'hidden', marginTop: 8 }}>
+              <div
+                style={{
+                  height: '100%',
+                  background: '#2563eb',
+                  width: `${progress?.percent || 50}%`,
+                  transition: 'width 0.3s ease',
+                }}
+              />
+            </div>
+          </div>
+        )}
+
+        {restoreSuccess && (
+          <div style={{ padding: '24px 16px', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#dcfce7', color: '#16a34a', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <CheckCircle2 size={28} />
+            </div>
+            <b style={{ fontSize: 16, color: '#15803d' }}>Zahiradan tiklash muvaffaqiyatli yakunlandi!</b>
+            <div style={{ fontSize: 13, color: '#64748b' }}>
+              Barcha partiyalar, kirimlar va tovar qoldiqlari to‘liq o‘z holatiga keltirildi.
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSingle}){
   const[rate,setRate2]=useState(null);
   useEffect(()=>{getLatestExchangeRate().then(r=>setRate2(Number(r)||null)).catch(()=>{})},[]);
   const[labels,setLabels]=useState([]),[printPending,setPrintPending]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState(''),[editing,setEditing]=useState(Boolean(initialEditing)),[editForm,setEditForm]=useState({}),[saving,setSaving]=useState(false),[deleting,setDeleting]=useState(false),[expandedLine,setExpandedLine]=useState(null),[lineUnits,setLineUnits]=useState([]),[lineProduct,setLineProduct]=useState(null),[loadingLine,setLoadingLine]=useState(false),[editingLine,setEditingLine]=useState(false),[linePrices,setLinePrices]=useState({}),[savingLine,setSavingLine]=useState(false);
@@ -956,8 +1252,11 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false}){
             </div>
           </div>
         ):(
-          <div style={{display:'flex',gap:8,margin:'8px 0'}}>
+          <div style={{display:'flex',gap:8,margin:'8px 0',flexWrap:'wrap'}}>
             <button className="btn" onClick={()=>setEditing(true)}>Tahrirlash</button>
+            <button className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6}} onClick={()=>onExportSingle?.(receipt.id,receipt.receipt_no)} title="Ushbu partiyani JSON zahiraga saqlash">
+              <Download size={14}/>Zahira (JSON)
+            </button>
             <button className="btn" style={{background:'#fee2e2',color:'#b91c1c',borderColor:'#fecaca'}} onClick={()=>removeReceipt()} disabled={deleting}>{deleting?'O‘chirilmoqda…':'O‘chirish'}</button>
           </div>
         )}

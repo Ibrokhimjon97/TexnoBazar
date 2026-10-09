@@ -26,6 +26,10 @@ export {
   exportBackupArchive,
   inspectBackupArchive,
   restoreBackupArchive,
+  exportReceiptBackup,
+  exportBatchesBackup,
+  inspectBatchesBackupFile,
+  restoreBatchesBackupFile,
 } from './backup.js';
 
 /**
