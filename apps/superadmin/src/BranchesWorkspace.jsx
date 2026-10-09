@@ -1,5 +1,5 @@
-import React,{useEffect,useState}from'react';
-import{AlertTriangle,ArrowLeft,BarChart3,MapPin,Pencil,Plus,Store,Trash2,Users,Warehouse}from'lucide-react';
+import React,{useEffect,useMemo,useState}from'react';
+import{AlertTriangle,ArrowLeft,BarChart3,MapPin,Pencil,Plus,Search,Store,Trash2,Users,Warehouse}from'lucide-react';
 import{DualPrice,Empty,Modal,Status,useExchangeRate}from'@texnobazar/ui';
 import{createMasterRecord,deleteMasterRecord,getAccessToken,getBrowserClient,listActiveBranches,listEmployees,listMasterRecords,updateMasterRecord}from'@texnobazar/data';
 
@@ -120,6 +120,7 @@ function LocationDetail({location,branch,back,toast}){
   const rate=useExchangeRate();
   const[stats,setStats]=useState(null),[inventory,setInventory]=useState([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
   const[period,setPeriod]=useState('month'),[showInventory,setShowInventory]=useState(false),[selectedProduct,setSelectedProduct]=useState(null);
+  const[searchQuery,setSearchQuery]=useState('');
 
   useEffect(()=>{loadData()},[location,period]);
 
@@ -131,8 +132,13 @@ function LocationDetail({location,branch,back,toast}){
     const to=now.toISOString().split('T')[0];
     const client=getBrowserClient();
 
-    // Inventory units in this location
-    const{data:units,error:uErr}=await client.from('inventory_units').select('id,product_id,status,products(name,sku,category_id,retail_price,cost_price,categories(name))').eq('location_id',location.id).order('created_at',{ascending:false}).limit(500);
+    // Inventory units in this location with joined products, categories, variants, and stock batches
+    const{data:units,error:uErr}=await client
+      .from('inventory_units')
+      .select('id,product_id,batch_id,variant_id,status,qr_code,serial_number,created_at,products(id,name,sku,barcode,category_id,retail_price,cost_price,categories(name)),product_variants(id,color_name,color_hex),stock_batches(id,receipt_id,unit_cost,retail_price,stock_receipts(receipt_no))')
+      .eq('location_id',location.id)
+      .order('created_at',{ascending:false})
+      .limit(3000);
     if(uErr)throw uErr;
     setInventory(units||[]);
 
@@ -156,9 +162,6 @@ function LocationDetail({location,branch,back,toast}){
     const categories=Object.values(catMap).sort((a,b)=>b.count-a.count);
 
     // Top/bottom selling products
-    const productSales={};sales.forEach(s=>{/* we don't have per-line in report_sales_rows, use aggregated */});
-    // Use inventory sold count from units
-    const soldUnits=(units||[]).filter(u=>u.status==='sold');
     const productCount={};(units||[]).forEach(u=>{const name=u.products?.name||'?';if(!productCount[name])productCount[name]={name,sku:u.products?.sku||'',available:0,sold:0};if(u.status==='available')productCount[name].available++;if(u.status==='sold')productCount[name].sold++});
     const productList=Object.values(productCount).sort((a,b)=>b.sold-a.sold);
     const topSelling=productList.filter(p=>p.sold>0).slice(0,5);
@@ -170,6 +173,76 @@ function LocationDetail({location,branch,back,toast}){
 
     setStats({totalItems,inventoryValue,retailValue,totalRevenue,totalProfit,totalCost,totalDebt,categories,topSelling,lowSelling,salesCount:sales.length});
   }catch(e){setError(e.message)}finally{setLoading(false)}};
+
+  const groupedInventory=useMemo(()=>{
+    const map=new Map();
+    (inventory||[]).forEach(u=>{
+      const prodId=u.product_id||'';
+      const variantKey=u.variant_id||u.variant_color||'';
+      const batchKey=u.batch_id||'';
+      const key=`${prodId}__${variantKey}__${batchKey}`;
+
+      if(!map.has(key)){
+        const prod=u.products||{};
+        const batch=u.stock_batches||{};
+        const receipt=batch.stock_receipts||{};
+        const variant=u.product_variants||{};
+
+        map.set(key,{
+          key,
+          id:u.id,
+          product_id:u.product_id,
+          product:prod,
+          product_name:prod.name||'Nomsiz tovar',
+          sku:prod.sku||'-',
+          barcode:prod.barcode||'',
+          category_name:prod.categories?.name||'Kategoriyasiz',
+          variant_color:variant.color_name||u.variant_color||'',
+          batch_id:u.batch_id||null,
+          receipt_no:receipt.receipt_no||null,
+          qr_code:u.qr_code||'',
+          retail_price:Number(batch.retail_price??prod.retail_price??0),
+          cost_price:Number(batch.unit_cost??prod.cost_price??0),
+          total_count:0,
+          available_count:0,
+          sold_count:0,
+          reserved_count:0,
+          other_count:0,
+          units:[],
+        });
+      }
+
+      const item=map.get(key);
+      item.total_count+=1;
+      if(u.status==='available'){
+        item.available_count+=1;
+      }else if(u.status==='sold'){
+        item.sold_count+=1;
+      }else if(u.status==='reserved'){
+        item.reserved_count+=1;
+      }else{
+        item.other_count+=1;
+      }
+      item.units.push(u);
+    });
+
+    return Array.from(map.values()).sort((a,b)=>{
+      if(b.available_count!==a.available_count)return b.available_count-a.available_count;
+      return a.product_name.localeCompare(b.product_name);
+    });
+  },[inventory]);
+
+  const filteredInventory=useMemo(()=>{
+    if(!searchQuery.trim())return groupedInventory;
+    const q=searchQuery.toLowerCase().trim();
+    return groupedInventory.filter(item=>
+      item.product_name.toLowerCase().includes(q)||
+      item.sku.toLowerCase().includes(q)||
+      item.category_name.toLowerCase().includes(q)||
+      (item.receipt_no&&item.receipt_no.toLowerCase().includes(q))||
+      (item.variant_color&&item.variant_color.toLowerCase().includes(q))
+    );
+  },[groupedInventory,searchQuery]);
 
   if(selectedProduct)return <ProductDetailView unit={selectedProduct} back={()=>setSelectedProduct(null)}/>;
 
@@ -195,8 +268,61 @@ function LocationDetail({location,branch,back,toast}){
   {stats.lowSelling.length>0&&<div className="card"><h3 style={{padding:'1rem 1rem 0'}}>Kam sotilgan (qoldiqda)</h3><div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>Qoldiq</th></tr></thead><tbody>{stats.lowSelling.map((p,i)=><tr key={i}><td><b>{p.name}</b><br/><small className="muted">{p.sku}</small></td><td>{p.available}</td></tr>)}</tbody></table></div></div>}
   </div>
 
-  <div className="card" style={{marginTop:'1rem'}}><div className="section-head"><h3><Warehouse size={18}/> Barcha tovarlar ({inventory.length})</h3><button className="btn btn-outline btn-sm" onClick={()=>setShowInventory(!showInventory)}>{showInventory?'Yopish':'Ko\'rsatish'}</button></div>
-  {showInventory&&<div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>SKU</th><th>Kategoriya</th><th>Holat</th><th>Narxi</th></tr></thead><tbody>{inventory.slice(0,100).map(u=><tr key={u.id} className="clickable-row" onClick={()=>setSelectedProduct(u)}><td><b>{u.products?.name||'?'}</b></td><td><code>{u.products?.sku||'-'}</code></td><td>{u.products?.categories?.name||'-'}</td><td><Status type={u.status==='available'?'green':u.status==='sold'?'blue':'red'}>{u.status}</Status></td><td><DualPrice value={Number(u.products?.retail_price||0)} rate={rate}/></td></tr>)}</tbody></table></div>}</div>
+  <div className="card" style={{marginTop:'1rem'}}>
+    <div className="section-head between" style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+      <h3><Warehouse size={18}/> Barcha tovarlar ({groupedInventory.length} xil, {inventory.length} dona)</h3>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        {showInventory&&(
+          <input
+            type="search"
+            className="input"
+            style={{padding:'4px 10px',fontSize:13,width:240,height:32}}
+            placeholder="Nomi, SKU yoki partiya..."
+            value={searchQuery}
+            onChange={e=>setSearchQuery(e.target.value)}
+          />
+        )}
+        <button className="btn btn-outline btn-sm" onClick={()=>setShowInventory(!showInventory)}>{showInventory?'Yopish':'Ko\'rsatish'}</button>
+      </div>
+    </div>
+    {showInventory&&<div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>SKU</th><th>Kategoriya</th><th>Partiya / Kirim</th><th>Soni / Qoldiq</th><th>Holat</th><th>Narxi</th></tr></thead><tbody>
+      {filteredInventory.length===0?(
+        <tr><td colSpan={7} style={{textAlign:'center',padding:'1.5rem',color:'var(--muted)'}}>Hech qanday tovar topilmadi</td></tr>
+      ):(
+        filteredInventory.map(item=><tr key={item.key} className="clickable-row" onClick={()=>setSelectedProduct({product_id:item.product_id,item})}>
+          <td>
+            <b>{item.product_name}</b>
+            {item.variant_color&&<span style={{marginLeft:6,display:'inline-block',padding:'1px 7px',background:'#f1f5f9',borderRadius:10,fontSize:11,color:'#475569',fontWeight:500}}>{item.variant_color}</span>}
+          </td>
+          <td><code>{item.sku}</code></td>
+          <td>{item.category_name}</td>
+          <td>{item.receipt_no?<code style={{fontSize:11,background:'#f8fafc',padding:'2px 6px',borderRadius:4}}>{item.receipt_no}</code>:<span className="muted" style={{fontSize:12}}>—</span>}</td>
+          <td>
+            <div style={{display:'flex',flexDirection:'column',gap:2}}>
+              <b style={{fontSize:13}}>Jami: {item.total_count} ta</b>
+              <div style={{fontSize:12,color:'#475569'}}>
+                <span style={{color:item.available_count>0?'#16a34a':'#64748b',fontWeight:600}}>Mavjud: {item.available_count} ta</span>
+                {item.sold_count>0&&<span style={{color:'#2563eb',fontWeight:600,marginLeft:6}}>· Sotildi: {item.sold_count} ta</span>}
+                {item.reserved_count>0&&<span style={{color:'#ea580c',fontWeight:600,marginLeft:6}}>· Band: {item.reserved_count} ta</span>}
+              </div>
+            </div>
+          </td>
+          <td>
+            <div style={{display:'flex',gap:4,flexWrap:'wrap',alignItems:'center'}}>
+              {item.available_count>0&&<Status type="green">Mavjud ({item.available_count})</Status>}
+              {item.sold_count>0&&<Status type="blue">Sotildi ({item.sold_count})</Status>}
+              {item.reserved_count>0&&<Status type="orange">Band ({item.reserved_count})</Status>}
+              {item.available_count===0&&item.sold_count>0&&<Status type="gray">Barchasi sotilgan</Status>}
+            </div>
+          </td>
+          <td>
+            <DualPrice value={Number(item.retail_price||0)} rate={rate}/>
+            {item.cost_price>0&&<small className="muted" style={{display:'block',fontSize:11}}>Tan: <DualPrice value={Number(item.cost_price)} rate={rate}/></small>}
+          </td>
+        </tr>)
+      )}
+    </tbody></table></div>}
+  </div>
   </>}</>;
 }
 
@@ -229,6 +355,19 @@ function ProductDetailView({unit,back}){
         <div><span>Nashr qilingan:</span><b>{product.is_published?'Ha':'Yo\'q'}</b></div>
       </div>
     </div>
+    {unit?.item&&(
+      <div className="card product-info-card">
+        <h3>Ushbu ombor/do‘kondagi holati</h3>
+        <div className="product-info-rows">
+          <div><span>Jami keltirilgan:</span><b>{unit.item.total_count} dona</b></div>
+          <div><span>Hozirda mavjud:</span><b style={{color:'#16a34a'}}>{unit.item.available_count} dona</b></div>
+          <div><span>Sotilgan:</span><b style={{color:'#2563eb'}}>{unit.item.sold_count} dona</b></div>
+          {unit.item.reserved_count>0&&<div><span>Band qilingan:</span><b style={{color:'#ea580c'}}>{unit.item.reserved_count} dona</b></div>}
+          {unit.item.receipt_no&&<div><span>Partiya raqami:</span><b>{unit.item.receipt_no}</b></div>}
+          {unit.item.variant_color&&<div><span>Rang varianti:</span><b>{unit.item.variant_color}</b></div>}
+        </div>
+      </div>
+    )}
     {media.length>0&&<div className="card"><h3 style={{padding:'1rem 1rem .5rem'}}>Rasmlar ({media.length})</h3><div className="product-media-grid">{media.map(m=><div key={m.id} className="product-media-item"><img src={m.public_url} alt={m.alt_text||product.name} onError={e=>{e.target.style.display='none'}}/></div>)}</div></div>}
     {product.description&&<div className="card"><h3 style={{padding:'1rem 1rem .5rem'}}>Tavsif</h3><p style={{padding:'0 1rem 1rem',color:'var(--muted)'}}>{product.description}</p></div>}
   </div></>;
