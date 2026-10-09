@@ -21,11 +21,12 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   useEffect(()=>{const t=setTimeout(load,query?250:0);return()=>clearTimeout(t)},[branchId,query]);
   const open=async(id,isEdit=false)=>{try{setDetail(await getStockReceipt(id));setDetailEdit(Boolean(isEdit));}catch(e){setError(err(e))}};
   const deleteBatch=async(id,receiptNo,password=null)=>{
+    const cleanPassword = typeof password === 'string' ? password.trim() : null;
     if(deletingId)return;
-    if(!password&&!confirm(`"${receiptNo}" partiyasini o'chirishni tasdiqlaysizmi?\n\nDIQQAT: Ushbu partiyaga tegishli tovar birliklari o'chiriladi!`))return;
+    if(!cleanPassword&&!confirm(`"${receiptNo}" partiyasini o'chirishni tasdiqlaysizmi?\n\nDIQQAT: Ushbu partiyaga tegishli tovar birliklari o'chiriladi!`))return;
     setDeletingId(id);
     try{
-      await deleteStockReceipt(id,password);
+      await deleteStockReceipt(id,cleanPassword);
       setRows(prev=>prev.filter(r=>r.id!==id));
       setPasswordModal(null);
       setError('');
@@ -38,7 +39,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         setError('');
         await load();
       }else if(message.includes('sotilganlari bor')||e?.code==='P0001'||message.includes('Parol')||message.includes('parol')){
-        if(password){
+        if(cleanPassword){
           setPasswordModal(prev=>({...(prev||{id,receiptNo,password:''}),error:message||'Noto\'g\'ri parol kiritildi!'}));
         }else{
           setPasswordModal({id,receiptNo,password:'',error:''});
@@ -899,10 +900,11 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false}){
   const [passwordError, setPasswordError] = useState('');
 
   const removeReceipt=async(password=null)=>{
-    if(!password&&!confirm("Bu partiyani o'chirasizmi? Sotilmagan birliklar ham o'chiriladi!"))return;
+    const cleanPassword = typeof password === 'string' ? password.trim() : null;
+    if(!cleanPassword&&!confirm("Bu partiyani o'chirasizmi? Sotilmagan birliklar ham o'chiriladi!"))return;
     setDeleting(true);setError('');
     try{
-      await deleteStockReceipt(receipt.id,password);
+      await deleteStockReceipt(receipt.id,cleanPassword);
       setPasswordModal(false);
       close();
       onUpdated?.();
@@ -913,7 +915,7 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false}){
         close();
         onUpdated?.();
       }else if(message.includes('sotilganlari bor')||e?.code==='P0001'||message.includes('Parol')||message.includes('parol')){
-        if(password){
+        if(cleanPassword){
           setPasswordError(message||'Noto\'g\'ri parol kiritildi!');
         }else{
           setPasswordInput('');
@@ -956,7 +958,7 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false}){
         ):(
           <div style={{display:'flex',gap:8,margin:'8px 0'}}>
             <button className="btn" onClick={()=>setEditing(true)}>Tahrirlash</button>
-            <button className="btn" style={{background:'#fee2e2',color:'#b91c1c',borderColor:'#fecaca'}} onClick={removeReceipt} disabled={deleting}>{deleting?'O‘chirilmoqda…':'O‘chirish'}</button>
+            <button className="btn" style={{background:'#fee2e2',color:'#b91c1c',borderColor:'#fecaca'}} onClick={()=>removeReceipt()} disabled={deleting}>{deleting?'O‘chirilmoqda…':'O‘chirish'}</button>
           </div>
         )}
         {receipt.lines.map(x=>(
