@@ -4,7 +4,7 @@ async function rpc(name,args){const{data,error}=await getBrowserClient().rpc(nam
 export const getInventoryReferences=branchId=>rpc('get_inventory_references',{p_branch_id:branchId});
 export const getStockReceipt=id=>rpc('get_stock_receipt',{p_receipt_id:id});
 export const updateStockReceipt=(id,updates)=>rpc('update_stock_receipt',{p_receipt_id:id,p_updates:updates});
-export const deleteStockReceipt=id=>rpc('delete_stock_receipt',{p_receipt_id:id});
+export const deleteStockReceipt=(id,password=null)=>rpc('delete_stock_receipt',{p_receipt_id:id,p_password:password||null});
 export const listReceiptQrLabels=(receiptId,page=1,pageSize=100)=>rpc('list_receipt_qr_labels',{p_receipt_id:receiptId,p_limit:pageSize,p_offset:(page-1)*pageSize});
 export const createStockReceipt=(header,lines,idempotencyKey=crypto.randomUUID())=>rpc('receive_stock',{p_header:header,p_lines:lines,p_idempotency_key:idempotencyKey});
 export function listStockReceipts({branchId=null,query=null,page=1,pageSize=20}={}){return rpc('list_stock_receipts',{p_branch_id:branchId,p_query:query||null,p_limit:pageSize,p_offset:(page-1)*pageSize})}

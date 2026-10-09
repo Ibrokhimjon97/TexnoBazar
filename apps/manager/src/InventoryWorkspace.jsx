@@ -12,6 +12,7 @@ const err=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 const isInventoryReceipt=receiptNo=>/^INV-/i.test(String(receiptNo||'').trim());
 export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInventory}){
   const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[query,setQuery]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
+  const[passwordModal,setPasswordModal]=useState(null);
   const[selectedDate,setSelectedDate]=useState(null);
   const[calMonth,setCalMonth]=useState(()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1)});
   const[rate,setRate]=useState(null);
@@ -19,21 +20,35 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   const load=async()=>{if(!branchId)return;setLoading(true);setError('');try{const r=await listStockReceipts({branchId,query,pageSize:100});setRows(r.items||[]);setTotal(Number(r.total)||0)}catch(e){setError(err(e))}finally{setLoading(false)}};
   useEffect(()=>{const t=setTimeout(load,query?250:0);return()=>clearTimeout(t)},[branchId,query]);
   const open=async(id,isEdit=false)=>{try{setDetail(await getStockReceipt(id));setDetailEdit(Boolean(isEdit));}catch(e){setError(err(e))}};
-  const deleteBatch=async(id,receiptNo)=>{
+  const deleteBatch=async(id,receiptNo,password=null)=>{
     if(deletingId)return;
-    if(!confirm(`"${receiptNo}" partiyasini o'chirishni tasdiqlaysizmi?\n\nDIQQAT: Ushbu partiyaga tegishli sotilmagan barcha tovar birliklari o'chiriladi!`))return;
+    if(!password&&!confirm(`"${receiptNo}" partiyasini o'chirishni tasdiqlaysizmi?\n\nDIQQAT: Ushbu partiyaga tegishli tovar birliklari o'chiriladi!`))return;
     setDeletingId(id);
-    setError('');
     try{
-      await deleteStockReceipt(id);
+      await deleteStockReceipt(id,password);
       setRows(prev=>prev.filter(r=>r.id!==id));
+      setPasswordModal(null);
+      setError('');
       await load();
     }catch(e){
-      if(e?.code==='P0002'||String(e?.message||'').includes('Topilmadi')){
+      const message=err(e);
+      if(e?.code==='P0002'||message.includes('Topilmadi')){
         setRows(prev=>prev.filter(r=>r.id!==id));
+        setPasswordModal(null);
+        setError('');
         await load();
+      }else if(message.includes('sotilganlari bor')||e?.code==='P0001'||message.includes('Parol')||message.includes('parol')){
+        if(password){
+          setPasswordModal(prev=>({...(prev||{id,receiptNo,password:''}),error:message||'Noto\'g\'ri parol kiritildi!'}));
+        }else{
+          setPasswordModal({id,receiptNo,password:'',error:''});
+        }
       }else{
-        setError(err(e));
+        if(passwordModal){
+          setPasswordModal(prev=>({...prev,error:message}));
+        }else{
+          alert(message);
+        }
       }
     }finally{
       setDeletingId(null);
@@ -127,6 +142,68 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     </article>;
   })}</div>}
   <ReceiptDetail receipt={detail} initialEditing={detailEdit} close={()=>{setDetail(null);setDetailEdit(false);}} onUpdated={()=>{setDetail(null);setDetailEdit(false);load();}}/>
+  {passwordModal && (
+    <Modal open={Boolean(passwordModal)} onClose={() => setPasswordModal(null)} title="Sotilgan tovarlar mavjud — Parol talab qilinadi">
+      <form
+        onSubmit={e => {
+          e.preventDefault();
+          if (!passwordModal.password?.trim()) return;
+          deleteBatch(passwordModal.id, passwordModal.receiptNo, passwordModal.password.trim());
+        }}
+        style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+      >
+        <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+          <AlertTriangle size={20} color="#ea580c" style={{ flexShrink: 0, marginTop: 2 }} />
+          <div style={{ fontSize: 13, color: '#9a3412', lineHeight: 1.5 }}>
+            <b>"{passwordModal.receiptNo}"</b> partiyasidan sotilgan tovarlar bor!
+            <br />
+            Ushbu partiyani va barcha bog‘liq birliklarni butunlay o‘chirish uchun tasdiqlash parolini kiriting.
+          </div>
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+            Tasdiqlash paroli:
+          </label>
+          <input
+            type="password"
+            autoFocus
+            className="input"
+            style={{ width: '100%', padding: '8px 12px', fontSize: 14 }}
+            placeholder="Parolni kiriting..."
+            value={passwordModal.password || ''}
+            onChange={e => setPasswordModal(prev => ({ ...prev, password: e.target.value, error: '' }))}
+          />
+        </div>
+
+        {passwordModal.error && (
+          <div style={{ color: '#dc2626', fontSize: 13, background: '#fef2f2', padding: '8px 12px', borderRadius: 6, border: '1px solid #fecaca' }}>
+            {passwordModal.error}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+          <button
+            type="button"
+            className="btn btn-outline"
+            onClick={() => setPasswordModal(null)}
+            disabled={deletingId === passwordModal.id}
+          >
+            Bekor qilish
+          </button>
+          <button
+            type="submit"
+            className="btn"
+            style={{ background: '#dc2626', color: '#fff', borderColor: '#dc2626' }}
+            disabled={!passwordModal.password?.trim() || deletingId === passwordModal.id}
+          >
+            <Trash2 size={15} />
+            {deletingId === passwordModal.id ? 'O‘chirilmoqda…' : 'O‘chirish'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  )}
   </>;
 }
 function BatchCalendar({month,setMonth,batchDates,selectedDate,onDateClick}){
@@ -380,7 +457,7 @@ function ProductDetailModal({product,close,branchId,rate}){
   </div></Modal>;
 }
 
-function ErrorState({message,retry}){return <div className="inventory-error"><AlertTriangle/><b>Xatolik</b><p>{message}</p><button className="btn" onClick={retry}>Qayta urinish</button></div>}
+function ErrorState({message,retry}){return <div className="inventory-error"><AlertTriangle/><b>Xatolik</b><p>{message}</p><div style={{display:'flex',gap:8,justifyContent:'center',marginTop:8}}><button className="btn btn-primary" onClick={retry}>Qayta urinish (Ro‘yxatni ko‘rish)</button></div></div>}
 function ReceiptDetail({receipt,close,onUpdated,initialEditing=false}){
   const[rate,setRate2]=useState(null);
   useEffect(()=>{getLatestExchangeRate().then(r=>setRate2(Number(r)||null)).catch(()=>{})},[]);
@@ -817,19 +894,38 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false}){
     }catch(e){setError(err(e))}finally{setSaving(false)}
   };
 
-  const removeReceipt=async()=>{
-    if(!confirm("Bu partiyani o'chirasizmi? Sotilmagan birliklar ham o'chiriladi!"))return;
+  const [passwordModal, setPasswordModal] = useState(false);
+  const [passwordInput, setPasswordInput] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  const removeReceipt=async(password=null)=>{
+    if(!password&&!confirm("Bu partiyani o'chirasizmi? Sotilmagan birliklar ham o'chiriladi!"))return;
     setDeleting(true);setError('');
     try{
-      await deleteStockReceipt(receipt.id);
+      await deleteStockReceipt(receipt.id,password);
+      setPasswordModal(false);
       close();
       onUpdated?.();
     }catch(e){
-      if(e?.code==='P0002'||String(e?.message||'').includes('Topilmadi')){
+      const message=err(e);
+      if(e?.code==='P0002'||message.includes('Topilmadi')){
+        setPasswordModal(false);
         close();
         onUpdated?.();
+      }else if(message.includes('sotilganlari bor')||e?.code==='P0001'||message.includes('Parol')||message.includes('parol')){
+        if(password){
+          setPasswordError(message||'Noto\'g\'ri parol kiritildi!');
+        }else{
+          setPasswordInput('');
+          setPasswordError('');
+          setPasswordModal(true);
+        }
       }else{
-        setError(err(e));
+        if(passwordModal){
+          setPasswordError(message);
+        }else{
+          setError(message);
+        }
       }
     }finally{
       setDeleting(false);
@@ -1096,6 +1192,68 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false}){
         })}
       </div>,
       document.body
+    )}
+    {passwordModal && (
+      <Modal open={passwordModal} onClose={() => setPasswordModal(false)} title="Sotilgan tovarlar mavjud — Parol talab qilinadi">
+        <form
+          onSubmit={e => {
+            e.preventDefault();
+            if (!passwordInput.trim()) return;
+            removeReceipt(passwordInput.trim());
+          }}
+          style={{ display: 'flex', flexDirection: 'column', gap: 14 }}
+        >
+          <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, padding: '12px 14px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <AlertTriangle size={20} color="#ea580c" style={{ flexShrink: 0, marginTop: 2 }} />
+            <div style={{ fontSize: 13, color: '#9a3412', lineHeight: 1.5 }}>
+              <b>"{receipt.receipt_no}"</b> partiyasidan sotilgan tovarlar bor!
+              <br />
+              Ushbu partiyani va unga bog‘liq barcha birliklarni butunlay o‘chirish uchun tasdiqlash parolini kiriting.
+            </div>
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+              Tasdiqlash paroli:
+            </label>
+            <input
+              type="password"
+              autoFocus
+              className="input"
+              style={{ width: '100%', padding: '8px 12px', fontSize: 14 }}
+              placeholder="Parolni kiriting..."
+              value={passwordInput}
+              onChange={e => { setPasswordInput(e.target.value); setPasswordError(''); }}
+            />
+          </div>
+
+          {passwordError && (
+            <div style={{ color: '#dc2626', fontSize: 13, background: '#fef2f2', padding: '8px 12px', borderRadius: 6, border: '1px solid #fecaca' }}>
+              {passwordError}
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 8 }}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => setPasswordModal(false)}
+              disabled={deleting}
+            >
+              Bekor qilish
+            </button>
+            <button
+              type="submit"
+              className="btn"
+              style={{ background: '#dc2626', color: '#fff', borderColor: '#dc2626' }}
+              disabled={!passwordInput.trim() || deleting}
+            >
+              <Trash2 size={15} />
+              {deleting ? 'O‘chirilmoqda…' : 'O‘chirish'}
+            </button>
+          </div>
+        </form>
+      </Modal>
     )}
   </>;
 }
