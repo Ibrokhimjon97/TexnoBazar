@@ -14,6 +14,7 @@ export const reportProfitLoss=(from,to,branchId=null)=>rpc('report_profit_loss',
 export const reportSellerPerformance=(from,to,branchId=null)=>rpc('report_seller_performance',{p_from:from,p_to:to,p_branch_id:branchId});
 export const reportProductPerformance=(from,to,branchId=null)=>rpc('report_product_performance',{p_from:from,p_to:to,p_branch_id:branchId});
 export const reportInventoryCounts=(from,to,branchId=null)=>rpc('report_inventory_count_rows',{p_from:from,p_to:to,p_branch_id:branchId});
+export const deleteReportRows=(type,identifiers)=>rpc('delete_report_rows',{p_type:type,p_identifiers:Array.isArray(identifiers)?identifiers:[identifiers]});
 export const listNotifications=({unreadOnly=false,page=1,pageSize=50}={})=>rpc('list_notifications',{p_unread_only:unreadOnly,p_limit:pageSize,p_offset:(page-1)*pageSize});
 export const markNotificationsRead=(ids=null)=>rpc('mark_notifications_read',{p_ids:ids});
 const cmsTables={pages:'cms_pages',banners:'cms_banners',promotions:'cms_promotions',home_blocks:'cms_home_blocks',menu_items:'cms_menu_items'};

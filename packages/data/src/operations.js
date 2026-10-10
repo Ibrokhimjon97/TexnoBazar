@@ -90,6 +90,7 @@ export const listAdminOnlineOrders=({branchId=null,status=null,query='',page=1,p
 export const getSaleForReturn=(branchId,query='')=>rpc('get_sale_for_return',{p_branch_id:branchId,p_query:query||null});
 export const listManagerOnlineOrders=({branchId,status=null,query='',page=1,pageSize=50})=>rpc('list_manager_orders',{p_branch_id:branchId,p_status:status||null,p_query:query||null,p_limit:pageSize,p_offset:(page-1)*pageSize});
 export const managerCancelOnlineOrder=(id,branchId,reason)=>rpc('manager_cancel_online_order',{p_order_id:id,p_branch_id:branchId,p_reason:reason});
+export const deleteOnlineOrder=(orderId,restoreStock=false)=>rpc('delete_online_order',{p_order_id:orderId,p_restore_stock:restoreStock});
 export const getManagerWorkspaceReferences=branchId=>rpc('get_manager_workspace_references',{p_branch_id:branchId});
 export const listSupplierPayments=({branchId,page=1,pageSize=50})=>list('supplier_payments','id,supplier_id,branch_id,account_id,amount,currency,method,reference,notes,paid_at,created_at',q=>q.eq('branch_id',branchId).order('paid_at',{ascending:false}).range((page-1)*pageSize,page*pageSize-1));
 export const listSupplierReturns=({branchId,page=1,pageSize=50})=>list('supplier_returns','id,return_no,supplier_id,branch_id,from_location_id,status,reason,total_amount,posted_at,cancelled_at,created_at,supplier_return_lines(id,unit_id,product_id,unit_cost)',q=>q.eq('branch_id',branchId).order('created_at',{ascending:false}).range((page-1)*pageSize,page*pageSize-1));

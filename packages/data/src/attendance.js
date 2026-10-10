@@ -143,6 +143,11 @@ export function getGoogleMapsUrl(lat, lng) {
   return `https://www.google.com/maps?q=${lat},${lng}`;
 }
 
+export function deleteEmployeeAttendance(attendanceIds) {
+  const ids = Array.isArray(attendanceIds) ? attendanceIds : [attendanceIds];
+  return rpc('delete_employee_attendance', { p_attendance_ids: ids });
+}
+
 /**
  * Ishlangan daqiqalarni chiroyli formatlash
  */

@@ -11,6 +11,7 @@ import {
   RefreshCw,
   Search,
   Store,
+  Trash2,
   User,
   Users,
 } from 'lucide-react';
@@ -18,6 +19,7 @@ import ExcelJS from 'exceljs';
 import { Modal, Status } from '@texnobazar/ui';
 import {
   adminManualSetAttendance,
+  deleteEmployeeAttendance,
   formatUzDate,
   formatUzTime,
   formatWorkedDuration,
@@ -115,6 +117,56 @@ export default function AdminAttendanceWorkspace({ toast }) {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  // Selected items for bulk deletion
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [deleting, setDeleting] = useState(false);
+
+  const handleToggleRow = id => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleToggleAll = () => {
+    const items = data.items || [];
+    if (items.length === 0) return;
+    const allSelected = items.every(r => selectedIds.has(r.id));
+    if (allSelected) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(items.map(r => r.id)));
+    }
+  };
+
+  const handleDeleteAttendance = async (ids) => {
+    if (!ids || ids.length === 0) return;
+    const count = ids.length;
+    const msg = count === 1
+      ? 'Haqiqatan ham ushbu davomat yozuvini o‘chirmoqchimisiz?'
+      : `Haqiqatan ham tanlangan ${count} ta davomat yozuvini o‘chirmoqchimisiz?`;
+    if (!window.confirm(msg)) return;
+
+    setDeleting(true);
+    try {
+      const res = await deleteEmployeeAttendance(ids);
+      toast?.(res?.message || `${count} ta davomat yozuvi o‘chirildi`);
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        ids.forEach(id => next.delete(id));
+        return next;
+      });
+      await loadData();
+    } catch (err) {
+      console.error('Davomatni o‘chirishda xatolik:', err);
+      toast?.(err?.message || 'Davomatni o‘chirishda xatolik yuz berdi');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   // Edit / Manual Attendance Modal State
   const [editItem, setEditItem] = useState(null);
@@ -478,6 +530,60 @@ export default function AdminAttendanceWorkspace({ toast }) {
         </div>
       </div>
 
+      {/* Bulk actions banner */}
+      {selectedIds.size > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '10px 16px',
+            background: '#fff1f2',
+            border: '1px solid #fecdd3',
+            borderRadius: 10,
+            marginBottom: 12,
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#9f1239', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span>Tanlangan davomat yozuvlari: <b>{selectedIds.size} ta</b></span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn secondary"
+              style={{ fontSize: 12, padding: '5px 12px' }}
+              onClick={() => setSelectedIds(new Set())}
+            >
+              Tanlovni bekor qilish
+            </button>
+            <button
+              type="button"
+              className="btn danger"
+              disabled={deleting}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                padding: '5px 14px',
+                background: '#e11d48',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 8,
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+              onClick={() => handleDeleteAttendance(Array.from(selectedIds))}
+            >
+              <Trash2 size={13} />
+              {deleting ? 'O‘chirilmoqda…' : `Tanlanganlarni o‘chirish (${selectedIds.size})`}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Main Table */}
       {error ? (
         <div className="admin-workspace-state error"><p>{error}</p></div>
@@ -487,9 +593,18 @@ export default function AdminAttendanceWorkspace({ toast }) {
         <div className="admin-inline-empty">Tanlangan filtr bo‘yicha davomat yozuvlari topilmadi.</div>
       ) : (
         <div className="table-wrap card" style={{ overflowX: 'auto' }}>
-          <table className="table" style={{ width: '100%', minWidth: 900 }}>
+          <table className="table" style={{ width: '100%', minWidth: 960 }}>
             <thead>
               <tr>
+                <th style={{ width: 40, textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    aria-label="Barchasini tanlash"
+                    checked={data.items.length > 0 && data.items.every(r => selectedIds.has(r.id))}
+                    onChange={handleToggleAll}
+                    style={{ cursor: 'pointer', width: 16, height: 16 }}
+                  />
+                </th>
                 <th>Sana</th>
                 <th>Filial</th>
                 <th>Xodim</th>
@@ -507,9 +622,19 @@ export default function AdminAttendanceWorkspace({ toast }) {
                 const checkOutUrl = getGoogleMapsUrl(row.check_out_lat, row.check_out_lng);
                 const isWorking = row.status === 'checked_in';
                 const isMissed = row.status === 'missed_checkout' || (!row.check_out_at && row.work_date < todayStr);
+                const isSelected = selectedIds.has(row.id);
 
                 return (
-                  <tr key={row.id}>
+                  <tr key={row.id} style={{ background: isSelected ? 'rgba(254, 205, 211, 0.15)' : undefined }}>
+                    <td style={{ textAlign: 'center' }}>
+                      <input
+                        type="checkbox"
+                        aria-label="Tanlash"
+                        checked={isSelected}
+                        onChange={() => handleToggleRow(row.id)}
+                        style={{ cursor: 'pointer', width: 16, height: 16 }}
+                      />
+                    </td>
                     <td>
                       <b style={{ fontSize: 13 }}>{formatUzDate(row.work_date, { day: true, month: 'long', year: true })}</b>
                       <small style={{ color: 'var(--muted)', display: 'block', fontSize: 11, fontWeight: 500 }}>
@@ -639,26 +764,50 @@ export default function AdminAttendanceWorkspace({ toast }) {
                       )}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn secondary"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          padding: '4px 8px',
-                          fontSize: 11,
-                          borderRadius: 7,
-                          background: isMissed ? '#fff1f2' : '#f8fafc',
-                          borderColor: isMissed ? '#fecdd3' : '#e2e8f0',
-                          color: isMissed ? '#e11d48' : '#334155',
-                          fontWeight: 600,
-                        }}
-                        onClick={() => openEditModal(row)}
-                      >
-                        <Pencil size={11} />
-                        {isMissed ? 'Vaqt kiritish' : 'Tahrirlash'}
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            padding: '4px 8px',
+                            fontSize: 11,
+                            borderRadius: 7,
+                            background: isMissed ? '#fff1f2' : '#f8fafc',
+                            borderColor: isMissed ? '#fecdd3' : '#e2e8f0',
+                            color: isMissed ? '#e11d48' : '#334155',
+                            fontWeight: 600,
+                          }}
+                          onClick={() => openEditModal(row)}
+                        >
+                          <Pencil size={11} />
+                          {isMissed ? 'Vaqt kiritish' : 'Tahrirlash'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn danger"
+                          title="O‘chirish"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '4px 8px',
+                            fontSize: 11,
+                            borderRadius: 7,
+                            background: '#fff1f2',
+                            borderColor: '#fecdd3',
+                            color: '#e11d48',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                          }}
+                          onClick={() => handleDeleteAttendance([row.id])}
+                        >
+                          <Trash2 size={11} />
+                          O‘chirish
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
