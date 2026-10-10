@@ -39,6 +39,13 @@ export async function listActiveBranches() {
   if (error) throw error;
   return data ?? [];
 }
+export async function deleteBranch(branchId) {
+  const { data, error } = await getBrowserClient().rpc('delete_branch', {
+    p_branch_id: branchId,
+  });
+  if (error) throw error;
+  return data;
+}
 export async function setEmployeeActive(employeeId, isActive) {
   const { error } = await getBrowserClient().rpc('set_employee_active', {
     p_employee_id: employeeId, p_is_active: isActive,

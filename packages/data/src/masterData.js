@@ -52,6 +52,11 @@ export async function setMasterRecordActive(table, id, isActive) {
 }
 export async function deleteMasterRecord(table, id) {
   tableConfig(table);
+  if (table === 'branches') {
+    const { error } = await getBrowserClient().rpc('delete_branch', { p_branch_id: id });
+    if (error) throw error;
+    return;
+  }
   const { error } = await getBrowserClient().from(table).delete().eq('id', id);
   if (error) throw error;
 }

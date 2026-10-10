@@ -16,8 +16,29 @@ export default function BranchesWorkspace({toast}){
   if(selected)return <BranchDetail branch={selected} locations={locations.filter(l=>l.branch_id===selected.id)} back={()=>setSelected(null)} toast={toast} reload={load}/>;
 
   const openNew=()=>{setEditing(null);setBranchModal(true)};
-  const openEdit=(b,e)=>{e.stopPropagation();setEditing(b);setBranchModal(true)};
-  const removeBranch=async(b,e)=>{e.stopPropagation();if(!confirm(`"${b.name}" filialini o’chirishni tasdiqlaysizmi?`))return;try{await deleteMasterRecord('branches',b.id);toast('Filial o’chirildi');await load()}catch(err){setError(err.message)}};
+  const removeBranch=async(b,e)=>{
+    e.stopPropagation();
+    if(!confirm(`"${b.name}" filialini o’chirishni tasdiqlaysizmi?`))return;
+    try{
+      await deleteMasterRecord('branches',b.id);
+      toast('Filial o’chirildi');
+      await load();
+    }catch(err){
+      console.error('Filialni o‘chirishda xatolik:', err);
+      const msg = err.message || 'Filialni o‘chirib bo‘lmadi.';
+      if(confirm(`${msg}\n\nUshbu filialni butunlay o‘chirish o‘rniga NOFAOL (arxiv) qilib qo‘yishni xohlaysizmi?`)){
+        try{
+          await updateMasterRecord('branches', b.id, { is_active: false });
+          toast(`"${b.name}" filiali nofaol qilindi.`);
+          await load();
+        }catch(updateErr){
+          toast(updateErr.message || 'Filial holatini o‘zgartirib bo‘lmadi.');
+        }
+      } else {
+        toast(msg);
+      }
+    }
+  };
 
   return <><div className="page-head between"><div><h2>Filiallar</h2><p>Filiallar, omborlar va xodimlarni boshqaring</p></div><button className="btn btn-primary" onClick={openNew}><Plus/> Yangi filial</button></div>
   {loading?<div className="employee-loading">Yuklanmoqda…</div>:error?<div className="empty"><AlertTriangle/><h3>Xatolik</h3><p>{error}</p><button className="btn" onClick={load}>Qayta urinish</button></div>:branches.length===0?<Empty title="Filiallar yo’q" text="Yangi filial qo’shing."/>:
