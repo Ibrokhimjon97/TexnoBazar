@@ -439,10 +439,32 @@
 @media(max-width:640px){.tw-payment-box,.tw-settlement,.dw-transfer-detail{padding:11px}.dw-transfer-dates{grid-template-columns:1fr}.dw-form-grid .wide{grid-column:auto}.tw-actions{flex-direction:column}.tw-actions .btn{width:100%}}
 
 /* Transfer product groups */
-.tw-groups{display:flex;flex-direction:column;gap:10px}.tw-group{padding:12px!important}.tw-group-head{display:flex;gap:10px;align-items:center}.tw-group-head img,.tw-group-head .tw-image-fallback{width:44px;height:44px;flex:0 0 44px;border-radius:9px;object-fit:cover}.tw-group-head>div{flex:1;min-width:0}.tw-group-head b{display:block}.tw-group-head small{display:block;color:var(--muted);font-size:10px}.tw-batch-info{color:var(--orange)!important}.tw-group-price{margin-top:10px;padding:10px;background:#f8fafc;border-radius:9px}.tw-group-price label span{display:block;font-size:11px;font-weight:700;margin-bottom:4px}.tw-group-price small{display:block;margin-top:6px;color:var(--muted);font-size:10px}.tw-group-units{margin-top:8px;font-size:11px}.tw-group-units summary{cursor:pointer;color:var(--muted)}.tw-group-units>div{display:flex;flex-direction:column;gap:3px;margin-top:6px;max-height:160px;overflow:auto}.tw-group-unit{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:#f8fafc;border-radius:6px}.tw-group-unit button{border:0;background:none;color:var(--red);padding:2px}
+.tw-groups{display:flex;flex-direction:column;gap:10px}.tw-group{padding:12px!important}.tw-group-head{display:flex;gap:10px;align-items:center}.tw-group-head img,.tw-group-head .tw-image-fallback{width:44px;height:44px;flex:0 0 44px;border-radius:9px;object-fit:cover}.tw-group-head>div{flex:1;min-width:0}.tw-group-head b{display:block}.tw-group-head small{display:block;color:var(--muted);font-size:10px}.tw-batch-info{color:var(--orange)!important}
+.tw-group-price-box{margin-top:10px;padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px}
+.tw-price-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;font-size:11px}
+.tw-price-header>span:first-child{display:flex;align-items:center;gap:5px;font-weight:700;color:var(--navy)}
+.tw-default-pill{background:#e2e8f0;padding:2px 8px;border-radius:6px;color:var(--muted);font-size:10px}
+.tw-default-pill b{color:var(--navy)}
+.tw-price-edit-row{display:grid;grid-template-columns:1.2fr 1fr;gap:10px;align-items:flex-end}
+.tw-price-input-group label span{display:block;font-size:11px;font-weight:600;margin-bottom:4px;color:var(--muted)}
+.tw-input-with-action{display:flex;align-items:center;gap:6px}
+.tw-custom-price-input{font-size:14px;font-weight:700;color:var(--orange-dark)!important;border-color:#fdba74!important}
+.tw-revert-btn{padding:4px 8px!important;font-size:11px!important;height:34px;display:flex;align-items:center;gap:4px;color:var(--orange);border-color:#fed7aa!important}
+.tw-price-calc-summary{text-align:right;background:#fff;padding:6px 10px;border-radius:8px;border:1px solid var(--border)}
+.tw-price-calc-summary small{display:block;color:var(--muted);font-size:9.5px}
+.tw-price-calc-summary b{display:block;font-size:12.5px;color:var(--navy);margin:1px 0}
+.tw-diff-notice{display:flex;align-items:center;gap:6px;margin-top:8px;padding:5px 9px;border-radius:6px;font-size:11px;font-weight:600}
+.tw-diff-notice.discount{background:#fef2f2;color:#dc2626;border:1px solid #fecaca}
+.tw-diff-notice.markup{background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0}
+.tw-group-units{margin-top:8px;font-size:11px}.tw-group-units summary{cursor:pointer;color:var(--muted)}.tw-group-units>div{display:flex;flex-direction:column;gap:3px;margin-top:6px;max-height:160px;overflow:auto}.tw-group-unit{display:flex;align-items:center;justify-content:space-between;padding:4px 8px;background:#f8fafc;border-radius:6px}.tw-group-unit button{border:0;background:none;color:var(--red);padding:2px}
 
 /* Transfer edit panel */
 .tw-edit-panel{border:2px solid var(--orange);border-radius:12px;padding:14px;background:#fff7ed;margin-top:12px}.tw-edit-panel h3{margin:0 0 10px;color:var(--orange)}
+.tw-edit-groups{display:flex;flex-direction:column;gap:10px;margin:10px 0}
+.tw-edit-group-card{background:#fff;border:1px solid var(--border);border-radius:9px;padding:10px}
+.tw-edit-price-label{display:block;margin:6px 0;font-size:11px;font-weight:600}
+.tw-edit-price-label span{display:block;margin-bottom:3px;color:var(--muted)}
+.tw-edit-price-label input{max-width:200px}
 
 /* Unified manager polish, dark theme and viewport safeguards */
 :root{--brand:var(--orange);--brand-deep:var(--orange-dark);--brand-tint:var(--orange-soft);--ink:var(--navy);--edge:var(--line)}

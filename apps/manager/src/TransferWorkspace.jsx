@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useState}from'react';
-import{AlertTriangle,ArrowDownLeft,ArrowUpRight,Boxes,CalendarDays,ChevronRight,MapPin,Plus,QrCode,Search,Trash2,WalletCards}from'lucide-react';
+import{AlertTriangle,ArrowDownLeft,ArrowUpRight,Boxes,CalendarDays,ChevronRight,MapPin,Plus,QrCode,RotateCcw,Search,Tag,Trash2,WalletCards}from'lucide-react';
 import{DualPrice,Empty,Modal,QrScanButton,Status,useExchangeRate}from'@texnobazar/ui';
 import{
   approveBranchTransfer,createBranchTransfer,findTransferUnit,getBranchTransfer,getTransferReferences,
@@ -118,6 +118,7 @@ function TransferCreate({open,close,branchId,refs,toast,completed,rate}){
   const[keys,setKeys]=useState(()=>({transferKey:crypto.randomUUID(),paymentKey:crypto.randomUUID()}));
   const[code,setCode]=useState('');
   const[units,setUnits]=useState([]);
+  const[customPrices,setCustomPrices]=useState({});
   const[busy,setBusy]=useState(false);
   const[error,setError]=useState('');
 
@@ -125,30 +126,66 @@ function TransferCreate({open,close,branchId,refs,toast,completed,rate}){
     if(!open)return;
     const branch=refs.destination_branches?.[0];
     setForm({from_location_id:refs.source_locations?.[0]?.id||'',to_branch_id:branch?.id||'',to_location_id:branch?.locations?.[0]?.id||'',notes:''});
-    setInitialPayment(paymentEmpty());setKeys({transferKey:crypto.randomUUID(),paymentKey:crypto.randomUUID()});setCode('');setUnits([]);setError('');
-  },[open]);
+    setInitialPayment(paymentEmpty());setKeys({transferKey:crypto.randomUUID(),paymentKey:crypto.randomUUID()});setCode('');setUnits([]);setCustomPrices({});setError('');
+  },[open,refs]);
 
   const destination=refs.destination_branches?.find(x=>x.id===form.to_branch_id);
-  const groupPrices=React.useRef(new Map());
-  const[,forcePrice]=useState(0);
-  const groups=useMemo(()=>{const map=new Map();units.forEach(u=>{const key=u.product_id;if(!map.has(key))map.set(key,{product_id:key,product_name:u.product_name,sku:u.sku,image:u.image,wholesale_price:u.wholesale_price,latest_batch_price:u.latest_batch_price,latest_batch_date:u.latest_batch_date,available_count:u.available_count,units:[]});map.get(key).units.push(u)});return[...map.values()]},[units]);
-  const getGroupPrice=pid=>{const ov=groupPrices.current.get(pid);return(ov!==undefined&&ov!=='')?Number(ov):null};
-  const total=useMemo(()=>units.reduce((sum,u)=>{const gp=getGroupPrice(u.product_id);return sum+(gp!==null?gp:Number(u.wholesale_price||0))},0),[units,groups]);
+
+  const groups=useMemo(()=>{
+    const map=new Map();
+    units.forEach(u=>{
+      const key=u.product_id;
+      if(!map.has(key))map.set(key,{
+        product_id:key,product_name:u.product_name,sku:u.sku,image:u.image,
+        wholesale_price:Number(u.wholesale_price||0),
+        latest_batch_price:u.latest_batch_price,latest_batch_date:u.latest_batch_date,
+        available_count:u.available_count,units:[]
+      });
+      map.get(key).units.push(u);
+    });
+    return[...map.values()];
+  },[units]);
+
+  const getEffectivePrice=(group)=>{
+    const custom=customPrices[group.product_id];
+    if(custom!==undefined&&custom!==''){
+      const num=Number(custom);
+      if(Number.isFinite(num))return num;
+    }
+    return group.wholesale_price;
+  };
+
+  const total=useMemo(()=>{
+    return groups.reduce((sum,g)=>sum+(getEffectivePrice(g)*g.units.length),0);
+  },[groups,customPrices]);
+
   const addUnit=unit=>{
     if(units.some(x=>x.id===unit.id)){setError('Bu mahsulot avval qo‘shilgan.');return}
-    if(!Number(unit.wholesale_price)){setError('Bu mahsulot uchun ulgurji narx belgilanmagan.');return}
-    setUnits([...units,unit]);setCode('');setError('');
+    setUnits(prev=>[...prev,unit]);
+    if(customPrices[unit.product_id]===undefined){
+      const def=Number(unit.wholesale_price||0);
+      setCustomPrices(prev=>({...prev,[unit.product_id]:def>0?String(def):''}));
+    }
+    setCode('');setError('');
   };
+
   const scan=async e=>{
     e.preventDefault();
     if(!form.from_location_id)return setError('Avval jo‘natish joyini tanlang.');
     setBusy(true);setError('');
     try{addUnit(await findTransferUnit(branchId,form.from_location_id,code.trim()))}catch(e){setError(message(e))}finally{setBusy(false)}
   };
+
   const submit=async e=>{
     e.preventDefault();
     if(!units.length)return setError('Kamida bitta mahsulot qo‘shing.');
-    if(units.some(x=>!Number.isFinite(Number(x.wholesale_price))||Number(x.wholesale_price)<=0))return setError('Har bir mahsulotda musbat ulgurji narx bo‘lishi kerak.');
+    if(!form.to_branch_id||!form.to_location_id)return setError('Qabul qiluvchi filial va joyni tanlang.');
+    for(const group of groups){
+      const price=getEffectivePrice(group);
+      if(!Number.isFinite(price)||price<=0){
+        return setError(`"${group.product_name}" uchun noldan katta transfer narxi belgilang.`);
+      }
+    }
     const hasInitialPayment=initialPayment.amount.trim()!=='';
     const paid=hasInitialPayment?Number(initialPayment.amount):0;
     if(hasInitialPayment&&(!Number.isFinite(paid)||paid<=0))return setError('Boshlang‘ich to‘lov noldan katta bo‘lishi kerak.');
@@ -156,9 +193,14 @@ function TransferCreate({open,close,branchId,refs,toast,completed,rate}){
     setBusy(true);setError('');
     try{
       const payment=hasInitialPayment?{amount:paid,method:initialPayment.method,paid_at:initialPayment.paidAt?new Date(initialPayment.paidAt).toISOString():null,reference:initialPayment.reference||null,notes:initialPayment.notes||null}:null;
+      const transferLines=units.map(x=>{
+        const group=groups.find(g=>g.product_id===x.product_id);
+        const unitPrice=group?getEffectivePrice(group):Number(x.wholesale_price||0);
+        return {unit_id:x.id,unit_price:unitPrice};
+      });
       const transfer=await createBranchTransfer(
         {from_location_id:form.from_location_id,to_location_id:form.to_location_id,currency:'USD',notes:form.notes||null},
-        units.map(x=>({unit_id:x.id,unit_price:getGroupPrice(x.product_id)??Number(x.wholesale_price)})),payment,keys,
+        transferLines,payment,keys,
       );
       toast?.('Transfer so‘rovi va boshlang‘ich hisob-kitob saqlandi');await completed(transfer);
     }catch(e){setError(message(e))}finally{setBusy(false)}
@@ -167,15 +209,84 @@ function TransferCreate({open,close,branchId,refs,toast,completed,rate}){
   return <Modal open={open} onClose={close} wide title="Yangi transfer"><form className="tw-create" onSubmit={submit}>
     {error&&<div className="tw-inline-error">{error}</div>}
     <div className="tw-form-grid">
-      <label><span>Jo‘natish joyi</span><select className="select" value={form.from_location_id} onChange={e=>{setForm({...form,from_location_id:e.target.value});setUnits([])}} required>{refs.source_locations?.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-      <label><span>Qabul qiluvchi filial</span><select className="select" value={form.to_branch_id} onChange={e=>{const branch=refs.destination_branches.find(x=>x.id===e.target.value);setForm({...form,to_branch_id:e.target.value,to_location_id:branch?.locations?.[0]?.id||''})}} required>{refs.destination_branches?.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
-      <label><span>Qabul qilish joyi</span><select className="select" value={form.to_location_id} onChange={e=>setForm({...form,to_location_id:e.target.value})} required>{destination?.locations?.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+      <label><span>Jo‘natish joyi</span><select className="select" value={form.from_location_id} onChange={e=>{setForm({...form,from_location_id:e.target.value});setUnits([]);setCustomPrices({})}} required>{refs.source_locations?.map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></label>
+      <label><span>Qabul qiluvchi filial</span><select className="select" value={form.to_branch_id} onChange={e=>{const branch=refs.destination_branches?.find(x=>x.id===e.target.value);setForm({...form,to_branch_id:e.target.value,to_location_id:branch?.locations?.[0]?.id||''})}} required>{refs.destination_branches?.length?refs.destination_branches.map(x=><option key={x.id} value={x.id}>{x.name}</option>):<option value="">Boshqa faol filial mavjud emas</option>}</select></label>
+      <label><span>Qabul qilish joyi</span><select className="select" value={form.to_location_id} onChange={e=>setForm({...form,to_location_id:e.target.value})} required>{destination?.locations?.length?destination.locations.map(x=><option key={x.id} value={x.id}>{x.name}</option>):<option value="">Joy mavjud emas</option>}</select></label>
       <label><span>Valyuta</span><input className="input" value="USD" readOnly/></label>
       <label className="wide"><span>Izoh</span><textarea className="textarea" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label>
     </div>
     <div className="tw-scan-block"><b>Mahsulotlarni QR, seriya, SKU yoki nom orqali qidiring</b><div className="tw-scan-row"><QrCode/><input className="input" value={code} onChange={e=>setCode(e.target.value)} placeholder="QR, seriya, SKU yoki mahsulot nomi"/><QrScanButton onScan={v=>setCode(v)}/><button type="button" className="btn" onClick={scan} disabled={busy||!code.trim()}>Aniq topish</button></div></div>
     <TransferSearchResults branchId={branchId} locationId={form.from_location_id} query={code} units={units} onAdd={addUnit} rate={rate}/>
-    <div className="tw-groups">{groups.map(group=><div className="tw-group card" key={group.product_id}><div className="tw-group-head">{group.image?<img src={group.image} alt=""/>:<span className="tw-image-fallback"><Boxes/></span>}<div><b>{group.product_name}</b><small>{group.sku} · {group.units.length} dona tanlangan{group.available_count?` · Omborda: ${group.available_count} dona`:''}</small>{group.latest_batch_price&&<small className="tw-batch-info">Oxirgi partiya: <AmountView value={Number(group.latest_batch_price)} currency="USD" rate={rate}/>{group.latest_batch_date?` (${new Date(group.latest_batch_date).toLocaleDateString('uz-UZ')})`:''}</small>}</div></div><div className="tw-group-price"><label><span>Ulgurji narx (USD) — {group.units.length} dona uchun</span><input className="input" type="number" min="0.01" step="0.01" value={groupPrices.current.get(group.product_id)??''} placeholder={String(group.wholesale_price)} onChange={e=>{groupPrices.current.set(group.product_id,e.target.value);forcePrice(n=>n+1)}}/></label><small>Default: <AmountView value={Number(group.wholesale_price)} currency="USD" rate={rate}/> · Jami: <AmountView value={(getGroupPrice(group.product_id)??Number(group.wholesale_price||0))*group.units.length} currency="USD" rate={rate}/></small></div><details className="tw-group-units"><summary>{group.units.length} ta birlik (QR kodlar)</summary><div>{group.units.map(u=><div key={u.id} className="tw-group-unit"><small>{u.qr_code}{u.serial_number?` · ${u.serial_number}`:''}</small><button type="button" onClick={()=>setUnits(units.filter(x=>x.id!==u.id))}><Trash2 size={13}/></button></div>)}</div></details></div>)}</div><div className="tw-total"><span>{units.length} dona · ulgurji qiymat</span><b><AmountView value={total} currency="USD" rate={rate}/></b></div>
+    <div className="tw-groups">{groups.map(group=>{
+      const effPrice=getEffectivePrice(group);
+      const defPrice=Number(group.wholesale_price||0);
+      const isCustom=customPrices[group.product_id]!==undefined&&customPrices[group.product_id]!==''&&Number(customPrices[group.product_id])!==defPrice;
+      const diff=defPrice>0&&isCustom?effPrice-defPrice:0;
+      const diffPercent=defPrice>0&&isCustom?((diff/defPrice)*100).toFixed(1):0;
+
+      return <div className="tw-group card" key={group.product_id}>
+        <div className="tw-group-head">
+          {group.image?<img src={group.image} alt=""/>:<span className="tw-image-fallback"><Boxes/></span>}
+          <div>
+            <b>{group.product_name}</b>
+            <small>{group.sku} · {group.units.length} dona tanlangan{group.available_count?` · Omborda: ${group.available_count} dona`:''}</small>
+            {group.latest_batch_price&&<small className="tw-batch-info">Oxirgi partiya: <AmountView value={Number(group.latest_batch_price)} currency="USD" rate={rate}/>{group.latest_batch_date?` (${new Date(group.latest_batch_date).toLocaleDateString('uz-UZ')})`:''}</small>}
+          </div>
+        </div>
+
+        <div className="tw-group-price-box">
+          <div className="tw-price-header">
+            <span><Tag size={13}/> Transfer sotish narxi</span>
+            {defPrice>0&&<span className="tw-default-pill">Standart ulgurji: <b><AmountView value={defPrice} currency="USD" rate={rate}/></b></span>}
+          </div>
+
+          <div className="tw-price-edit-row">
+            <div className="tw-price-input-group">
+              <label>
+                <span>Transfer narxi (1 dona, USD):</span>
+                <div className="tw-input-with-action">
+                  <input
+                    className="input tw-custom-price-input"
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={customPrices[group.product_id]??(defPrice>0?String(defPrice):'')}
+                    placeholder={defPrice>0?String(defPrice):'0.00'}
+                    onChange={e=>setCustomPrices({...customPrices,[group.product_id]:e.target.value})}
+                  />
+                  {isCustom&&<button type="button" className="btn btn-sm btn-ghost tw-revert-btn" title="Default ulgurji narxga qaytarish" onClick={()=>setCustomPrices({...customPrices,[group.product_id]:String(defPrice)})}>
+                    <RotateCcw size={12}/> Tiklash
+                  </button>}
+                </div>
+              </label>
+            </div>
+
+            <div className="tw-price-calc-summary">
+              <small>Jami tovar qiymati:</small>
+              <b><AmountView value={effPrice*group.units.length} currency="USD" rate={rate}/></b>
+              <small>{group.units.length} dona × {effPrice} USD</small>
+            </div>
+          </div>
+
+          {isCustom&&(
+            <div className={`tw-diff-notice ${diff<0?'discount':'markup'}`}>
+              {diff<0?<span>🔻 Ulgurji narxdan arzonroq: <b>-${Math.abs(diff).toFixed(2)}</b> ({diffPercent}%)</span>:<span>🔺 Ulgurji narxdan qimmatroq: <b>+${diff.toFixed(2)}</b> (+{diffPercent}%)</span>}
+            </div>
+          )}
+        </div>
+
+        <details className="tw-group-units">
+          <summary>{group.units.length} ta birlik (QR kodlar)</summary>
+          <div>
+            {group.units.map(u=><div key={u.id} className="tw-group-unit">
+              <small>{u.qr_code}{u.serial_number?` · ${u.serial_number}`:''}</small>
+              <button type="button" onClick={()=>setUnits(units.filter(x=>x.id!==u.id))}><Trash2 size={13}/></button>
+            </div>)}
+          </div>
+        </details>
+      </div>;
+    })}</div>
+    <div className="tw-total"><span>{units.length} dona · ulgurji qiymat</span><b><AmountView value={total} currency="USD" rate={rate}/></b></div>
     <section className="tw-payment-box"><div><WalletCards/><span><b>Boshlang‘ich to‘lov</b><small>To‘liq, qisman yoki oldindan olingan summa. Bo‘sh qoldirish mumkin.</small></span></div><div className="tw-form-grid"><label><span>Olingan summa (USD)</span><input className="input" type="number" min="0" max={total||undefined} step="0.01" value={initialPayment.amount} onChange={e=>setInitialPayment({...initialPayment,amount:e.target.value})}/></label><label><span>To‘lov sanasi</span><input className="input" type="datetime-local" max={localNow()} value={initialPayment.paidAt} onChange={e=>setInitialPayment({...initialPayment,paidAt:e.target.value})}/></label><label><span>To‘lov usuli</span><select className="select" value={initialPayment.method} onChange={e=>setInitialPayment({...initialPayment,method:e.target.value})}>{paymentMethods.map(x=><option key={x}>{x}</option>)}</select></label><label><span>Hujjat / izoh</span><input className="input" value={initialPayment.reference} onChange={e=>setInitialPayment({...initialPayment,reference:e.target.value})} placeholder="Ixtiyoriy"/></label></div></section>
     <button className="btn btn-primary btn-block" disabled={busy||!units.length}>{busy?'Yaratilmoqda…':'Transfer so‘rovini yaratish'}</button>
   </form></Modal>;
@@ -185,6 +296,7 @@ function TransferDetail({transfer,close,busy,action,savePayment,branchId,editTra
   const[form,setForm]=useState(paymentEmpty);
   const[editing,setEditing]=useState(false);
   const[editUnits,setEditUnits]=useState([]);
+  const[editPrices,setEditPrices]=useState({});
   const[editCode,setEditCode]=useState('');
   const[editBusy,setEditBusy]=useState(false);
   const[editError,setEditError]=useState('');
@@ -202,6 +314,33 @@ function TransferDetail({transfer,close,busy,action,savePayment,branchId,editTra
     setError('');
     if(await savePayment(form,key)){setForm(paymentEmpty());setKey(crypto.randomUUID())}
   };
+
+  const startEdit=()=>{
+    const prices={};
+    transfer.lines?.forEach(l=>{
+      prices[l.product_id]=String(l.unit_price);
+    });
+    setEditPrices(prices);
+    setEditUnits(transfer.lines?.map(l=>({
+      id:l.unit_id,product_id:l.product_id,product_name:l.product_name,sku:l.sku,
+      qr_code:l.qr_code,serial_number:l.serial_number,image:l.image,wholesale_price:l.unit_price
+    }))||[]);
+    setEditCode('');setEditError('');setEditing(true);
+  };
+
+  const editGroups=useMemo(()=>{
+    const map=new Map();
+    editUnits.forEach(u=>{
+      const key=u.product_id;
+      if(!map.has(key))map.set(key,{
+        product_id:key,product_name:u.product_name,sku:u.sku,image:u.image,
+        default_price:Number(u.wholesale_price||0),units:[]
+      });
+      map.get(key).units.push(u);
+    });
+    return[...map.values()];
+  },[editUnits]);
+
   return <Modal open={Boolean(transfer)} onClose={close} wide title={transfer?.transfer_no||'Transfer'}>{transfer&&<div className="tw-detail">
     <div className="tw-detail-head"><Status type={badge[transfer.status]}>{labels[transfer.status]||transfer.status}</Status><b><AmountView value={Number(transfer.total_amount)} currency={transfer.currency} rate={rate}/></b></div>
     <div className="tw-route"><span><small>Jo‘natuvchi</small><b>{transfer.from_branch_name}</b><em>{transfer.from_location_name}</em></span><i>→</i><span><small>Qabul qiluvchi</small><b>{transfer.to_branch_name}</b><em>{transfer.to_location_name}</em></span></div>
@@ -210,8 +349,79 @@ function TransferDetail({transfer,close,busy,action,savePayment,branchId,editTra
     <h3>Mahsulotlar ({transfer.lines?.length||0})</h3><div className="tw-detail-lines">{transfer.lines?.map(line=><div key={line.id}>{line.image?<img src={line.image} alt=""/>:<span className="tw-image-fallback"><Boxes/></span>}<span><b>{line.product_name}</b><small>{line.sku} · QR: {line.qr_code}{line.serial_number?` · S/N: ${line.serial_number}`:''}</small></span><strong><AmountView value={Number(line.unit_price)} currency={transfer.currency} rate={rate}/></strong></div>)}</div>
     {canViewSettlement&&<section className="tw-settlement"><h3>Ulgurji hisob-kitob</h3>{transfer.wholesale_exchange_rate&&transfer.wholesale_rate_date&&<p className="tw-settlement-rate">Hisob kursi: 1 USD = {new Intl.NumberFormat('uz-UZ',{maximumFractionDigits:4}).format(Number(transfer.wholesale_exchange_rate))} UZS · {String(transfer.wholesale_rate_date).split('-').reverse().join('.')}</p>}<div className="dw-detail-total"><span><small>Jami</small><b><AmountView value={Number(transfer.total_amount)} currency={transfer.currency} rate={rate}/></b></span><span><small>Olingan</small><b><AmountView value={Number(transfer.paid_amount)} currency={transfer.currency} rate={rate}/></b></span><span><small>Qoldiq</small><b><AmountView value={remaining} currency={transfer.currency} rate={rate}/></b></span></div><h3>To‘lovlar tarixi</h3>{transfer.payments?.length?<div className="dw-payments">{transfer.payments.map(payment=><div key={payment.id}><span><b><AmountView value={Number(payment.amount)} currency={payment.currency} rate={rate}/></b><small>{payment.method}{payment.reference?` · ${payment.reference}`:''}</small>{payment.notes&&<em>{payment.notes}</em>}</span><time>{date(payment.paid_at)}</time></div>)}</div>:<p className="dw-no-payments">Hozircha to‘lov kiritilmagan.</p>}</section>}
     {transfer.can_record_payment&&remaining>0&&<form className="dw-payment-form" onSubmit={submit}><h3>Yangi olingan summani qo‘shish</h3>{error&&<div className="tw-inline-error">{error}</div>}<div className="dw-form-grid"><label><span>Summa ({transfer.currency})</span><input className="input" type="number" min="0.01" max={remaining} step="0.01" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})} required/></label><label><span>To‘lov sanasi</span><input className="input" type="datetime-local" max={localNow()} value={form.paidAt} onChange={e=>setForm({...form,paidAt:e.target.value})} required/></label><label><span>To‘lov usuli</span><select className="select" value={form.method} onChange={e=>setForm({...form,method:e.target.value})}>{paymentMethods.map(x=><option key={x}>{x}</option>)}</select></label><label><span>Hujjat raqami</span><input className="input" value={form.reference} onChange={e=>setForm({...form,reference:e.target.value})}/></label><label className="wide"><span>Izoh</span><input className="input" value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})}/></label></div><button className="btn btn-primary btn-block" disabled={busy}>{busy?'Saqlanmoqda…':'To‘lovni tarixga qo‘shish'}</button></form>}
-    <div className="tw-actions">{transfer.can_approve&&<button className="btn btn-primary" disabled={busy} onClick={()=>action('approve')}>Tasdiqlash</button>}{transfer.can_ship&&<button className="btn btn-primary" disabled={busy} onClick={()=>action('ship')}>Yo‘lga chiqarish</button>}{transfer.can_receive&&<button className="btn btn-primary" disabled={busy} onClick={()=>action('receive')}>Tovarlarni olganimni tasdiqlayman</button>}{canEdit&&<button className="btn" disabled={busy} onClick={()=>{setEditing(true);setEditUnits(transfer.lines?.map(l=>({id:l.unit_id,product_id:l.product_id,product_name:l.product_name,sku:l.sku,qr_code:l.qr_code,serial_number:l.serial_number,image:l.image,wholesale_price:l.unit_price}))||[]);setEditCode('');setEditError('')}}>Tahrirlash</button>}</div>
-    {editing&&<div className="tw-edit-panel"><h3>Transfer tahrirlash</h3>{editError&&<div className="tw-inline-error">{editError}</div>}<div className="tw-scan-block"><div className="tw-scan-row"><QrCode/><input className="input" value={editCode} onChange={e=>setEditCode(e.target.value)} placeholder="QR yoki seriya"/><button type="button" className="btn" disabled={editBusy||!editCode.trim()} onClick={async()=>{setEditBusy(true);setEditError('');try{const unit=await findTransferUnit(branchId,transfer.from_location_id,editCode.trim());if(editUnits.some(x=>x.id===unit.id)){setEditError('Avval tanlangan');return}setEditUnits([...editUnits,{id:unit.id,product_id:unit.product_id,product_name:unit.product_name,sku:unit.sku,qr_code:unit.qr_code,serial_number:unit.serial_number,image:unit.image,wholesale_price:unit.wholesale_price}]);setEditCode('')}catch(e){setEditError(message(e))}finally{setEditBusy(false)}}}>+</button></div></div><div className="tw-units">{editUnits.map(u=><div className="tw-unit" key={u.id}><span className="tw-image-fallback"><Boxes/></span><div><b>{u.product_name}</b><small>{u.qr_code}</small></div><button type="button" className="tw-remove" onClick={()=>setEditUnits(editUnits.filter(x=>x.id!==u.id))}><Trash2/></button></div>)}</div><div className="tw-actions"><button className="btn" onClick={()=>setEditing(false)}>Bekor</button><button className="btn btn-primary" disabled={editBusy||!editUnits.length} onClick={async()=>{setEditBusy(true);setEditError('');const ok=await editTransfer(transfer.id,editUnits.map(x=>({unit_id:x.id,unit_price:Number(x.wholesale_price)})));if(ok)setEditing(false);setEditBusy(false)}}>Saqlash</button></div></div>}
+    <div className="tw-actions">{transfer.can_approve&&<button className="btn btn-primary" disabled={busy} onClick={()=>action('approve')}>Tasdiqlash</button>}{transfer.can_ship&&<button className="btn btn-primary" disabled={busy} onClick={()=>action('ship')}>Yo‘lga chiqarish</button>}{transfer.can_receive&&<button className="btn btn-primary" disabled={busy} onClick={()=>action('receive')}>Tovarlarni olganimni tasdiqlayman</button>}{canEdit&&<button className="btn" disabled={busy} onClick={startEdit}>Tahrirlash</button>}</div>
+    {editing&&<div className="tw-edit-panel">
+      <h3>Transfer tahrirlash</h3>
+      {editError&&<div className="tw-inline-error">{editError}</div>}
+      <div className="tw-scan-block">
+        <div className="tw-scan-row">
+          <QrCode/><input className="input" value={editCode} onChange={e=>setEditCode(e.target.value)} placeholder="QR yoki seriya"/>
+          <button type="button" className="btn" disabled={editBusy||!editCode.trim()} onClick={async()=>{
+            setEditBusy(true);setEditError('');
+            try{
+              const unit=await findTransferUnit(branchId,transfer.from_location_id,editCode.trim());
+              if(editUnits.some(x=>x.id===unit.id)){setEditError('Avval tanlangan');return}
+              setEditUnits([...editUnits,{id:unit.id,product_id:unit.product_id,product_name:unit.product_name,sku:unit.sku,qr_code:unit.qr_code,serial_number:unit.serial_number,image:unit.image,wholesale_price:unit.wholesale_price}]);
+              if(editPrices[unit.product_id]===undefined){
+                setEditPrices(prev=>({...prev,[unit.product_id]:String(unit.wholesale_price||'')}));
+              }
+              setEditCode('');
+            }catch(e){setEditError(message(e))}finally{setEditBusy(false)}
+          }}>+</button>
+        </div>
+      </div>
+
+      <div className="tw-edit-groups">
+        {editGroups.map(group=>(
+          <div key={group.product_id} className="tw-edit-group-card">
+            <div className="between">
+              <b>{group.product_name}</b>
+              <small>{group.units.length} dona</small>
+            </div>
+            <label className="tw-edit-price-label">
+              <span>Transfer narxi (1 dona, USD):</span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                className="input tw-price-input"
+                value={editPrices[group.product_id]??''}
+                onChange={e=>setEditPrices({...editPrices,[group.product_id]:e.target.value})}
+              />
+            </label>
+            <div className="tw-units">
+              {group.units.map(u=>(
+                <div className="tw-unit" key={u.id}>
+                  <span className="tw-image-fallback"><Boxes/></span>
+                  <div><b>{u.qr_code}</b><small>{u.serial_number||'S/N yo‘q'}</small></div>
+                  <button type="button" className="tw-remove" onClick={()=>setEditUnits(editUnits.filter(x=>x.id!==u.id))}><Trash2 size={13}/></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="tw-actions">
+        <button className="btn" onClick={()=>setEditing(false)}>Bekor</button>
+        <button className="btn btn-primary" disabled={editBusy||!editUnits.length} onClick={async()=>{
+          setEditBusy(true);setEditError('');
+          for(const g of editGroups){
+            const pr=Number(editPrices[g.product_id]??g.default_price);
+            if(!Number.isFinite(pr)||pr<=0){
+              setEditBusy(false);
+              return setEditError(`"${g.product_name}" uchun noldan katta narx kiriting.`);
+            }
+          }
+          const ok=await editTransfer(transfer.id,editUnits.map(x=>({
+            unit_id:x.id,
+            unit_price:Number(editPrices[x.product_id]??x.wholesale_price??0)
+          })));
+          if(ok)setEditing(false);
+          setEditBusy(false);
+        }}>Saqlash</button>
+      </div>
+    </div>}
   </div>}</Modal>;
 }
 
@@ -229,5 +439,5 @@ function TransferSearchResults({branchId,locationId,query,units,onAdd,rate}){
     return()=>clearTimeout(timer);
   },[branchId,locationId,query,units]);
   if(!query||query.trim().length<2)return null;
-  return <div className="tw-search-results">{loading&&<small>Qidirilmoqda…</small>}{error&&<small className="tw-search-error">{error}</small>}{results.map(u=><button type="button" key={u.id} className="tw-search-item" onClick={()=>onAdd(u)}><div><b>{u.product_name}</b><small>{u.sku} · QR: {u.qr_code}{u.serial_number?` · ${u.serial_number}`:''}</small><strong><AmountView value={Number(u.wholesale_price)} currency={u.currency||'USD'} rate={rate}/> ulgurji</strong></div><Plus size={16}/></button>)}</div>;
+  return <div className="tw-search-results">{loading&&<small>Qidirilmoqda…</small>}{error&&<small className="tw-search-error">{error}</small>}{results.map(u=><button type="button" key={u.id} className="tw-search-item" onClick={()=>onAdd(u)}><div><b>{u.product_name}</b><small>{u.sku} · QR: {u.qr_code}{u.serial_number?` · ${u.serial_number}`:''}</small><strong><AmountView value={Number(u.wholesale_price||0)} currency={u.currency||'USD'} rate={rate}/> {Number(u.wholesale_price)>0?'ulgurji':''}</strong></div><Plus size={16}/></button>)}</div>;
 }
