@@ -14,6 +14,7 @@ import {
   User,
   Users,
 } from 'lucide-react';
+import ExcelJS from 'exceljs';
 import { Modal, Status } from '@texnobazar/ui';
 import {
   adminManualSetAttendance,
@@ -172,7 +173,6 @@ export default function AdminAttendanceWorkspace({ toast }) {
       return;
     }
     try {
-      const ExcelJS = (await import('exceljs')).default;
       const wb = new ExcelJS.Workbook();
       wb.creator = 'Texnobazar';
       const ws = wb.addWorksheet('Xodimlar davomati');

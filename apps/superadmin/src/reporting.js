@@ -1,4 +1,5 @@
 import { formatUzDate } from '@texnobazar/data';
+import ExcelJS from 'exceljs';
 
 const formulaPattern=/^[\u0000-\u0020]*[=+\-@]/;
 const dateKeys=new Set(['sold_at','occurred_at','created_at','started_at','posted_at','counted_at','from','to']);
@@ -40,7 +41,7 @@ function cellValue(key,value){if(value==null)return'';if(dateKeys.has(key))retur
 function downloadBlob(blob,filename){const url=URL.createObjectURL(blob),anchor=document.createElement('a');anchor.href=url;anchor.download=filename;document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(()=>URL.revokeObjectURL(url),0)}
 
 export async function downloadReportXlsx({type,rows,branchName,branchId,from,to}){
-  const imported=await import('exceljs');const ExcelJS=imported.default||imported;const workbook=new ExcelJS.Workbook();
+  const workbook=new ExcelJS.Workbook();
   workbook.creator='Texnobazar';workbook.created=new Date();workbook.modified=new Date();
   const sheet=workbook.addWorksheet('Hisobot',{views:[{state:'frozen',ySplit:1}]});const keys=keysFor(rows);
   sheet.columns=keys.map(key=>({header:columnLabels[key]||key.replaceAll('_',' '),key,width:Math.min(45,Math.max(12,(columnLabels[key]||key).length+4))}));
