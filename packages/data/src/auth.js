@@ -52,6 +52,28 @@ export async function setEmployeeActive(employeeId, isActive) {
   });
   if (error) throw error;
 }
+export async function deleteEmployee(employeeId) {
+  try {
+    const { data, error } = await getBrowserClient().rpc('delete_employee', {
+      p_employee_id: employeeId,
+    });
+    if (error) throw error;
+    return data;
+  } catch (rpcErr) {
+    const token = await getAccessToken();
+    if (token) {
+      const res = await fetch('/api/employees/create', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ employeeId }),
+      });
+      if (res.ok) return { success: true };
+      const b = await res.json().catch(() => ({}));
+      if (b.error) throw new Error(b.error);
+    }
+    throw rpcErr;
+  }
+}
 export async function requestPasswordReset(email) {
   const { error } = await getBrowserClient().auth.resetPasswordForEmail(email, {
     redirectTo: window.location.origin,

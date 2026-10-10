@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{AlertTriangle,ArrowLeft,BarChart3,Calendar,Filter,Pencil,Plus,Search,Trash2}from'lucide-react';
 import{DualPrice,Empty,Modal,Status,useAuth,useExchangeRate}from'@texnobazar/ui';
-import{getAccessToken,getBrowserClient,listActiveBranches,listEmployees,setEmployeeActive}from'@texnobazar/data';
+import{deleteEmployee,getAccessToken,getBrowserClient,listActiveBranches,listEmployees,setEmployeeActive}from'@texnobazar/data';
 
 const roleLabels={manager:'Menejer',seller:'Sotuvchi',courier:'Kuryer',warehouse:'Omborchi',accountant:'Hisobchi',superadmin:'Superadmin',admin:'Administrator'};
 
@@ -16,8 +16,18 @@ export default function EmployeesWorkspace({toast}){
 
   const filtered=useMemo(()=>{let list=rows;if(query.trim()){const q=query.trim().toLowerCase();list=list.filter(r=>[r.full_name,r.email,r.phone].some(x=>(x||'').toLowerCase().includes(q)))}if(filterRole){list=list.filter(r=>(r.roles||[]).some(x=>x.role===filterRole))}if(filterBranch){list=list.filter(r=>(r.roles||[]).some(x=>x.branch_id===filterBranch))}return list},[rows,query,filterRole,filterBranch]);
 
-  const toggle=async row=>{try{await setEmployeeActive(row.employee_id,!row.is_active);toast(row.is_active?'Xodim faolsizlantirildi':'Xodim faollashtirildi');await load()}catch(e){setError(e.message)}};
-  const remove=async row=>{if(!confirm(`"${row.full_name}" xodimini o'chirishni tasdiqlaysizmi?`))return;try{const token=await getAccessToken();const res=await fetch('/api/employees/create',{method:'DELETE',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify({employeeId:row.employee_id})});if(!res.ok){const b=await res.json().catch(()=>({}));throw new Error(b.error||"O'chirib bo'lmadi")}toast("Xodim o'chirildi");await load()}catch(e){setError(e.message)}};
+  const toggle=async row=>{try{await setEmployeeActive(row.employee_id,!row.is_active);toast(row.is_active?'Xodim faolsizlantirildi':'Xodim faollashtirildi');await load()}catch(e){toast(e.message)}};
+  const remove=async row=>{
+    if(!confirm(`"${row.full_name}" xodimini o'chirishni tasdiqlaysizmi?`))return;
+    try{
+      await deleteEmployee(row.employee_id);
+      toast("Xodim o'chirildi");
+      await load();
+    }catch(e){
+      console.error('Xodimni o‘chirish xatosi:', e);
+      toast(e.message || "Xodimni o'chirib bo'lmadi");
+    }
+  };
 
   if(selectedEmployee)return <EmployeeStats employee={selectedEmployee} back={()=>setSelectedEmployee(null)}/>;
 

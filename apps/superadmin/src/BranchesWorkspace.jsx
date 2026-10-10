@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{AlertTriangle,ArrowLeft,BarChart3,MapPin,Pencil,Plus,Search,Store,Trash2,Users,Warehouse}from'lucide-react';
 import{DualPrice,Empty,Modal,Status,useExchangeRate}from'@texnobazar/ui';
-import{createMasterRecord,deleteMasterRecord,getAccessToken,getBrowserClient,listActiveBranches,listEmployees,listMasterRecords,updateMasterRecord}from'@texnobazar/data';
+import{createMasterRecord,deleteBranch,deleteEmployee,deleteMasterRecord,getAccessToken,getBrowserClient,listActiveBranches,listEmployees,listMasterRecords,updateMasterRecord}from'@texnobazar/data';
 
 const roleLabels={manager:'Menejer',seller:'Sotuvchi',courier:'Kuryer',warehouse:'Omborchi',accountant:'Hisobchi'};
 const locationTypes={store:'Do’kon',warehouse:'Ombor'};
@@ -63,7 +63,7 @@ function BranchDetail({branch,locations,back,toast,reload}){
     <section className="card"><div className="section-head"><h3><Warehouse size={18}/> Omborlar va joylar</h3><button className="btn btn-primary btn-sm" onClick={()=>{setEditLoc(null);setLocModal(true)}}><Plus size={14}/> Yangi joy</button></div>
     {locations.length===0?<p className="muted" style={{padding:'1rem'}}>Bu filialda hali joy yo’q</p>:<div className="table-wrap"><table className="table"><thead><tr><th>Nomi</th><th>Kod</th><th>Turi</th><th>Holat</th><th>Amal</th></tr></thead><tbody>{locations.map(loc=><tr key={loc.id} className="clickable-row" onClick={()=>setSelectedLoc(loc)}><td><b>{loc.name}</b></td><td><code>{loc.code}</code></td><td>{locationTypes[loc.type]||loc.type}</td><td><Status type={loc.is_active?'green':'red'}>{loc.is_active?'Faol':'Nofaol'}</Status></td><td><div className="master-actions"><button className="icon-btn" onClick={()=>{setEditLoc(loc);setLocModal(true)}}><Pencil size={14}/></button><button className="icon-btn" onClick={()=>removeLoc(loc)}><Trash2 size={14}/></button></div></td></tr>)}</tbody></table></div>}</section>
 
-    <BranchEmployees branchId={branch.id} onAdd={()=>setEmpModal(true)} onSelect={setSelectedEmp} onEdit={emp=>{setEditEmp(emp);setEmpModal(true)}} onDelete={async emp=>{if(!confirm(emp.full_name+" xodimini butunlay ochirishni tasdiqlaysizmi?"))return;try{const token=await getAccessToken();const res=await fetch("/api/employees/create",{method:"DELETE",headers:{"Content-Type":"application/json",Authorization:"Bearer "+token},body:JSON.stringify({employeeId:emp.employee_id})});if(!res.ok)throw new Error("Xodimni ochirib bolmadi");toast("Xodim ochirildi");await reload()}catch(e){alert(e.message)}}}/>
+    <BranchEmployees branchId={branch.id} onAdd={()=>setEmpModal(true)} onSelect={setSelectedEmp} onEdit={emp=>{setEditEmp(emp);setEmpModal(true)}} onDelete={async emp=>{if(!confirm(emp.full_name+" xodimini butunlay ochirishni tasdiqlaysizmi?"))return;try{await deleteEmployee(emp.employee_id);toast("Xodim ochirildi");await reload()}catch(e){alert(e.message)}}}/>
   </div>
 
   <LocationModal open={locModal} close={()=>{setLocModal(false);setEditLoc(null)}} location={editLoc} branchId={branch.id} toast={toast} reload={reload}/>
