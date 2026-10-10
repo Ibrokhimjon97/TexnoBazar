@@ -4,6 +4,7 @@ import { compressImageFile } from './mediaCompress.js';
 async function rpc(name,args={}){const{data,error}=await getBrowserClient().rpc(name,args);if(error)throwDataError(error,name);return data}
 async function api(path,body){const token=await getAccessToken();if(!token)throw new Error('Sessiya topilmadi.');const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify(body)}),result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||'Server amali bajarilmadi.');return result}
 export const getManagementDashboard=({from,to,branchId=null})=>rpc('get_management_dashboard',{p_from:from,p_to:to,p_branch_id:branchId});
+export const getAdminDashboardMetrics=({from=null,to=null}={})=>rpc('get_admin_dashboard_metrics',{p_from:from||null,p_to:to||null});
 export const queryAuditLog=({table=null,entityId=null,actorId=null,from=null,to=null,page=1,pageSize=100}={})=>rpc('query_audit_log',{p_table:table,p_entity_id:entityId,p_actor_id:actorId,p_from:from,p_to:to,p_limit:pageSize,p_offset:(page-1)*pageSize});
 export const reportSales=(from,to,branchId=null)=>rpc('report_sales_rows',{p_from:from,p_to:to,p_branch_id:branchId});
 export const reportFinance=(from,to,branchId=null)=>rpc('report_finance_rows',{p_from:from,p_to:to,p_branch_id:branchId});
