@@ -1609,17 +1609,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
         const fullProducts=(prods||[]).map(p=>{const ref=(r.products||[]).find(x=>x.id===p.id);return{...p,image:ref?.image||null,track_individual_units:ref?.track_individual_units??true}});
         setRefs({...r,products:fullProducts,categories:cats||[],brands:brands||[]});
         
-        let initialSupplierId = '';
-        if(isInventory){
-          const invSupplier = (r.suppliers||[]).find(s=>s.name.toLowerCase().includes('inventar'));
-          if(invSupplier){
-            initialSupplierId = invSupplier.id;
-          } else if(r.suppliers?.length){
-            initialSupplierId = r.suppliers[0].id;
-          }
-        } else {
-          initialSupplierId = r.suppliers[0]?.id || '';
-        }
+        let initialSupplierId = isInventory ? '' : (r.suppliers[0]?.id || '');
 
         setForm(f=>({
           ...f,
@@ -1716,16 +1706,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
 
   const submit=async e=>{
     e.preventDefault();
-    let supplierId = form.supplier_id;
-    if(isInventory && !supplierId){
-      try{
-        const{data:newSupp}=await getBrowserClient().from('suppliers').insert({code:'INVENTAR',name:'Inventarizatsiya',is_active:true}).select('id').single();
-        supplierId = newSupp?.id;
-      }catch{
-        supplierId = refs.suppliers[0]?.id;
-      }
-    }
-    if(!supplierId){setError('Ta\'minotchini tanlang');return}
+    let supplierId = isInventory ? (form.supplier_id || null) : form.supplier_id;
+    if(!isInventory && !supplierId){setError('Ta\'minotchini tanlang');return}
     if(!form.receiving_location_id){setError('Qabul joyini tanlang');return}
     if(lines.some(x=>!x.product_id)){setError('Barcha qatorlarda mahsulot tanlang');return}
     
@@ -1821,7 +1803,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
 
       await createStockReceipt({
         ...form,
-        supplier_id: supplierId,
+        supplier_id: isInventory ? (supplierId || null) : supplierId,
         branch_id: branchId,
         received_at: new Date(`${form.received_at}T12:00:00`).toISOString(),
         paid_amount: isInventory ? 0 : (Number(form.paid_amount) || 0)
