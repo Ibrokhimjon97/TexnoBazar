@@ -21,7 +21,7 @@ const configs={
 const colors=['#f97316','#2563eb','#16a34a','#8b5cf6','#eab308','#dc2626','#0891b2','#64748b','#ec4899','#84cc16','#14b8a6','#a855f7'];
 const moneyTick=value=>Math.abs(Number(value))>=1000000?`${(Number(value)/1000000).toFixed(1)} mln`:new Intl.NumberFormat('uz-UZ',{notation:'compact',maximumFractionDigits:1}).format(Number(value)||0);
 
-export default function AdminReportsWorkspace({initialType='sales',picker=false}){
+export default function AdminReportsWorkspace({initialType='sales',picker=false,toast}){
   const rate=useExchangeRate();
   const[type,setType]=useState(initialType),[view,setView]=useState('table'),[branches,setBranches]=useState([]),[branchId,setBranchId]=useState(''),[from,setFrom]=useState(()=>{const date=new Date();date.setDate(date.getDate()-29);return key(date)}),[to,setTo]=useState(()=>key(new Date())),[rows,setRows]=useState([]),[loading,setLoading]=useState(true),[exporting,setExporting]=useState(false),[error,setError]=useState('');
   const config=configs[type]||configs.sales;
@@ -29,7 +29,27 @@ export default function AdminReportsWorkspace({initialType='sales',picker=false}
   useEffect(()=>{load()},[type,branchId,from,to]);
   const totals=useMemo(()=>type==='finance'||type==='expenses'?{income:rows.filter(row=>row.transaction_type==='income').reduce((sum,row)=>sum+Number(row.amount),0),expense:rows.filter(row=>row.transaction_type==='expense').reduce((sum,row)=>sum+Number(row.amount),0)}:type==='sales'?{total:rows.reduce((sum,row)=>sum+Number(row.total),0),profit:rows.reduce((sum,row)=>sum+Number(row.profit),0)}:null,[rows,type]);
   const visualization=useMemo(()=>buildReportVisualization(type,rows),[type,rows]);
-  const exportXlsx=async()=>{setExporting(true);setError('');try{const branch=branches.find(item=>item.id===branchId);await downloadReportXlsx({type,rows,branchName:branch?.code||branch?.name,branchId,from:config.undated?null:from,to:config.undated?null:to})}catch(currentError){setError(currentError.message||'Excel eksport yaratilmadi.')}finally{setExporting(false)}};
+  const exportXlsx=async()=>{
+    setExporting(true);
+    try{
+      const branch=branches.find(item=>item.id===branchId);
+      await downloadReportXlsx({type,rows,branchName:branch?.code||branch?.name,branchId,from:config.undated?null:from,to:config.undated?null:to});
+      toast?.('Excel hisobot yuklab olindi');
+    }catch(currentError){
+      console.error('Excel export error:', currentError);
+      const isChunkError = currentError?.message?.includes('dynamically imported module') || 
+                           currentError?.message?.includes('MIME type');
+      if (isChunkError) {
+        if (confirm('Ilovaning yangi versiyasi chiqdi. Excel faylni yuklab olish uchun sahifani yangilashni (refresh) xohlaysizmi?')) {
+          window.location.reload();
+          return;
+        }
+      }
+      toast?.(currentError.message || 'Excel eksport yaratilmadi.') || alert(currentError.message || 'Excel eksport yaratilmadi.');
+    }finally{
+      setExporting(false);
+    }
+  };
   return <>
     <div className="page-head between"><div><h2>{picker?'Hisobotlar':config.title}</h2><p>{picker?'Biznes ma’lumotlarini jadval, grafik va haqiqiy XLSX ko‘rinishida oling.':config.text}</p></div><button className="btn btn-outline" disabled={!rows.length||exporting} onClick={exportXlsx}><Download/> {exporting?'XLSX tayyorlanmoqda…':'Excel XLSX'}</button></div>
     <div className="admin-filterbar">{picker&&<select className="select" value={type} onChange={event=>{setType(event.target.value);setView('table')}}>{Object.entries(configs).map(([value,item])=><option key={value} value={value}>{item.title}</option>)}</select>}<select className="select" value={branchId} onChange={event=>setBranchId(event.target.value)}><option value="">Barcha filiallar</option>{branches.map(branch=><option key={branch.id} value={branch.id}>{branch.name}</option>)}</select>{!config.undated&&<><input className="input" type="date" value={from} max={to} onChange={event=>setFrom(event.target.value)}/><input className="input" type="date" value={to} min={from} onChange={event=>setTo(event.target.value)}/></>}<button className="btn btn-outline" onClick={load}><RefreshCw/> Yangilash</button></div>
