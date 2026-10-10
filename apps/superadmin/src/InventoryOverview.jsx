@@ -29,7 +29,7 @@ function InventoryBalanceView({toast,tab,setTab}){
   const[applied,setApplied]=useState(initial);
   const[page,setPage]=useState(1);
   const[loading,setLoading]=useState(true);
-  const[selectedProduct,setSelectedProduct]=useState(null),[newProductModal,setNewProductModal]=useState(false);
+  const[selectedProduct,setSelectedProduct]=useState(null),[editingProduct,setEditingProduct]=useState(null),[newProductModal,setNewProductModal]=useState(false);
   const[error,setError]=useState('');
   const[selected,setSelected]=useState([]);
   const[bulkDeleting,setBulkDeleting]=useState(false);
@@ -79,7 +79,7 @@ function InventoryBalanceView({toast,tab,setTab}){
     ?rows.reduce((result,item)=>({on:result.on+Number(item.on_hand),reserved:result.reserved+Number(item.reserved),value:result.value+Number(item.on_hand)*Number(item.retail_price),cost:result.cost+Number(item.on_hand)*Number(item.cost_price||0),types:result.types.add(item.product_id)}),{on:0,reserved:0,value:0,cost:0,types:new Set()})
     :rows.reduce((result,item)=>({available:result.available+(item.status==='available'?1:0),reserved:result.reserved+(item.status==='reserved'?1:0),value:result.value+Number((item.promotion_price??item.retail_price)||0)}),{available:0,reserved:0,value:0}),[rows,mode]);
 
-  const editProduct=item=>{setSelectedProduct(item)};
+  const editProduct=item=>{setEditingProduct(item)};
   const deleteProduct=async item=>{if(!confirm(item.product_name+" mahsulotini ochirasizmi?"))return;try{const client=getBrowserClient();const{error:err}=await client.rpc('delete_product_cascade',{p_product_id:item.product_id});if(err)throw err;if(toast)toast('Mahsulot ochirildi');setRows(prev=>prev.filter(r=>r.product_id!==item.product_id))}catch(e){setError(e.message)}};
 
   const uniqueProductIds=useMemo(()=>[...new Set(rows.map(r=>r.product_id).filter(Boolean))],[rows]);
@@ -210,7 +210,8 @@ function InventoryBalanceView({toast,tab,setTab}){
     </div>
 
     {newProductModal&&<NewProductModal close={()=>setNewProductModal(false)} toast={toast} onCreated={()=>{setNewProductModal(false);load()}}/>}
-    {selectedProduct&&<ProductDetailModal product={selectedProduct} close={()=>setSelectedProduct(null)} toast={toast} rate={rate}/>}
+    {editingProduct&&<ProductEditor open={Boolean(editingProduct)} close={()=>setEditingProduct(null)} product={editingProduct} refs={refs} toast={toast} saved={load} RichTextEditor={RichTextEditor}/>}
+    {selectedProduct&&<ProductDetailModal product={selectedProduct} close={()=>setSelectedProduct(null)} toast={toast} rate={rate} onEdit={editProduct}/>}
   </>
 }
 
@@ -247,7 +248,7 @@ function UnitTable({rows,rate}){
   </>;
 }
 
-function ProductDetailModal({product,close,toast,rate}){
+function ProductDetailModal({product,close,toast,rate,onEdit}){
   const[detail,setDetail]=useState(null),[units,setUnits]=useState([]),[media,setMedia]=useState([]);
   const[loading,setLoading]=useState(true),[filterBranch,setFilterBranch]=useState('');
   const[unitQuery,setUnitQuery]=useState(''),[filterStatus,setFilterStatus]=useState(''),[filterPlace,setFilterPlace]=useState('');
@@ -325,13 +326,18 @@ function ProductDetailModal({product,close,toast,rate}){
   if(!detail)return <Modal open onClose={close} title="Xatolik"><p>Mahsulot topilmadi</p></Modal>;
 
   return <Modal open onClose={close} title={detail.name+' ('+units.length+' dona)'}><div className="product-detail-modal">
-    <div className="product-info-rows" style={{marginBottom:'1rem'}}>
-      <div><span>SKU:</span><b>{detail.sku}</b></div>
-      <div><span>Kategoriya:</span><b>{detail.categories?.name||'-'}</b></div>
-      <div><span>Brend:</span><b>{detail.brands?.name||'-'}</b></div>
-      <div><span>Sotish narxi:</span><b><DualPrice value={Number(detail.retail_price||0)} rate={rate}/></b></div>
-      <div><span>Tannarx:</span><b><DualPrice value={Number(detail.cost_price||0)} rate={rate}/></b></div>
-      <div><span>Jami soni:</span><b>{units.length} dona</b></div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,marginBottom:'1rem',flexWrap:'wrap'}}>
+      <div className="product-info-rows" style={{flex:1,marginBottom:0}}>
+        <div><span>SKU:</span><b>{detail.sku}</b></div>
+        <div><span>Kategoriya:</span><b>{detail.categories?.name||'-'}</b></div>
+        <div><span>Brend:</span><b>{detail.brands?.name||'-'}</b></div>
+        <div><span>Sotish narxi:</span><b><DualPrice value={Number(detail.retail_price||0)} rate={rate}/></b></div>
+        <div><span>Tannarx:</span><b><DualPrice value={Number(detail.cost_price||0)} rate={rate}/></b></div>
+        <div><span>Jami soni:</span><b>{units.length} dona</b></div>
+      </div>
+      <button type="button" className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6}} onClick={()=>{close();onEdit?.(product);}}>
+        <Pencil size={14}/> Tovarni to‘liq tahrirlash
+      </button>
     </div>
 
     <h4>Filiallar bo'yicha taqsimot</h4>

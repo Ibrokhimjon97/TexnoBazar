@@ -3,6 +3,7 @@ export {QrScannerModal, QrScanButton} from './QrScannerModal.jsx';
 export {AiChat} from './AiChat.jsx';
 export {ColorVariantEditor, BASE_COLOR_PALETTE} from './ColorVariantEditor.jsx';
 export {ProductExcelImportModal} from './ProductExcelImportModal.jsx';
+export {ProductEditor} from './ProductEditor.jsx';
 export * from './thermalReceipt.jsx';
 export * from './detongerBluetooth.js';
 export * from './DetongerPrintModal.jsx';
