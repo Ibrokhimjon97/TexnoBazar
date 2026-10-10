@@ -75,7 +75,25 @@ export async function uploadProductMedia(productId, file, altText = '', variantI
   }
 }
 
-export const deleteProductMedia=mediaId=>api('/api/media/delete','DELETE',{mediaId});
+export const deleteProductMedia = async mediaId => {
+  try {
+    return await rpc('delete_product_media', { p_media_id: mediaId });
+  } catch (err) {
+    try {
+      const client = getBrowserClient();
+      const { data: { user } } = await client.auth.getUser();
+      if (user?.id) {
+        return await rpc('detach_product_media', { p_actor_id: user.id, p_media_id: mediaId });
+      }
+    } catch {
+      // Fall through to direct table delete
+    }
+    const client = getBrowserClient();
+    const { error } = await client.from('product_media').delete().eq('id', mediaId);
+    if (error) throwDataError(error, 'deleteProductMedia');
+    return { success: true };
+  }
+};
 export const updateProductTextFields=(productId,{description,seoImageUrl}={})=>rpc('update_product_text_fields',{p_product_id:productId,p_description:description??null,p_seo_image_url:seoImageUrl??null});
 
 export const listInventoryCatalogCandidates=({query=null,onlyUnpublished=true,page=1,pageSize=50}={})=>rpc('list_inventory_catalog_candidates',{p_query:query||null,p_only_unpublished:onlyUnpublished,p_limit:pageSize,p_offset:(page-1)*pageSize});

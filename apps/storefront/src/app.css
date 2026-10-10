@@ -205,8 +205,10 @@ h1,h2,h3{letter-spacing:-.035em}
 .modern-card:hover{transform:translateY(-6px);border-color:#ffd97a;box-shadow:var(--sh-3)}
 .product-img{position:relative;height:230px;overflow:hidden;background:linear-gradient(170deg,#fbfcfe,#f1f4fa);cursor:pointer}
 .product-img img{width:100%;height:100%;object-fit:contain;padding:16px;box-sizing:border-box;transition:transform .3s var(--ease)}
-.modern-card:hover .product-img img{transform:scale(1.05)}
-.product-img .media-placeholder{width:100%;height:100%;border:0;border-radius:0;background:transparent;color:var(--text-3)}
+.media-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;width:100%;height:100%;padding:16px;box-sizing:border-box;color:var(--text-3);text-align:center}
+.media-placeholder svg{width:32px;height:32px;opacity:.55}
+.media-placeholder span{font-size:12px;font-weight:600;color:var(--text-3);line-height:1.3}
+.product-img .media-placeholder{width:100%;height:100%;border:0;border-radius:0;background:transparent}
 .product-open{position:absolute;inset:0;z-index:1;border:0;padding:0;background:transparent;cursor:pointer}
 .product-tags{position:absolute;left:12px;top:12px;z-index:2;display:flex;flex-direction:column;align-items:flex-start;gap:6px;pointer-events:none}
 .product-badge{position:static;padding:5px 9px;border-radius:9px;background:var(--danger);color:#fff;font-size:10.5px;font-weight:850;letter-spacing:-.01em}

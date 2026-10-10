@@ -58,19 +58,45 @@ async function readLimitedBody(request, maxBytes = DEFAULT_MAX_BODY_BYTES) {
 }
 
 export default async function apiAdapter(request) {
+  const origin = request.headers.get('origin') || '*';
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+    'Access-Control-Max-Age': '86400',
+  };
+
+  if (request.method === 'OPTIONS') {
+    return new Response(null, {
+      status: 204,
+      headers: corsHeaders,
+    });
+  }
+
   const url = new URL(request.url);
   const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : url.pathname;
   const handler = routes.get(pathname);
-  if (!handler) return jsonResponse(404, { error: 'API route topilmadi.', code: 'NOT_FOUND' });
+  if (!handler) {
+    return new Response(JSON.stringify({ error: 'API route topilmadi.', code: 'NOT_FOUND' }), {
+      status: 404,
+      headers: { ...corsHeaders, 'content-type': 'application/json; charset=utf-8' },
+    });
+  }
 
   let body;
   try {
     body = await readLimitedBody(request, ROUTE_MAX_BODY_BYTES.get(pathname) ?? DEFAULT_MAX_BODY_BYTES);
   } catch {
-    return jsonResponse(413, { error: 'So‘rov hajmi juda katta.', code: 'BODY_TOO_LARGE' });
+    return new Response(JSON.stringify({ error: 'So‘rov hajmi juda katta.', code: 'BODY_TOO_LARGE' }), {
+      status: 413,
+      headers: { ...corsHeaders, 'content-type': 'application/json; charset=utf-8' },
+    });
   }
 
   const responseHeaders = new Headers();
+  for (const [k, v] of Object.entries(corsHeaders)) {
+    responseHeaders.set(k, v);
+  }
   let responseBody = '';
   let ended = false;
   const req = {
