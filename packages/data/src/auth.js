@@ -59,6 +59,62 @@ export async function deleteEmployee(employeeId) {
   if (error) throw error;
   return data;
 }
+export async function createEmployee({ fullName, email, phone, role, branchId, password }) {
+  const normName = (fullName || '').trim();
+  if (normName.length < 2) throw new Error('To‘liq ism kamida 2 ta belgi bo‘lishi kerak.');
+  if (!password || password.length < 4) throw new Error('Parol kamida 4 ta belgi bo‘lishi kerak.');
+  if (!branchId) throw new Error('Filial tanlanishi shart.');
+
+  let normEmail = (email || '').trim().toLowerCase();
+  if (!normEmail) {
+    normEmail = `emp_${Math.random().toString(36).slice(2, 9)}@texnobazar.uz`;
+  }
+
+  const client = getBrowserClient();
+  const tempClient = createClient(client.supabaseUrl, client.supabaseKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  const { data: signUpData, error: signUpErr } = await tempClient.auth.signUp({
+    email: normEmail,
+    password,
+    options: {
+      data: {
+        full_name: normName,
+        phone: (phone || '').trim() || null,
+      },
+    },
+  });
+
+  if (signUpErr) {
+    const msg = (signUpErr.message || '').toLowerCase();
+    if (msg.includes('already registered') || msg.includes('already exists') || msg.includes('unique')) {
+      throw new Error(`"${normEmail}" email bilan foydalanuvchi allaqachon mavjud.`);
+    }
+    throw signUpErr;
+  }
+
+  const newUserId = signUpData?.user?.id;
+  if (!newUserId) throw new Error('Xodim yaratilmadi.');
+
+  const { data: assignData, error: assignErr } = await client.rpc('assign_employee_role', {
+    p_user_id: newUserId,
+    p_role: role || 'seller',
+    p_branch_id: branchId,
+    p_full_name: normName,
+    p_phone: (phone || '').trim() || null,
+  });
+
+  if (assignErr) throw assignErr;
+
+  return {
+    employee_id: newUserId,
+    email: normEmail,
+    full_name: normName,
+    role,
+    branch_id: branchId,
+  };
+}
 export async function requestPasswordReset(email) {
   const { error } = await getBrowserClient().auth.resetPasswordForEmail(email, {
     redirectTo: window.location.origin,

@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{AlertTriangle,ArrowLeft,BarChart3,MapPin,Pencil,Plus,Search,Store,Trash2,Users,Warehouse}from'lucide-react';
 import{DualPrice,Empty,Modal,Status,useExchangeRate}from'@texnobazar/ui';
-import{createMasterRecord,deleteBranch,deleteEmployee,deleteMasterRecord,getAccessToken,getBrowserClient,listActiveBranches,listEmployees,listMasterRecords,updateMasterRecord}from'@texnobazar/data';
+import{createEmployee,createMasterRecord,deleteBranch,deleteEmployee,deleteMasterRecord,getAccessToken,getBrowserClient,listActiveBranches,listEmployees,listMasterRecords,updateMasterRecord}from'@texnobazar/data';
 
 const roleLabels={manager:'Menejer',seller:'Sotuvchi',courier:'Kuryer',warehouse:'Omborchi',accountant:'Hisobchi'};
 const locationTypes={store:'Do’kon',warehouse:'Ombor'};
@@ -94,7 +94,7 @@ function EmployeeQuickModal({open,close,branchId,branchName,branches,toast}){
   const initial={fullName:'',email:'',phone:'',role:'seller',branchId,password:''};
   const[form,setForm]=useState(initial),[error,setError]=useState(''),[busy,setBusy]=useState(false);
   useEffect(()=>{if(open)setForm({...initial,branchId})},[open,branchId]);
-  const submit=async e=>{e.preventDefault();setBusy(true);setError('');try{const token=await getAccessToken();if(!token)throw new Error('Sessiya topilmadi.');const res=await fetch('/api/employees/create',{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify(form)}),body=await res.json();if(!res.ok)throw new Error(body.error||'Xodim yaratilmadi');close();toast(`Xodim "${form.fullName}" yaratildi`)}catch(err){setError(err.message)}finally{setBusy(false)}};
+  const submit=async e=>{e.preventDefault();setBusy(true);setError('');try{await createEmployee(form);close();toast(`Xodim "${form.fullName}" yaratildi`)}catch(err){setError(err.message||'Xodim yaratilmadi')}finally{setBusy(false)}};
   return <Modal open={open} onClose={close} title={`Xodim qo’shish — ${branchName}`}><form className="employee-form-grid" onSubmit={submit}>{error&&<div className="employee-error wide">{error}</div>}<label className="wide"><span className="label">To’liq ism</span><input className="input" value={form.fullName} onChange={e=>setForm({...form,fullName:e.target.value})} required minLength="3"/></label><label><span className="label">Email</span><input className="input" type="email" value={form.email} onChange={e=>setForm({...form,email:e.target.value})}/></label><label><span className="label">Telefon</span><input className="input" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} required/></label><label><span className="label">Rol</span><select className="select" value={form.role} onChange={e=>setForm({...form,role:e.target.value})}>{Object.entries(roleLabels).map(([k,v])=><option key={k} value={k}>{v}</option>)}</select></label><label className="wide"><span className="label">Vaqtinchalik parol</span><input className="input" type="password" value={form.password} onChange={e=>setForm({...form,password:e.target.value})} required minLength="4"/></label><button className="btn btn-primary wide" disabled={busy}>{busy?'Yaratilmoqda…':'Yaratish'}</button></form></Modal>;
 }
 
