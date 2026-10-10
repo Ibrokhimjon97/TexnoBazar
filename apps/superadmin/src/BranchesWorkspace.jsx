@@ -16,6 +16,7 @@ export default function BranchesWorkspace({toast}){
   if(selected)return <BranchDetail branch={selected} locations={locations.filter(l=>l.branch_id===selected.id)} back={()=>setSelected(null)} toast={toast} reload={load}/>;
 
   const openNew=()=>{setEditing(null);setBranchModal(true)};
+  const openEdit=(b,e)=>{e.stopPropagation();setEditing(b);setBranchModal(true)};
   const removeBranch=async(b,e)=>{
     e.stopPropagation();
     if(!confirm(`"${b.name}" filialini o’chirishni tasdiqlaysizmi?`))return;
