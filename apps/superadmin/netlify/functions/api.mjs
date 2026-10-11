@@ -61,7 +61,105 @@ async function readLimitedBody(request, maxBytes = DEFAULT_MAX_BODY_BYTES) {
   return Buffer.concat(chunks);
 }
 
-export default async function apiAdapter(request) {
+export async function handler(event, context) {
+  const origin = event.headers?.origin || event.headers?.Origin || '*';
+  const corsHeaders = {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
+    'Access-Control-Max-Age': '86400',
+  };
+
+  if (event.httpMethod === 'OPTIONS') {
+    return {
+      statusCode: 204,
+      headers: corsHeaders,
+      body: '',
+    };
+  }
+
+  let pathname = event.path || '';
+  if (pathname.startsWith('/.netlify/functions/api')) {
+    pathname = pathname.slice('/.netlify/functions/api'.length) || '/';
+    if (!pathname.startsWith('/api')) {
+      pathname = '/api' + (pathname.startsWith('/') ? pathname : '/' + pathname);
+    }
+  }
+  pathname = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
+
+  const routeHandler = routes.get(pathname);
+  if (!routeHandler) {
+    return {
+      statusCode: 404,
+      headers: { ...corsHeaders, 'content-type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ error: 'API route topilmadi.', code: 'NOT_FOUND' }),
+    };
+  }
+
+  let bodyBuffer = Buffer.alloc(0);
+  if (event.body) {
+    bodyBuffer = event.isBase64Encoded ? Buffer.from(event.body, 'base64') : Buffer.from(event.body, 'binary');
+  }
+
+  const maxBytes = ROUTE_MAX_BODY_BYTES.get(pathname) ?? DEFAULT_MAX_BODY_BYTES;
+  if (bodyBuffer.length > maxBytes) {
+    return {
+      statusCode: 413,
+      headers: { ...corsHeaders, 'content-type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ error: 'So‘rov hajmi juda katta.', code: 'BODY_TOO_LARGE' }),
+    };
+  }
+
+  const qs = event.rawQuery || (event.queryStringParameters ? new URLSearchParams(event.queryStringParameters).toString() : '');
+  const url = pathname + (qs ? `?${qs}` : '');
+
+  const responseHeaders = { ...corsHeaders };
+  let responseStatusCode = 200;
+  let responseBody = '';
+
+  const req = {
+    method: event.httpMethod,
+    url,
+    headers: event.headers || {},
+    body: bodyBuffer,
+    async *[Symbol.asyncIterator]() {
+      if (bodyBuffer.length) yield bodyBuffer;
+    },
+  };
+
+  const res = {
+    get statusCode() { return responseStatusCode; },
+    set statusCode(code) { responseStatusCode = code; },
+    setHeader(name, value) {
+      responseHeaders[name] = Array.isArray(value) ? value.join(', ') : String(value);
+    },
+    end(value = '') {
+      responseBody = Buffer.isBuffer(value) ? value.toString('utf8') : String(value);
+    },
+  };
+
+  try {
+    await routeHandler(req, res);
+    return {
+      statusCode: responseStatusCode,
+      headers: responseHeaders,
+      body: responseStatusCode === 204 ? '' : responseBody,
+    };
+  } catch (error) {
+    console.error('Netlify API Lambda handler error', error);
+    return {
+      statusCode: 500,
+      headers: { ...corsHeaders, 'content-type': 'application/json; charset=utf-8' },
+      body: JSON.stringify({ error: 'Server amali bajarilmadi.', code: 'INTERNAL_ERROR' }),
+    };
+  }
+}
+
+export default async function apiAdapter(request, context) {
+  if (request && typeof request.httpMethod === 'string') {
+    return handler(request, context);
+  }
+
   const origin = request.headers.get('origin') || '*';
   const corsHeaders = {
     'Access-Control-Allow-Origin': origin,
@@ -79,8 +177,8 @@ export default async function apiAdapter(request) {
 
   const url = new URL(request.url);
   const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : url.pathname;
-  const handler = routes.get(pathname);
-  if (!handler) {
+  const routeHandler = routes.get(pathname);
+  if (!routeHandler) {
     return new Response(JSON.stringify({ error: 'API route topilmadi.', code: 'NOT_FOUND' }), {
       status: 404,
       headers: { ...corsHeaders, 'content-type': 'application/json; charset=utf-8' },
@@ -108,7 +206,9 @@ export default async function apiAdapter(request) {
     url: `${url.pathname}${url.search}`,
     headers: Object.fromEntries(request.headers.entries()),
     ...(body.length ? { body } : {}),
-    async *[Symbol.asyncIterator]() {},
+    async *[Symbol.asyncIterator]() {
+      if (body.length) yield body;
+    },
   };
   const res = {
     statusCode: 200,
@@ -123,7 +223,7 @@ export default async function apiAdapter(request) {
   };
 
   try {
-    await handler(req, res);
+    await routeHandler(req, res);
     if (!ended) return jsonResponse(500, { error: 'Handler javobni yakunlamadi.', code: 'INTERNAL_ERROR' });
     const emptyBody = request.method === 'HEAD' || request.method === 'OPTIONS' || [204, 304].includes(res.statusCode);
     return new Response(emptyBody ? null : responseBody, { status: res.statusCode, headers: responseHeaders });
@@ -133,4 +233,3 @@ export default async function apiAdapter(request) {
   }
 }
 
-export const config = { path: '/api/*' };

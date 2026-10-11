@@ -11,6 +11,26 @@ NODE_VERSION = "20"
 node_bundler = "esbuild"
 
 [[redirects]]
+from = "/api/media/upload"
+to = "/.netlify/functions/media-upload"
+status = 200
+
+[[redirects]]
+from = "/api/media/presign"
+to = "/.netlify/functions/media-presign"
+status = 200
+
+[[redirects]]
+from = "/api/media/complete"
+to = "/.netlify/functions/media-complete"
+status = 200
+
+[[redirects]]
+from = "/api/avatar/upload"
+to = "/.netlify/functions/avatar-upload"
+status = 200
+
+[[redirects]]
 from = "/api/*"
 to = "/.netlify/functions/api"
 status = 200
