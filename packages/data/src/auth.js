@@ -140,15 +140,15 @@ export async function getAccessToken() {
   return data.session?.access_token ?? null;
 }
 
-// Avatars live in Cloudflare R2 (Supabase Storage is disabled); the superadmin
-// deployment owns the authenticated upload endpoint.
+import { getApiBase } from './apiBase.js';
+
 export async function uploadProfileAvatar(file) {
   const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
   if (!file || !allowed.includes(file.type)) throw new Error('Faqat JPG, PNG, WebP yoki AVIF rasm yuklanadi.');
   if (file.size > 5 * 1024 * 1024) throw new Error('Rasm 5MB dan kichik bo‘lishi kerak.');
   const token = await getAccessToken();
   if (!token) throw new Error('Sessiya topilmadi. Tizimga qayta kiring.');
-  const base = (import.meta.env?.VITE_API_BASE || '').replace(/\/$/, '');
+  const base = getApiBase();
   const response = await fetch(`${base}/.netlify/functions/avatar-upload`, {
     method: 'PUT',
     headers: { 'Content-Type': file.type, Authorization: `Bearer ${token}` },

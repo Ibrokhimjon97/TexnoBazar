@@ -6,6 +6,7 @@ export {ProductExcelImportModal} from './ProductExcelImportModal.jsx';
 export {ProductEditor} from './ProductEditor.jsx';
 export * from './thermalReceipt.jsx';
 export * from './detongerBluetooth.js';
+export * from './mhtBluetooth.js';
 export * from './DetongerPrintModal.jsx';
 export * from './Skeleton.jsx';
 import React,{useEffect} from 'react';

@@ -47,28 +47,44 @@ export default function CreateProductModal({open,close,branchId,created}){
         category_id:form.category_id||null,
         brand_id:form.brand_id||null,
         cost_price:Number(form.cost_price)||0,
+        cost_price_usd:Number(form.cost_price_usd)||(rate&&Number(form.cost_price)?Number((Number(form.cost_price)/rate).toFixed(2)):null),
         retail_price:Number(form.retail_price)||0,
+        retail_price_usd:Number(form.retail_price_usd)||(rate&&Number(form.retail_price)?Number((Number(form.retail_price)/rate).toFixed(2)):null),
         wholesale_price:Number(form.wholesale_price)||null,
+        wholesale_price_usd:Number(form.wholesale_price_usd)||(rate&&Number(form.wholesale_price)?Number((Number(form.wholesale_price)/rate).toFixed(2)):null),
         promotion_price:Number(form.promotion_price)||null,
         minimum_sale_price:Number(form.minimum_sale_price)||0,
+        minimum_sale_price_usd:Number(form.minimum_sale_price_usd)||(rate&&Number(form.minimum_sale_price)?Number((Number(form.minimum_sale_price)/rate).toFixed(2)):null),
+        currency:'USD',
         compare_at_price:Number(form.compare_at_price)||null,
         description:form.description||null,
-        seo_image_url:form.video_url?.trim()||null,
+        seo_image_url:null,
         status:'active',
         is_published:true,
         track_individual_units:true,
         tax_rate:0,
-      }).select('id,name,sku,category_id,cost_price,retail_price,wholesale_price,minimum_sale_price').single();
+      }).select('id,name,sku,category_id,cost_price,cost_price_usd,retail_price,retail_price_usd,wholesale_price,wholesale_price_usd,minimum_sale_price,minimum_sale_price_usd').single();
 
       if(insertErr)throw insertErr;
 
       const failed=[];
+      let primaryMediaUrl=null;
       for(const file of images){
         try{
-          await uploadProductMedia(data.id,file,form.name.trim());
+          const uploaded = await uploadProductMedia(data.id,file,form.name.trim());
+          if(!primaryMediaUrl && (uploaded?.publicUrl || uploaded?.url)){
+            primaryMediaUrl = uploaded.publicUrl || uploaded.url;
+          }
         }catch(uploadError){
           failed.push(`${file.name}: ${err(uploadError)}`);
         }
+      }
+      if(primaryMediaUrl){
+        data.image = primaryMediaUrl;
+        data.seo_image_url = primaryMediaUrl;
+        try {
+          await client.from('products').update({ seo_image_url: primaryMediaUrl }).eq('id', data.id);
+        } catch {}
       }
 
       const namedVariants=variants.filter(v=>v.color_name?.trim());
@@ -104,7 +120,7 @@ export default function CreateProductModal({open,close,branchId,created}){
   if(!open)return null;
 
   return <div className="receipt-create-overlay">
-    <div className="receipt-create-form card" style={{width:"min(780px,95vw)",padding:24,maxHeight:"92vh",overflow:"auto",borderRadius:16}}>
+    <div className="receipt-create-form card">
       <div className="between" style={{marginBottom:14,borderBottom:'1px solid var(--line)',paddingBottom:12}}>
         <div>
           <h2 style={{margin:0,fontSize:18}}>Yangi tovar qo'shish (Katalog)</h2>
@@ -127,7 +143,7 @@ export default function CreateProductModal({open,close,branchId,created}){
 
 export function CreateProductInline({categories,brands,categoryId,onCreated,onCancel,rate}){
   return <div className="inv-create-overlay">
-    <div className="inv-create-form card" style={{width:"min(780px,95vw)",padding:20,maxHeight:"90vh",overflow:"auto",borderRadius:16}}>
+    <div className="inv-create-form card">
       <div className="between" style={{marginBottom:16}}>
         <h3>Yangi tovar yaratish</h3>
         <button type="button" className="icon-btn" onClick={onCancel}><X size={18}/></button>
@@ -147,8 +163,8 @@ export function CreateProductInline({categories,brands,categoryId,onCreated,onCa
 function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,onCancel,busy=false,rate}){
   const[form,setForm]=useState({
     name:'',sku:'',barcode:'',category_id:initialCategoryId||'',brand_id:'',
-    cost_price:'',retail_price:'',wholesale_price:'',promotion_price:'',
-    minimum_sale_price:'0',compare_at_price:'',slug:'',video_url:'',description:''
+    cost_price:'',cost_price_usd:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',promotion_price:'',
+    minimum_sale_price:'0',minimum_sale_price_usd:'0',compare_at_price:'',slug:'',video_url:'',description:''
   });
   const[images,setImages]=useState([]);
   const[variants,setVariants]=useState([]);
@@ -182,10 +198,10 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
     <label><span className="label">Kategoriya</span><select className="select" value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})}><option value="">Tanlang</option>{categories.filter(c=>!c.parent_id).map(p=><optgroup key={p.id} label={p.name}><option value={p.id}>{p.name}</option>{categories.filter(c=>c.parent_id===p.id).map(child=><option key={child.id} value={child.id}>&nbsp;&nbsp;{child.name}</option>)}</optgroup>)}</select></label>
     <NewCategoryInline categories={categories} onCreated={cat=>setForm({...form,category_id:cat.id})}/>
     <label><span className="label">Brend</span><div style={{display:'flex',gap:6,position:'relative'}}><select className="select" style={{flex:1}} value={form.brand_id} onChange={e=>setForm({...form,brand_id:e.target.value})}><option value="">Brendsiz</option>{brands.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><NewBrandInline brands={brands} onCreated={b=>setForm({...form,brand_id:b.id})}/></div></label>
-    <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v=>setForm({...form,cost_price:v})} rate={rate}/>
-    <DualPriceInput label="Sotish narxi *" valueUzs={form.retail_price} onChangeUzs={v=>setForm({...form,retail_price:v})} rate={rate}/>
-    <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v=>setForm({...form,wholesale_price:v})} rate={rate}/>
-    <DualPriceInput label="Minimal sotuv narxi" valueUzs={form.minimum_sale_price} onChangeUzs={v=>setForm({...form,minimum_sale_price:v})} rate={rate}/>
+    <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v=>setForm(f=>({...f,cost_price:v}))} valueUsd={form.cost_price_usd} onChangeUsd={v=>setForm(f=>({...f,cost_price_usd:v}))} rate={rate}/>
+    <DualPriceInput label="Sotish narxi *" valueUzs={form.retail_price} onChangeUzs={v=>setForm(f=>({...f,retail_price:v}))} valueUsd={form.retail_price_usd} onChangeUsd={v=>setForm(f=>({...f,retail_price_usd:v}))} rate={rate}/>
+    <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v=>setForm(f=>({...f,wholesale_price:v}))} valueUsd={form.wholesale_price_usd} onChangeUsd={v=>setForm(f=>({...f,wholesale_price_usd:v}))} rate={rate}/>
+    <DualPriceInput label="Minimal sotuv narxi" valueUzs={form.minimum_sale_price} onChangeUzs={v=>setForm(f=>({...f,minimum_sale_price:v}))} valueUsd={form.minimum_sale_price_usd} onChangeUsd={v=>setForm(f=>({...f,minimum_sale_price_usd:v}))} rate={rate}/>
     <label><span className="label">Aksiya narxi</span><input className="input" type="number" min="0" value={form.promotion_price} onChange={e=>setForm({...form,promotion_price:e.target.value})} placeholder="Ixtiyoriy"/></label>
     <label><span className="label">Eski narx (chizilgan)</span><input className="input" type="number" min="0" value={form.compare_at_price} onChange={e=>setForm({...form,compare_at_price:e.target.value})} placeholder="Ixtiyoriy"/></label>
     <label className="wide"><span className="label">YouTube video URL</span><input className="input" value={form.video_url} onChange={e=>setForm({...form,video_url:e.target.value})} placeholder="https://youtube.com/watch?v=..."/></label>
@@ -200,17 +216,17 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
       </div>
       <label className="btn btn-outline btn-sm" style={{cursor:'pointer',display:'inline-flex',alignItems:'center',gap:6}}>
         <Plus size={14}/> Rasm tanlash
-        <input type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple hidden onChange={e=>{const files=[...e.target.files];if(files.length){setImages(prev=>[...prev,...files])}e.target.value=''}}/>
+        <input type="file" accept="image/*" multiple hidden onChange={e=>{const files=[...e.target.files];if(files.length){setImages(prev=>[...prev,...files])}e.target.value=''}}/>
       </label>
     </div>
     <div className="wide">
       <ColorVariantEditor variants={variants} setVariants={setVariants} showQuantity={false} showWholesale rate={rate} basePriceHint={form.retail_price?`${form.retail_price} so'm`:''}/>
     </div>
-    <div className="wide" style={{display:'flex',gap:10,marginTop:10}}>
-      <button className="btn btn-primary" type="submit" disabled={isBusy} style={{flex:1}}>
+    <div className="wide" style={{display:'flex',gap:10,marginTop:10,flexWrap:'wrap'}}>
+      <button className="btn btn-primary" type="submit" disabled={isBusy} style={{flex:'1 1 180px'}}>
         {isBusy?'Saqlanmoqda...':'Tovarni saqlash'}
       </button>
-      <button className="btn" type="button" onClick={onCancel} disabled={isBusy}>
+      <button className="btn" type="button" onClick={onCancel} disabled={isBusy} style={{flex:'1 1 120px'}}>
         Bekor qilish
       </button>
     </div>

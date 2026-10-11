@@ -18,12 +18,34 @@ export async function compressImageFile(file, {
 } = {}) {
   if (!file) return file;
 
+  const rawType = (file.type || '').toLowerCase();
+  const ext = (file.name || '').split('.').pop()?.toLowerCase() || '';
+  const validMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+
   // Agar hajm belgilangan me'yordan kichik bo'lsa (masalan 400KB), siqish shart emas
-  if (file.size <= skipSizeKb * 1024) return file;
+  if (file.size <= skipSizeKb * 1024) {
+    if (validMimes.includes(rawType)) {
+      return file;
+    }
+    const normalizedType = rawType === 'image/png' || ext === 'png' ? 'image/png'
+      : rawType === 'image/webp' || ext === 'webp' ? 'image/webp'
+      : rawType === 'image/avif' || ext === 'avif' ? 'image/avif'
+      : 'image/jpeg';
+    try {
+      return new File([file], file.name || 'image.jpg', {
+        type: normalizedType,
+        lastModified: file.lastModified || Date.now(),
+      });
+    } catch {
+      return file;
+    }
+  }
 
   // Faqat rastrli tasvirlarni siqamiz (SVG va animatsiyalarga tegilmaydi)
-  const rasterTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
-  if (file.type && !rasterTypes.includes(file.type.toLowerCase())) {
+  const rasterTypes = ['image/jpeg', 'image/jpg', 'image/pjpeg', 'image/png', 'image/webp', 'image/avif', 'image/heic', 'image/heif'];
+  const isImageByName = ['jpg', 'jpeg', 'png', 'webp', 'avif', 'heic', 'heif'].includes(ext);
+
+  if (rawType && !rasterTypes.includes(rawType) && !isImageByName) {
     return file;
   }
 
@@ -66,7 +88,18 @@ export async function compressImageFile(file, {
       const outputType = 'image/webp';
       canvas.toBlob((blob) => {
         if (!blob || blob.size >= file.size) {
-          resolve(file);
+          if (validMimes.includes(rawType)) {
+            resolve(file);
+            return;
+          }
+          try {
+            resolve(new File([file], file.name || 'image.jpg', {
+              type: 'image/jpeg',
+              lastModified: file.lastModified || Date.now(),
+            }));
+          } catch {
+            resolve(file);
+          }
           return;
         }
 
@@ -82,7 +115,15 @@ export async function compressImageFile(file, {
 
     img.onerror = () => {
       URL.revokeObjectURL(objectUrl);
-      resolve(file);
+      const normalizedType = validMimes.includes(rawType) ? rawType : 'image/jpeg';
+      try {
+        resolve(new File([file], file.name || 'image.jpg', {
+          type: normalizedType,
+          lastModified: file.lastModified || Date.now(),
+        }));
+      } catch {
+        resolve(file);
+      }
     };
 
     img.src = objectUrl;

@@ -14,7 +14,9 @@ import {
   Copy,
   Layers,
   X,
-  FileText
+  FileText,
+  Sliders,
+  Sparkles
 } from 'lucide-react';
 import {
   detongerClient,
@@ -22,9 +24,19 @@ import {
   getBluetoothEnvironmentInfo,
   renderDetongerLabelCanvas,
   DETONGER_PREFIX_PRESETS,
+  LABEL_SIZES,
   CANVAS_WIDTH_PX,
   CANVAS_HEIGHT_PX,
 } from './detongerBluetooth';
+import {
+  mhtClient,
+  renderMhtLabelCanvas,
+  MHT_PREFIX_PRESETS,
+  MHT_LABEL_WIDTH_MM,
+  MHT_LABEL_HEIGHT_MM,
+  MHT_CANVAS_WIDTH_PX,
+  MHT_CANVAS_HEIGHT_PX,
+} from './mhtBluetooth';
 
 export function DetongerPrintModal({
   open,
@@ -33,15 +45,65 @@ export function DetongerPrintModal({
   batchTitle = '',
   receiptDate = '',
   onClassicPrint,
+  initialPrinter,
 }) {
   const [envInfo, setEnvInfo] = useState(() => getBluetoothEnvironmentInfo());
-  const [status, setStatus] = useState(() => detongerClient.getStatus());
-  const [deviceName, setDeviceName] = useState(() => detongerClient.getDeviceName());
+
+  // Active printer selection: 'detonger' | 'mht'
+  const [selectedPrinter, setSelectedPrinter] = useState(() => {
+    if (initialPrinter) return initialPrinter;
+    try {
+      return localStorage.getItem('texnobazar_selected_thermal_printer') || 'detonger';
+    } catch {
+      return 'detonger';
+    }
+  });
+
+  useEffect(() => {
+    if (open && initialPrinter) {
+      setSelectedPrinter(initialPrinter);
+    }
+  }, [open, initialPrinter]);
+
+  const handlePrinterChange = (printer) => {
+    setSelectedPrinter(printer);
+    try {
+      localStorage.setItem('texnobazar_selected_thermal_printer', printer);
+    } catch {}
+    setError('');
+    setSuccessMsg('');
+  };
+
+  // Detonger status
+  const [detongerStatus, setDetongerStatus] = useState(() => detongerClient.getStatus());
+  const [detongerDeviceName, setDetongerDeviceName] = useState(() => detongerClient.getDeviceName());
+  const [detongerPrefix, setDetongerPrefix] = useState('P');
+
+  // MHT-L80G status
+  const [mhtStatus, setMhtStatus] = useState(() => mhtClient.getStatus());
+  const [mhtDeviceName, setMhtDeviceName] = useState(() => mhtClient.getDeviceName());
+  const [mhtPrefix, setMhtPrefix] = useState('MHT');
+
   const [connecting, setConnecting] = useState(false);
-  const [prefix, setPrefix] = useState('P');
   const [showSettings, setShowSettings] = useState(false);
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Detonger Paper Size: '40x20' (default 40x20 mm) | '40x30' (40x30 mm)
+  const [labelSize, setLabelSize] = useState(() => {
+    try {
+      return localStorage.getItem('texnobazar_detonger_label_size') || '40x20';
+    } catch {
+      return '40x20';
+    }
+  });
+
+  const handleSizeChange = (newSize) => {
+    setLabelSize(newSize);
+    try {
+      localStorage.setItem('texnobazar_detonger_label_size', newSize);
+    } catch {}
+  };
 
   // Selection & Copies
   const [printScope, setPrintScope] = useState('all'); // 'all' | 'single'
@@ -76,37 +138,69 @@ export function DetongerPrintModal({
   // Canvas preview ref
   const previewCanvasRef = useRef(null);
 
-  // Sync Bluetooth client status
+  // Sync Detonger client events
   useEffect(() => {
     setEnvInfo(getBluetoothEnvironmentInfo());
-    setStatus(detongerClient.getStatus());
-    setDeviceName(detongerClient.getDeviceName());
+    setDetongerStatus(detongerClient.getStatus());
+    setDetongerDeviceName(detongerClient.getDeviceName());
 
-    const unsubscribe = detongerClient.subscribe((event) => {
+    const unsubDetonger = detongerClient.subscribe((event) => {
       if (event.type === 'status') {
-        setStatus(event.status);
-        if (event.deviceName) setDeviceName(event.deviceName);
-        if (event.error) setError(event.error);
+        setDetongerStatus(event.status);
+        if (event.deviceName) setDetongerDeviceName(event.deviceName);
+        if (event.error && selectedPrinter === 'detonger') setError(event.error);
       } else if (event.type === 'connected') {
-        setStatus('connected');
-        setDeviceName(event.deviceName);
-        setError('');
-        setSuccessMsg(`"${event.deviceName}" ga muvaffaqiyatli ulandi!`);
-      } else if (event.type === 'progress') {
+        setDetongerStatus('connected');
+        setDetongerDeviceName(event.deviceName);
+        if (selectedPrinter === 'detonger') {
+          setError('');
+          setSuccessMsg(`"${event.deviceName}" ga muvaffaqiyatli ulandi!`);
+        }
+      } else if (event.type === 'progress' && selectedPrinter === 'detonger') {
         setProgress({ current: event.current, total: event.total, label: event.item });
-      } else if (event.type === 'print_complete') {
+      } else if (event.type === 'print_complete' && selectedPrinter === 'detonger') {
         setPrinting(false);
         setSuccessMsg(`${event.total} ta yorliq muvaffaqiyatli chop etildi!`);
-      } else if (event.type === 'error') {
+      } else if (event.type === 'error' && selectedPrinter === 'detonger') {
         setError(event.error);
         setPrinting(false);
       }
     });
 
-    return () => unsubscribe();
-  }, [open]);
+    // Sync MHT-L80G client events
+    setMhtStatus(mhtClient.getStatus());
+    setMhtDeviceName(mhtClient.getDeviceName());
 
-  // Update canvas preview when currentIndex or labels change
+    const unsubMht = mhtClient.subscribe((event) => {
+      if (event.type === 'status') {
+        setMhtStatus(event.status);
+        if (event.deviceName) setMhtDeviceName(event.deviceName);
+        if (event.error && selectedPrinter === 'mht') setError(event.error);
+      } else if (event.type === 'connected') {
+        setMhtStatus('connected');
+        setMhtDeviceName(event.deviceName);
+        if (selectedPrinter === 'mht') {
+          setError('');
+          setSuccessMsg(`"${event.deviceName}" ga muvaffaqiyatli ulandi!`);
+        }
+      } else if (event.type === 'progress' && selectedPrinter === 'mht') {
+        setProgress({ current: event.current, total: event.total, label: event.item });
+      } else if (event.type === 'print_complete' && selectedPrinter === 'mht') {
+        setPrinting(false);
+        setSuccessMsg(`${event.total} ta yorliq muvaffaqiyatli chop etildi!`);
+      } else if (event.type === 'error' && selectedPrinter === 'mht') {
+        setError(event.error);
+        setPrinting(false);
+      }
+    });
+
+    return () => {
+      unsubDetonger();
+      unsubMht();
+    };
+  }, [open, selectedPrinter]);
+
+  // Update canvas preview when currentIndex, labels, receiptDate, printer or labelSize change
   useEffect(() => {
     if (!open || !labels.length) return;
     const item = labels[currentIndex] || labels[0];
@@ -117,35 +211,66 @@ export function DetongerPrintModal({
     const color = item.color || item.variant_color || '';
     const date = item.date || item.received_at || receiptDate || new Date().toLocaleDateString('uz-UZ');
     const code = item.code || item.qr_code || '';
+    const costUsd = item.cost_usd || item.unit_cost_usd || item.costUsd || item.cost_price_usd || '';
     const qrPayload = item.qrPayload || '';
 
-    renderDetongerLabelCanvas({
-      title,
-      color,
-      date,
-      code,
-      qrPayload,
-      width: CANVAS_WIDTH_PX,
-      height: CANVAS_HEIGHT_PX,
-    }).then((canvas) => {
-      if (!isMounted || !previewCanvasRef.current) return;
-      const targetCanvas = previewCanvasRef.current;
-      targetCanvas.width = CANVAS_WIDTH_PX;
-      targetCanvas.height = CANVAS_HEIGHT_PX;
-      const ctx = targetCanvas.getContext('2d');
-      ctx.clearRect(0, 0, CANVAS_WIDTH_PX, CANVAS_HEIGHT_PX);
-      ctx.drawImage(canvas, 0, 0);
-    }).catch((err) => {
-      console.error("Preview render error:", err);
-    });
+    if (selectedPrinter === 'mht') {
+      // MHT-L80G: 58x40 mm (464x320 px)
+      renderMhtLabelCanvas({
+        title,
+        color,
+        date,
+        code,
+        costUsd,
+        qrPayload,
+        width: MHT_CANVAS_WIDTH_PX,
+        height: MHT_CANVAS_HEIGHT_PX,
+      }).then((canvas) => {
+        if (!isMounted || !previewCanvasRef.current) return;
+        const targetCanvas = previewCanvasRef.current;
+        targetCanvas.width = MHT_CANVAS_WIDTH_PX;
+        targetCanvas.height = MHT_CANVAS_HEIGHT_PX;
+        const ctx = targetCanvas.getContext('2d');
+        ctx.clearRect(0, 0, MHT_CANVAS_WIDTH_PX, MHT_CANVAS_HEIGHT_PX);
+        ctx.drawImage(canvas, 0, 0);
+      }).catch((err) => {
+        console.error("MHT preview render error:", err);
+      });
+    } else {
+      // Detonger: 40x20 or 40x30 mm
+      const sizeConfig = LABEL_SIZES[labelSize] || LABEL_SIZES['40x20'];
+      renderDetongerLabelCanvas({
+        title,
+        color,
+        date,
+        code,
+        costUsd,
+        qrPayload,
+        labelSize,
+        width: sizeConfig.widthPx,
+        height: sizeConfig.heightPx,
+      }).then((canvas) => {
+        if (!isMounted || !previewCanvasRef.current) return;
+        const targetCanvas = previewCanvasRef.current;
+        targetCanvas.width = sizeConfig.widthPx;
+        targetCanvas.height = sizeConfig.heightPx;
+        const ctx = targetCanvas.getContext('2d');
+        ctx.clearRect(0, 0, sizeConfig.widthPx, sizeConfig.heightPx);
+        ctx.drawImage(canvas, 0, 0);
+      }).catch((err) => {
+        console.error("Detonger preview render error:", err);
+      });
+    }
 
     return () => { isMounted = false; };
-  }, [open, currentIndex, labels, receiptDate]);
+  }, [open, currentIndex, labels, receiptDate, selectedPrinter, labelSize]);
 
   if (!open) return null;
 
   const currentItem = labels[currentIndex] || labels[0] || {};
-  const isConnected = status === 'connected';
+  const activeClient = selectedPrinter === 'mht' ? mhtClient : detongerClient;
+  const isConnected = selectedPrinter === 'mht' ? mhtStatus === 'connected' : detongerStatus === 'connected';
+  const currentDeviceName = selectedPrinter === 'mht' ? mhtDeviceName : detongerDeviceName;
 
   // Handle Bluetooth connect
   const handleConnect = async () => {
@@ -153,7 +278,11 @@ export function DetongerPrintModal({
     setSuccessMsg('');
     setConnecting(true);
     try {
-      await detongerClient.connect(prefix);
+      if (selectedPrinter === 'mht') {
+        await mhtClient.connect(mhtPrefix);
+      } else {
+        await detongerClient.connect(detongerPrefix);
+      }
     } catch (err) {
       if (err.name !== 'NotFoundError') { // User didn't just cancel picker
         setError(err.message || 'Printerga ulanib bo‘lmadi.');
@@ -167,7 +296,11 @@ export function DetongerPrintModal({
   const handleDisconnect = async () => {
     setError('');
     setSuccessMsg('');
-    await detongerClient.disconnect();
+    if (selectedPrinter === 'mht') {
+      await mhtClient.disconnect();
+    } else {
+      await detongerClient.disconnect();
+    }
   };
 
   const totalPrintCount = printScope === 'all'
@@ -180,7 +313,7 @@ export function DetongerPrintModal({
     setSuccessMsg('');
 
     if (!isConnected) {
-      setError("Avval printerni Bluetooth orqali ulang.");
+      setError(`Avval ${selectedPrinter === 'mht' ? 'MHT-L80G' : 'Detonger'} printerni Bluetooth orqali ulang.`);
       return;
     }
 
@@ -207,12 +340,22 @@ export function DetongerPrintModal({
     setProgress({ current: 0, total: targets.length, label: targets[0] });
 
     try {
-      await detongerClient.printLabels(targets, {
-        copies: 1,
-        onProgress: (current, total, label) => {
-          setProgress({ current, total, label });
-        }
-      });
+      if (selectedPrinter === 'mht') {
+        await mhtClient.printLabels(targets, {
+          copies: 1,
+          onProgress: (current, total, label) => {
+            setProgress({ current, total, label });
+          }
+        });
+      } else {
+        await detongerClient.printLabels(targets, {
+          copies: 1,
+          labelSize,
+          onProgress: (current, total, label) => {
+            setProgress({ current, total, label });
+          }
+        });
+      }
     } catch (err) {
       setError(err.message || 'Chop etish jarayonida xatolik yuz berdi.');
     } finally {
@@ -223,7 +366,7 @@ export function DetongerPrintModal({
   // Test feed line
   const handleFeed = async () => {
     try {
-      await detongerClient.feedLines(2);
+      await activeClient.feedLines(2);
     } catch (err) {
       setError("Lenta chiqarishda xatolik: " + err.message);
     }
@@ -247,16 +390,26 @@ export function DetongerPrintModal({
               width: 38,
               height: 38,
               borderRadius: 10,
-              background: 'linear-gradient(135deg, #f97316, #ea580c)',
+              background: selectedPrinter === 'mht'
+                ? 'linear-gradient(135deg, #0ea5e9, #0284c7)'
+                : 'linear-gradient(135deg, #f97316, #ea580c)',
               display: 'grid',
               placeItems: 'center',
-              boxShadow: '0 4px 12px rgba(249,115,22,0.4)'
+              boxShadow: selectedPrinter === 'mht'
+                ? '0 4px 12px rgba(14,165,233,0.4)'
+                : '0 4px 12px rgba(249,115,22,0.4)'
             }}>
               <Printer size={20} color="#fff" />
             </div>
             <div>
-              <b style={{ fontSize: 15, display: 'block', lineHeight: 1.2 }}>Detonger Bluetooth Chop Etish</b>
-              <small style={{ color: '#94a3b8', fontSize: 11 }}>Termoprinter yorliqlari (40 × 30 mm)</small>
+              <b style={{ fontSize: 15, display: 'block', lineHeight: 1.2 }}>
+                {selectedPrinter === 'mht' ? 'MHT-L80G Termoprinter' : 'Detonger Termoprinter'}
+              </b>
+              <small style={{ color: '#94a3b8', fontSize: 11 }}>
+                {selectedPrinter === 'mht'
+                  ? 'Katta QR kod yorliqlari (58 × 40 mm · TSPL)'
+                  : `Kichik yorliqlar (${labelSize === '40x20' ? '40 × 20 mm' : '40 × 30 mm'})`}
+              </small>
             </div>
           </div>
           <button
@@ -270,6 +423,72 @@ export function DetongerPrintModal({
         </div>
 
         <div style={{ padding: '16px 20px', maxHeight: 'calc(88vh - 75px)', overflowY: 'auto' }}>
+          {/* PRINTER SELECTOR TABS */}
+          <div style={{
+            background: '#f1f5f9',
+            padding: 4,
+            borderRadius: 12,
+            display: 'grid',
+            gridTemplateColumns: '1fr 1fr',
+            gap: 4,
+            marginBottom: 14,
+            border: '1px solid #e2e8f0'
+          }}>
+            <button
+              type="button"
+              onClick={() => handlePrinterChange('detonger')}
+              style={{
+                border: 'none',
+                padding: '9px 12px',
+                borderRadius: 9,
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                background: selectedPrinter === 'detonger' ? '#ffffff' : 'transparent',
+                color: selectedPrinter === 'detonger' ? '#ea580c' : '#64748b',
+                boxShadow: selectedPrinter === 'detonger' ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Printer size={15} />
+              <span>Detonger (40 mm)</span>
+              {detongerStatus === 'connected' && (
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a' }} />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handlePrinterChange('mht')}
+              style={{
+                border: 'none',
+                padding: '9px 12px',
+                borderRadius: 9,
+                cursor: 'pointer',
+                fontWeight: 700,
+                fontSize: 12,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6,
+                background: selectedPrinter === 'mht' ? '#ffffff' : 'transparent',
+                color: selectedPrinter === 'mht' ? '#0284c7' : '#64748b',
+                boxShadow: selectedPrinter === 'mht' ? '0 2px 8px rgba(0,0,0,0.08)' : 'none',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <Sparkles size={15} />
+              <span>MHT-L80G (58 mm)</span>
+              {mhtStatus === 'connected' && (
+                <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#16a34a' }} />
+              )}
+            </button>
+          </div>
+
           {/* Tip / Environment warning */}
           {envInfo.tip && (
             <div style={{
@@ -306,16 +525,18 @@ export function DetongerPrintModal({
                 {isConnected ? (
                   <BluetoothConnected size={20} color="#16a34a" />
                 ) : connecting ? (
-                  <RefreshCw size={20} color="#f97316" className="spin" />
+                  <RefreshCw size={20} color={selectedPrinter === 'mht' ? '#0ea5e9' : '#f97316'} className="spin" />
                 ) : (
                   <BluetoothOff size={20} color="#64748b" />
                 )}
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: isConnected ? '#166534' : 'var(--navy)' }}>
-                    {isConnected ? (deviceName || 'Detonger ulangan') : connecting ? 'Ulanmoqda...' : 'Printer ulanmagan'}
+                    {isConnected ? (currentDeviceName || `${selectedPrinter === 'mht' ? 'MHT-L80G' : 'Detonger'} ulangan`) : connecting ? 'Ulanmoqda...' : 'Printer ulanmagan'}
                   </div>
                   <div style={{ fontSize: 11, color: isConnected ? '#15803d' : 'var(--muted)' }}>
-                    {isConnected ? 'Bluetooth BLE faol (40 mm lenta)' : 'Detonger DP23/DP26/DP30/DP30S/P1/P2'}
+                    {isConnected
+                      ? (selectedPrinter === 'mht' ? 'Bluetooth BLE faol (58 × 40 mm lenta)' : 'Bluetooth BLE faol (40 mm lenta)')
+                      : (selectedPrinter === 'mht' ? 'MHT-L80G / Milestone L80 termoprinter' : 'Detonger DP23/DP26/DP30/DP30S/P1/P2')}
                   </div>
                 </div>
               </div>
@@ -348,7 +569,16 @@ export function DetongerPrintModal({
                       className="btn btn-primary"
                       disabled={connecting}
                       onClick={handleConnect}
-                      style={{ padding: '7px 14px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}
+                      style={{
+                        padding: '7px 14px',
+                        fontSize: 12,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        background: selectedPrinter === 'mht'
+                          ? 'linear-gradient(135deg, #0284c7, #0369a1)'
+                          : undefined
+                      }}
                     >
                       <Bluetooth size={14} />
                       {connecting ? 'Ulanmoqda…' : 'Bluetooth orqali ulash'}
@@ -371,22 +601,39 @@ export function DetongerPrintModal({
             {showSettings && !isConnected && (
               <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #e2e8f0' }}>
                 <label style={{ fontSize: 11, fontWeight: 600, display: 'block', marginBottom: 4 }}>
-                  Printer modeli / Bluetooth nomi prefiksi:
+                  Printer modeli / Bluetooth nomi filtri:
                 </label>
-                <select
-                  className="select"
-                  value={prefix}
-                  onChange={(e) => setPrefix(e.target.value)}
-                  style={{ fontSize: 12, padding: '6px 10px' }}
-                >
-                  {DETONGER_PREFIX_PRESETS.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.label}
-                    </option>
-                  ))}
-                </select>
+                {selectedPrinter === 'mht' ? (
+                  <select
+                    className="select"
+                    value={mhtPrefix}
+                    onChange={(e) => setMhtPrefix(e.target.value)}
+                    style={{ fontSize: 12, padding: '6px 10px', width: '100%' }}
+                  >
+                    {MHT_PREFIX_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <select
+                    className="select"
+                    value={detongerPrefix}
+                    onChange={(e) => setDetongerPrefix(e.target.value)}
+                    style={{ fontSize: 12, padding: '6px 10px', width: '100%' }}
+                  >
+                    {DETONGER_PREFIX_PRESETS.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <small style={{ color: 'var(--muted)', fontSize: 10, marginTop: 4, display: 'block' }}>
-                  Standart Detonger printerlar uchun 'P' (P1, P2) yoki 'DP' (DP23, DP30S...) mos keladi.
+                  {selectedPrinter === 'mht'
+                    ? "MHT-L80G uchun odatda 'MHT' yoki 'L80' prefiksi mos keladi."
+                    : "Standart Detonger printerlar uchun 'P' (P1, P2) yoki 'DP' (DP23, DP30S...) mos keladi."}
                 </small>
               </div>
             )}
@@ -429,7 +676,98 @@ export function DetongerPrintModal({
             </div>
           )}
 
-          {/* Live 40x30 mm Canvas Label Preview */}
+          {/* Paper Size Selector (Detonger) vs Paper Size Info (MHT-L80G) */}
+          {selectedPrinter === 'detonger' ? (
+            <div style={{
+              background: '#ffffff',
+              border: '1.5px solid #e2e8f0',
+              borderRadius: 14,
+              padding: '10px 14px',
+              marginBottom: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10
+            }}>
+              <div>
+                <b style={{ fontSize: 13, display: 'block', color: 'var(--navy)' }}>Detonger qog‘oz o‘lchami</b>
+                <small style={{ color: 'var(--muted)', fontSize: 11 }}>
+                  {labelSize === '40x20' ? '40 × 20 mm (Kichik — 60% QR kod, yonida kod, tannarx va sana)' : '40 × 30 mm (Standart — katta markaziy QR kod)'}
+                </small>
+              </div>
+              <div style={{ display: 'flex', gap: 6, background: '#f1f5f9', padding: 3, borderRadius: 10 }}>
+                <button
+                  type="button"
+                  className={`btn ${labelSize === '40x20' ? 'btn-primary' : ''}`}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: 'none',
+                    background: labelSize === '40x20' ? '#2563eb' : 'transparent',
+                    color: labelSize === '40x20' ? '#fff' : '#475569',
+                    boxShadow: labelSize === '40x20' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none'
+                  }}
+                  onClick={() => handleSizeChange('40x20')}
+                >
+                  40 × 20 mm
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${labelSize === '40x30' ? 'btn-primary' : ''}`}
+                  style={{
+                    padding: '6px 12px',
+                    fontSize: 12,
+                    fontWeight: 700,
+                    borderRadius: 8,
+                    border: 'none',
+                    background: labelSize === '40x30' ? '#2563eb' : 'transparent',
+                    color: labelSize === '40x30' ? '#fff' : '#475569',
+                    boxShadow: labelSize === '40x30' ? '0 2px 6px rgba(37,99,235,0.3)' : 'none'
+                  }}
+                  onClick={() => handleSizeChange('40x30')}
+                >
+                  40 × 30 mm
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{
+              background: '#f0f9ff',
+              border: '1.5px solid #bae6fd',
+              borderRadius: 14,
+              padding: '10px 14px',
+              marginBottom: 12,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 10
+            }}>
+              <div>
+                <b style={{ fontSize: 13, display: 'block', color: '#0369a1' }}>
+                  MHT-L80G qog‘oz o‘lchami: 58 × 40 mm
+                </b>
+                <small style={{ color: '#0284c7', fontSize: 11 }}>
+                  Kattaroq QR kod (252 px), tovar qidiruv kodi, USD tannarx ($ siz) va qabul sanasi
+                </small>
+              </div>
+              <span style={{
+                background: '#0284c7',
+                color: '#ffffff',
+                fontWeight: 800,
+                fontSize: 12,
+                padding: '4px 10px',
+                borderRadius: 8,
+                letterSpacing: '0.3px',
+                boxShadow: '0 2px 6px rgba(2,132,199,0.3)'
+              }}>
+                58 × 40 mm
+              </span>
+            </div>
+          )}
+
+          {/* Live Canvas Label Preview */}
           <div style={{
             background: '#f8fafc',
             border: '1px solid #e2e8f0',
@@ -439,7 +777,9 @@ export function DetongerPrintModal({
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--navy)' }}>
-                40 × 30 mm Yorliq oldindan ko‘rish
+                {selectedPrinter === 'mht'
+                  ? 'MHT-L80G (58 × 40 mm) Yorliq oldindan ko‘rish'
+                  : (labelSize === '40x20' ? 'Detonger (40 × 20 mm) Yorliq oldindan ko‘rish' : 'Detonger (40 × 30 mm) Yorliq oldindan ko‘rish')}
               </div>
               {labels.length > 1 && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -482,11 +822,16 @@ export function DetongerPrintModal({
                 boxShadow: '0 4px 14px rgba(0,0,0,0.18)',
                 borderRadius: 4,
                 overflow: 'hidden',
-                width: 260,
-                height: 195, // 4:3 aspect ratio matching 320x240
+                width: selectedPrinter === 'mht'
+                  ? 290
+                  : (labelSize === '40x20' ? 280 : 260),
+                height: selectedPrinter === 'mht'
+                  ? 200 // 58:40 aspect ratio (464:320 = 1.45) -> 290 / 1.45 = 200
+                  : (labelSize === '40x20' ? 140 : 195),
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'center'
+                justifyContent: 'center',
+                transition: 'all 0.2s ease'
               }}>
                 <canvas
                   ref={previewCanvasRef}
@@ -635,23 +980,23 @@ export function DetongerPrintModal({
               marginBottom: 14
             }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: '#c2410c' }}>
-                  Chop etilmoqda: {progress.current} / {progress.total} dona
+                <span style={{ fontSize: 12, fontWeight: 700, color: selectedPrinter === 'mht' ? '#0369a1' : '#c2410c' }}>
+                  Chop etilmoqda ({selectedPrinter === 'mht' ? 'MHT-L80G' : 'Detonger'}): {progress.current} / {progress.total} dona
                 </span>
-                <span style={{ fontSize: 11, fontWeight: 800, color: '#ea580c' }}>
+                <span style={{ fontSize: 11, fontWeight: 800, color: selectedPrinter === 'mht' ? '#0284c7' : '#ea580c' }}>
                   {Math.round((progress.current / Math.max(1, progress.total)) * 100)}%
                 </span>
               </div>
-              <div style={{ height: 6, background: '#fed7aa', borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ height: 6, background: '#e2e8f0', borderRadius: 99, overflow: 'hidden' }}>
                 <div style={{
                   height: '100%',
-                  background: '#f97316',
+                  background: selectedPrinter === 'mht' ? '#0284c7' : '#f97316',
                   width: `${(progress.current / Math.max(1, progress.total)) * 100}%`,
                   transition: 'width 0.2s ease'
                 }} />
               </div>
               {progress.label && (
-                <div style={{ fontSize: 11, color: '#7c2d12', marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <div style={{ fontSize: 11, color: '#334155', marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   Hozirgi: {progress.label.title || progress.label.product_name} ({progress.label.code || progress.label.qr_code})
                 </div>
               )}
@@ -673,14 +1018,18 @@ export function DetongerPrintModal({
                 alignItems: 'center',
                 justifyContent: 'center',
                 gap: 8,
-                background: isConnected ? 'linear-gradient(135deg, #f97316, #ea580c)' : undefined
+                background: isConnected
+                  ? (selectedPrinter === 'mht'
+                      ? 'linear-gradient(135deg, #0284c7, #0369a1)'
+                      : 'linear-gradient(135deg, #f97316, #ea580c)')
+                  : undefined
               }}
             >
               <Printer size={18} />
               {printing
                 ? 'Chop etilmoqda…'
                 : isConnected
-                ? `Detonger orqali chop etish (${totalPrintCount} dona)`
+                ? `${selectedPrinter === 'mht' ? 'MHT-L80G (58x40)' : 'Detonger'} orqali chop etish (${totalPrintCount} dona)`
                 : `Bluetooth orqali ulash va chop etish (${totalPrintCount} dona)`}
             </button>
 
@@ -702,3 +1051,6 @@ export function DetongerPrintModal({
     </div>
   );
 }
+
+// Also export alias ThermalPrintModal for consistency
+export const ThermalPrintModal = DetongerPrintModal;

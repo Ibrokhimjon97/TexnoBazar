@@ -21,6 +21,7 @@ export * from './mediaCompress.js';
 export * from './backup.js';
 export * from './attendance.js';
 export * from './date.js';
+export * from './apiBase.js';
 export {
   getBackupSummary,
   exportBackupArchive,

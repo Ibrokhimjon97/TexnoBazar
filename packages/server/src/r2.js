@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 
 export const ALLOWED_MEDIA_TYPES = Object.freeze({
   'image/jpeg': 'jpg',
+  'image/jpg': 'jpg',
   'image/png': 'png',
   'image/webp': 'webp',
   'image/avif': 'avif',

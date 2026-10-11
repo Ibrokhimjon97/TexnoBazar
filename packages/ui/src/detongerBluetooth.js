@@ -12,6 +12,25 @@ export const LABEL_DPI = 203; // Standard for Detonger DP23/DP30S/DP26 (8 dots/m
 export const CANVAS_WIDTH_PX = 320; // 40mm * 8 dots/mm
 export const CANVAS_HEIGHT_PX = 240; // 30mm * 8 dots/mm
 
+export const LABEL_SIZES = {
+  '40x20': {
+    id: '40x20',
+    label: '40 x 20 mm (Kichik qog‘oz)',
+    widthMm: 40,
+    heightMm: 20,
+    widthPx: 320,
+    heightPx: 160,
+  },
+  '40x30': {
+    id: '40x30',
+    label: '40 x 30 mm (Standart qog‘oz)',
+    widthMm: 40,
+    heightMm: 30,
+    widthPx: 320,
+    heightPx: 240,
+  },
+};
+
 export const DETONGER_PREFIX_PRESETS = [
   { id: 'P', label: 'Detonger P seriyasi (P1, P2) - Standart' },
   { id: 'DP', label: 'Detonger DP seriyasi (DP23, DP26, DP30, DP30S)' },
@@ -68,7 +87,7 @@ export function getBluetoothEnvironmentInfo() {
 /**
  * Helper to split text into lines matching a max pixel width
  */
-function wrapTextLines(ctx, text, maxWidth) {
+function wrapTextLines(ctx, text, maxWidth, maxLines = 2) {
   const words = String(text || '').trim().split(/\s+/);
   if (!words.length || !words[0]) return [];
 
@@ -83,41 +102,63 @@ function wrapTextLines(ctx, text, maxWidth) {
     } else {
       lines.push(currentLine);
       currentLine = word;
-      if (lines.length >= 2) break; // Limit to 2 lines max
+      if (lines.length >= maxLines) break;
     }
   }
   lines.push(currentLine);
-  return lines.slice(0, 2);
+  return lines.slice(0, maxLines);
 }
 
 /**
- * Render a high-contrast 40x30 mm (320x240 px) label onto an HTMLCanvasElement
+ * Format USD cost into clean number string with NO dollar symbol ($)
+ */
+export function formatDollarFreeCost(value) {
+  if (value == null || value === '') return '';
+  const num = Number(value);
+  if (isNaN(num) || num <= 0) return '';
+  return num % 1 === 0 ? String(num) : num.toFixed(2);
+}
+
+/**
+ * Render a high-contrast label onto an HTMLCanvasElement
+ * Supports '40x20' (320x160 px) and '40x30' (320x240 px)
  */
 export async function renderDetongerLabelCanvas({
   title = 'Mahsulot',
   color = '',
   date = '',
   code = '',
+  costUsd = '',
   qrPayload = '',
   storefrontUrl = '',
-  width = CANVAS_WIDTH_PX,
-  height = CANVAS_HEIGHT_PX,
+  labelSize = '40x20',
+  width,
+  height,
 }) {
+  const sizeConfig = LABEL_SIZES[labelSize] || LABEL_SIZES['40x20'];
+  const canvasWidth = width || sizeConfig.widthPx;
+  const canvasHeight = height || sizeConfig.heightPx;
+
   const canvas = document.createElement('canvas');
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = canvasWidth;
+  canvas.height = canvasHeight;
 
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error("Canvas 2D context mavjud emas");
 
   // Pure white thermal paper background
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(0, 0, width, height);
+  ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-  // Generate QR code data URL
-  const qrTarget = qrPayload || (
-    (storefrontUrl || 'https://texnobazar-storefront.netlify.app') + '/qr/' + encodeURIComponent(code || '')
-  );
+  // Clean dollar-free cost number string (hech qanday $ yoki USD belgisi bo'lmaydi)
+  const costStr = formatDollarFreeCost(costUsd);
+  const costParam = costStr ? `?c=${encodeURIComponent(costStr)}` : '';
+
+  // Generate QR code target URL / payload
+  const defaultBaseUrl = storefrontUrl || 'https://texnobazar-storefront.netlify.app';
+  const qrTarget = qrPayload
+    ? (costStr && !qrPayload.includes('c=') ? `${qrPayload}${qrPayload.includes('?') ? '&' : '?'}c=${encodeURIComponent(costStr)}` : qrPayload)
+    : `${defaultBaseUrl}/qr/${encodeURIComponent(code || '')}${costParam}`;
 
   const qrDataUrl = await QRCode.toDataURL(qrTarget, {
     width: 240,
@@ -129,7 +170,7 @@ export async function renderDetongerLabelCanvas({
     }
   });
 
-  // Load and draw QR code onto canvas
+  // Load QR image
   const qrImg = new Image();
   await new Promise((resolve, reject) => {
     qrImg.onload = resolve;
@@ -137,59 +178,155 @@ export async function renderDetongerLabelCanvas({
     qrImg.src = qrDataUrl;
   });
 
-  // Layout for 40x30 mm (320x240 dots)
-  // Large QR Code: 142x142 dots, centered horizontally at top
+  const displayCode = String(code || '').trim();
+  const displayDate = String(date || '').trim() || new Date().toLocaleDateSt  // ==========================================
+  // LAYOUT 1: 40x20 mm (320 x 160 px)
+  // 60% qismi (chap): Katta QR kod (~144 px)
+  // 40% qismi (o'ng): Tovar kodi badge, tannarx ($ siz), sana
+  // ==========================================
+  if (labelSize === '40x20') {
+    // 60% qismga QR kod (144x144 px, o'lchami o'zgarmaydi)
+    const qrSize = 144;
+    const qrX = 10;
+    const qrY = 8;
+    ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
+
+    // O'ng tomon text maydoni: x = 160 dan 312 gacha (kenglik ~152 px)
+    const rightX = 160;
+    const rightW = canvasWidth - rightX - 8;
+
+    // 1. Tovar nomi (1 qator ixcham)
+    const fullTitle = `${title}${color ? ` (${color})` : ''}`.trim();
+    ctx.fillStyle = '#000000';
+    ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    const lines = wrapTextLines(ctx, fullTitle, rightW, 1);
+    if (lines.length > 0) {
+      ctx.fillText(lines[0], rightX, 10);
+    }
+
+    // 2. Tovar kodi (QR o'qilmasa terib izlanadigan kod) - kattaroq shriftli ramka
+    let codeFontSize = 24;
+    if (displayCode.length <= 6) {
+      codeFontSize = 24;
+    } else if (displayCode.length <= 8) {
+      codeFontSize = 21;
+    } else if (displayCode.length <= 10) {
+      codeFontSize = 19;
+    } else if (displayCode.length <= 13) {
+      codeFontSize = 16;
+    } else {
+      codeFontSize = 13;
+    }
+
+    ctx.font = `900 ${codeFontSize}px "Courier New", monospace`;
+    while (ctx.measureText(displayCode).width > (rightW - 12) && codeFontSize > 11) {
+      codeFontSize -= 1;
+      ctx.font = `900 ${codeFontSize}px "Courier New", monospace`;
+    }
+
+    const badgeX = rightX;
+    const badgeY = 26;
+    const badgeW = rightW;
+    const badgeH = 36;
+
+    ctx.strokeStyle = '#000000';
+    ctx.lineWidth = 2.0;
+    if (typeof ctx.roundRect === 'function') {
+      ctx.beginPath();
+      ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 5);
+      ctx.stroke();
+    } else {
+      ctx.strokeRect(badgeX, badgeY, badgeW, badgeH);
+    }
+
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#000000';
+    ctx.font = `900 ${codeFontSize}px "Courier New", monospace`;
+    ctx.fillText(displayCode, badgeX + badgeW / 2, badgeY + badgeH / 2);
+
+    // 3. Tannarx (dollar belgisisiz, bo'sh joyga mos kattaroq va ko'rinarli raqam)
+    if (costStr) {
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#000000';
+      let costFontSize = 24;
+      ctx.font = `900 ${costFontSize}px "Courier New", monospace`;
+      while (ctx.measureText(costStr).width > rightW && costFontSize > 15) {
+        costFontSize -= 1;
+        ctx.font = `900 ${costFontSize}px "Courier New", monospace`;
+      }
+      ctx.fillText(costStr, rightX, 98);
+    }
+
+    // 4. Sana (pastki qismda)
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#000000';
+    ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText(displayDate, rightX, 146);
+
+    return canvas;
+  }
+
+  // ==========================================
+  // LAYOUT 2: 40x30 mm (320 x 240 px)
+  // Yuqorida: Katta QR kod (142x142 px)
+  // O'rtada: Tovar nomi (1-2 qator)
+  // Pastda: Qidiruv kodi badge, sana va dollar belgisisiz kattaroq tannarx
+  // ==========================================
   const qrSize = 142;
-  const qrX = Math.round((width - qrSize) / 2);
+  const qrX = Math.round((canvasWidth - qrSize) / 2);
   const qrY = 2;
   ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
 
-  // Product title + Color (large, positioned comfortably lower)
+  // Tovar nomi + Rangi
   const fullTitle = `${title}${color ? ` (${color})` : ''}`.trim();
   ctx.fillStyle = '#000000';
   ctx.font = '800 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
 
-  const titleMaxWidth = width - 16;
-  const lines = wrapTextLines(ctx, fullTitle, titleMaxWidth);
+  const titleMaxWidth = canvasWidth - 16;
+  const lines = wrapTextLines(ctx, fullTitle, titleMaxWidth, 2);
 
   if (lines.length === 1) {
-    ctx.fillText(lines[0], width / 2, 165);
+    ctx.fillText(lines[0], canvasWidth / 2, 165);
   } else if (lines.length >= 2) {
-    ctx.fillText(lines[0], width / 2, 155);
-    ctx.fillText(lines[1], width / 2, 170);
+    ctx.fillText(lines[0], canvasWidth / 2, 155);
+    ctx.fillText(lines[1], canvasWidth / 2, 170);
   }
 
-  // Bottom row: Sana (Date on left) and Maxsus Kod (Search Code on right in bold badge)
-  const displayCode = String(code || '').trim();
-  let codeFontSize = 24;
+  // Pastki qator: Qidiruv kodi badge (o'ngda)
+  let codeFontSize = 26;
   if (displayCode.length <= 6) {
-    codeFontSize = 24;
+    codeFontSize = 26;
   } else if (displayCode.length <= 8) {
-    codeFontSize = 21;
+    codeFontSize = 23;
   } else if (displayCode.length <= 11) {
-    codeFontSize = 18;
+    codeFontSize = 20;
   } else if (displayCode.length <= 15) {
-    codeFontSize = 15;
+    codeFontSize = 17;
   } else {
-    codeFontSize = 12;
+    codeFontSize = 14;
   }
 
   ctx.font = `900 ${codeFontSize}px "Courier New", monospace`;
-  while (ctx.measureText(displayCode).width > 125 && codeFontSize > 10) {
+  while (ctx.measureText(displayCode).width > 125 && codeFontSize > 11) {
     codeFontSize -= 1;
     ctx.font = `900 ${codeFontSize}px "Courier New", monospace`;
   }
 
   const codeTextWidth = ctx.measureText(displayCode).width;
   const badgeW = Math.min(145, Math.max(90, Math.round(codeTextWidth + 24)));
-  const badgeH = 44;
-  const badgeX = width - badgeW - 10;
-  const badgeY = 182;
+  const badgeH = 46;
+  const badgeX = canvasWidth - badgeW - 10;
+  const badgeY = 180;
 
-  // Crisp rounded border badge for the manual search code
   ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 1.8;
+  ctx.lineWidth = 2.0;
   if (typeof ctx.roundRect === 'function') {
     ctx.beginPath();
     ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 6);
@@ -198,17 +335,23 @@ export async function renderDetongerLabelCanvas({
     ctx.strokeRect(badgeX, badgeY, badgeW, badgeH);
   }
 
-  // Draw the manual search code inside badge
   ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
   ctx.fillStyle = '#000000';
   ctx.font = `900 ${codeFontSize}px "Courier New", monospace`;
-  ctx.fillText(displayCode, badgeX + badgeW / 2, badgeY + 29);
+  ctx.fillText(displayCode, badgeX + badgeW / 2, badgeY + badgeH / 2);
 
-  // Sana (Date) on the left
+  // Sana va Tannarx ($ siz) chap tomonda
   ctx.textAlign = 'left';
-  ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  const displayDate = String(date || '').trim() || new Date().toLocaleDateString('uz-UZ');
-  ctx.fillText(`Sana: ${displayDate}`, 12, badgeY + 27);
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = '700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+  ctx.fillText(`Sana: ${displayDate}`, 12, badgeY + 16);
+
+  if (costStr) {
+    let costFontSize = 22;
+    ctx.font = `900 ${costFontSize}px "Courier New", monospace`;
+    ctx.fillText(costStr, 12, badgeY + 41);
+  }
 
   return canvas;
 }
@@ -370,14 +513,19 @@ export class DetongerBluetoothClient {
     for (let i = 0; i < labels.length; i++) {
       const item = labels[i];
 
-      // Render 40x30 mm label on canvas
+      const labelSize = options.labelSize || item.labelSize || '40x20';
+      const costUsd = item.cost_usd || item.unit_cost_usd || item.costUsd || item.cost_price_usd || '';
+
+      // Render label on canvas
       const canvas = await renderDetongerLabelCanvas({
         title: item.title || item.product_name || 'Mahsulot',
         color: item.color || item.variant_color || '',
         date: item.date || item.received_at || '',
         code: item.code || item.qr_code || '',
+        costUsd,
         qrPayload: item.qrPayload || '',
         storefrontUrl: options.storefrontUrl || '',
+        labelSize,
       });
 
       for (let c = 0; c < copies; c++) {

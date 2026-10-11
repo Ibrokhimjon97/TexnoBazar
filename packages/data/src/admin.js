@@ -1,8 +1,9 @@
 import { getAccessToken,getBrowserClient } from './auth.js';
 import { throwDataError } from './errors.js';
 import { compressImageFile } from './mediaCompress.js';
+import { getApiBase } from './products.js';
 async function rpc(name,args={}){const{data,error}=await getBrowserClient().rpc(name,args);if(error)throwDataError(error,name);return data}
-async function api(path,body){const token=await getAccessToken();if(!token)throw new Error('Sessiya topilmadi.');const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify(body)}),result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||'Server amali bajarilmadi.');return result}
+async function api(path,body){const token=await getAccessToken();if(!token)throw new Error('Sessiya topilmadi.');const base=getApiBase();const response=await fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify(body)}),result=await response.json().catch(()=>({}));if(!response.ok)throw new Error(result.error||'Server amali bajarilmadi.');return result}
 export const getManagementDashboard=({from,to,branchId=null})=>rpc('get_management_dashboard',{p_from:from,p_to:to,p_branch_id:branchId});
 export const getAdminDashboardMetrics=({from=null,to=null}={})=>rpc('get_admin_dashboard_metrics',{p_from:from||null,p_to:to||null});
 export const queryAuditLog=({table=null,entityId=null,actorId=null,from=null,to=null,page=1,pageSize=100}={})=>rpc('query_audit_log',{p_table:table,p_entity_id:entityId,p_actor_id:actorId,p_from:from,p_to:to,p_limit:pageSize,p_offset:(page-1)*pageSize});
@@ -15,7 +16,7 @@ export const reportProfitLoss=(from,to,branchId=null)=>rpc('report_profit_loss',
 export const reportSellerPerformance=(from,to,branchId=null)=>rpc('report_seller_performance',{p_from:from,p_to:to,p_branch_id:branchId});
 export const reportProductPerformance=(from,to,branchId=null)=>rpc('report_product_performance',{p_from:from,p_to:to,p_branch_id:branchId});
 export const reportInventoryCounts=(from,to,branchId=null)=>rpc('report_inventory_count_rows',{p_from:from,p_to:to,p_branch_id:branchId});
-export const deleteReportRows=(type,identifiers)=>rpc('delete_report_rows',{p_type:type,p_identifiers:Array.isArray(identifiers)?identifiers:[identifiers]});
+export const deleteReportRows=(type,identifiers,restoreStock=true)=>rpc('delete_report_rows',{p_type:type,p_identifiers:Array.isArray(identifiers)?identifiers:[identifiers],p_restore_stock:restoreStock});
 export const listNotifications=({unreadOnly=false,page=1,pageSize=50}={})=>rpc('list_notifications',{p_unread_only:unreadOnly,p_limit:pageSize,p_offset:(page-1)*pageSize});
 export const markNotificationsRead=(ids=null)=>rpc('mark_notifications_read',{p_ids:ids});
 const cmsTables={pages:'cms_pages',banners:'cms_banners',promotions:'cms_promotions',home_blocks:'cms_home_blocks',menu_items:'cms_menu_items'};

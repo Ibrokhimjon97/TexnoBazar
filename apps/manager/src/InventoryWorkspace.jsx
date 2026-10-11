@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{createPortal}from'react-dom';
-import{AlertTriangle,ArrowRight,Bluetooth,Boxes,Calendar,CheckCircle2,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
+import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,CheckCircle2,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal}from'@texnobazar/ui';
 import QRCode from'qrcode';
 import RichTextEditor from'./RichTextEditor';
@@ -11,7 +11,7 @@ const err=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 // qolganlari esa oddiy yetkazib berish partiyasi.
 const isInventoryReceipt=receiptNo=>/^INV-/i.test(String(receiptNo||'').trim());
 export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInventory,toast}){
-  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[query,setQuery]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
+  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[aggregates,setAggregates]=useState({totalUnits:0,totalCost:0,totalMinPrice:0,batchCount:0,invCount:0}),[query,setQuery]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[locationFilter,setLocationFilter]=useState('all'),[locations,setLocations]=useState([]),[sortBy,setSortBy]=useState('newest'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
   const[passwordModal,setPasswordModal]=useState(null);
   const[selectedDate,setSelectedDate]=useState(null);
   const[calMonth,setCalMonth]=useState(()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1)});
@@ -19,6 +19,11 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   const[exportingAll,setExportingAll]=useState(false);
   const[exportingId,setExportingId]=useState(null);
   const[restoreModalOpen,setRestoreModalOpen]=useState(false);
+
+  useEffect(()=>{
+    if(!branchId)return;
+    getInventoryReferences(branchId).then(r=>setLocations(r.locations||[])).catch(()=>{});
+  },[branchId]);
 
   const handleExportAll=async()=>{
     setExportingAll(true);
@@ -44,8 +49,30 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     }
   };
   useEffect(()=>{getLatestExchangeRate().then(r=>setRate(Number(r)||null)).catch(()=>{})},[]);
-  const load=async()=>{if(!branchId)return;setLoading(true);setError('');try{const r=await listStockReceipts({branchId,query,pageSize:100});setRows(r.items||[]);setTotal(Number(r.total)||0)}catch(e){setError(err(e))}finally{setLoading(false)}};
-  useEffect(()=>{const t=setTimeout(load,query?250:0);return()=>clearTimeout(t)},[branchId,query]);
+  const load=async()=>{
+    if(!branchId)return;
+    setLoading(true);
+    setError('');
+    try{
+      const locId = locationFilter === 'all' ? null : locationFilter;
+      const r = await listStockReceipts({branchId, locationId: locId, query, pageSize: 200});
+      const items = r.items || [];
+      setRows(items);
+      setTotal(Number(r.total) || 0);
+      setAggregates({
+        totalUnits: Number(r.total_units ?? items.reduce((s, x) => s + Number(x.unit_count || 0), 0)),
+        totalCost: Number(r.total_cost ?? items.reduce((s, x) => s + Number(x.total_cost || 0), 0)),
+        totalMinPrice: Number(r.total_min_price ?? items.reduce((s, x) => s + Number(x.total_min_price || 0), 0)),
+        batchCount: Number(r.batch_count ?? items.filter(x => !isInventoryReceipt(x.receipt_no)).length),
+        invCount: Number(r.inv_count ?? items.filter(x => isInventoryReceipt(x.receipt_no)).length),
+      });
+    }catch(e){
+      setError(err(e));
+    }finally{
+      setLoading(false);
+    }
+  };
+  useEffect(()=>{const t=setTimeout(load,query?250:0);return()=>clearTimeout(t)},[branchId,query,locationFilter]);
   const open=async(id,isEdit=false)=>{try{setDetail(await getStockReceipt(id));setDetailEdit(Boolean(isEdit));}catch(e){setError(err(e))}};
   const deleteBatch=async(id,receiptNo,password=null)=>{
     const cleanPassword = typeof password === 'string' ? password.trim() : null;
@@ -85,17 +112,50 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   const batchDatesSet=useMemo(()=>{const set=new Set();rows.forEach(x=>{if(x.received_at){const d=new Date(x.received_at);set.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`)}});return set},[rows]);
   const batchCount=useMemo(()=>rows.filter(x=>!isInventoryReceipt(x.receipt_no)).length,[rows]);
   const invCount=useMemo(()=>rows.filter(x=>isInventoryReceipt(x.receipt_no)).length,[rows]);
+  const totalCostAll=useMemo(()=>rows.reduce((s,x)=>s+Number(x.total_cost||0),0),[rows]);
+  const totalMinAll=useMemo(()=>rows.reduce((s,x)=>s+Number(x.total_min_price||0),0),[rows]);
   const displayRows=useMemo(()=>{
     return rows.filter(x=>{
       if(typeFilter==='batch'&&isInventoryReceipt(x.receipt_no))return false;
       if(typeFilter==='inventory'&&!isInventoryReceipt(x.receipt_no))return false;
+      if(locationFilter!=='all'&&x.receiving_location_id!==locationFilter)return false;
       if(selectedDate){
         const d=new Date(x.received_at);
         if(d.getFullYear()!==selectedDate.getFullYear()||d.getMonth()!==selectedDate.getMonth()||d.getDate()!==selectedDate.getDate())return false;
       }
       return true;
     });
-  },[rows,selectedDate,typeFilter]);
+  },[rows,selectedDate,typeFilter,locationFilter]);
+
+  const sortedRows=useMemo(()=>{
+    const list=[...displayRows];
+    list.sort((a,b)=>{
+      if(sortBy==='newest'){
+        const tA=new Date(a.created_at||a.received_at||0).getTime();
+        const tB=new Date(b.created_at||b.received_at||0).getTime();
+        if(tB!==tA)return tB-tA;
+        return String(b.receipt_no||'').localeCompare(String(a.receipt_no||''));
+      }
+      if(sortBy==='oldest'){
+        const tA=new Date(a.created_at||a.received_at||0).getTime();
+        const tB=new Date(b.created_at||b.received_at||0).getTime();
+        if(tA!==tB)return tA-tB;
+        return String(a.receipt_no||'').localeCompare(String(b.receipt_no||''));
+      }
+      if(sortBy==='units_desc'){
+        return(Number(b.unit_count)||0)-(Number(a.unit_count)||0);
+      }
+      if(sortBy==='cost_desc'){
+        return(Number(b.total_cost)||0)-(Number(a.total_cost)||0);
+      }
+      if(sortBy==='receipt_no'){
+        return String(a.receipt_no||'').localeCompare(String(b.receipt_no||''));
+      }
+      return 0;
+    });
+    return list;
+  },[displayRows,sortBy]);
+
   const handleDateClick=(date)=>{if(selectedDate&&selectedDate.getFullYear()===date.getFullYear()&&selectedDate.getMonth()===date.getMonth()&&selectedDate.getDate()===date.getDate()){setSelectedDate(null)}else{setSelectedDate(date)}};
   const handleCreateBatch=onCreateBatch||onCreate;
   const handleCreateInventory=onCreateInventory||onCreate;
@@ -123,11 +183,13 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   </div>
   <div className="batch-stats">
     <div><b>{total}</b><span>Jami yozuvlar</span></div>
-    <div><b>{batchCount}</b><span>Kirim partiyalari</span></div>
-    <div><b>{invCount}</b><span>Inventarizatsiyalar</span></div>
-    <div><b>{rows.reduce((s,x)=>s+Number(x.unit_count),0)}</b><span>Jami birliklar</span></div>
+    <div><b>{aggregates.batchCount ?? batchCount}</b><span>Kirim partiyalari</span></div>
+    <div><b>{aggregates.invCount ?? invCount}</b><span>Inventarizatsiyalar</span></div>
+    <div><b>{aggregates.totalUnits ?? rows.reduce((s,x)=>s+Number(x.unit_count),0)}</b><span>Jami birliklar</span></div>
+    <div><b><DualPrice value={aggregates.totalCost || totalCostAll} rate={rate}/></b><span>Barcha tovarlar tan narxi</span></div>
+    <div><b><DualPrice value={aggregates.totalMinPrice || totalMinAll} rate={rate}/></b><span>Barcha tovarlar min. sotish</span></div>
   </div>
-  <div className="batch-origin-tabs" style={{display:'flex',gap:8,margin:'14px 0',flexWrap:'wrap'}}>
+  <div className="batch-origin-tabs">
     <button type="button" className={`btn ${typeFilter==='all'?'btn-primary':'btn-outline'}`} onClick={()=>setTypeFilter('all')}>
       Barchasi ({rows.length})
     </button>
@@ -139,15 +201,72 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     </button>
   </div>
   <BatchCalendar month={calMonth} setMonth={setCalMonth} batchDates={batchDatesSet} selectedDate={selectedDate} onDateClick={handleDateClick}/>
-  {selectedDate&&<div className="batch-date-filter"><Calendar size={15}/><span>{formatUzDate(selectedDate, { day: true, month: 'long', year: true })} — {displayRows.length} ta yozuv</span><button className="btn" onClick={()=>setSelectedDate(null)}><X size={14}/>Tozalash</button></div>}
-  <div className="mobile-search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Partiya yoki invoice raqami, ta'minotchi..."/></div>
-  {loading?<div className="inventory-state">Yuklanmoqda…</div>:error?<ErrorState message={error} retry={load}/>:displayRows.length===0?<Empty title={selectedDate?"Bu kunda partiya yoki inventarizatsiya yo‘q":"Hech narsa topilmadi"} text={selectedDate?"Boshqa kunni tanlang yoki filtrni tozalang.":"Yangi partiya yoki inventarizatsiya yarating."}/>:<div className="batch-list">{displayRows.map(x=>{
+  {selectedDate&&<div className="batch-date-filter"><Calendar size={15}/><span>{formatUzDate(selectedDate, { day: true, month: 'long', year: true })} — {sortedRows.length} ta yozuv</span><button className="btn" onClick={()=>setSelectedDate(null)}><X size={14}/>Tozalash</button></div>}
+  <div className="batch-filters-row" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:12}}>
+    <div className="mobile-search batch-filter-search" style={{flex:1,minWidth:220,margin:0}}>
+      <Search/>
+      <input
+        value={query}
+        onChange={e=>setQuery(e.target.value)}
+        placeholder="Tovar nomi, SKU, partiya raqami, ta'minotchi..."
+      />
+    </div>
+    <div className="batch-filter-pill" style={{display:'flex',alignItems:'center',gap:6,background:'#fff',padding:'5px 12px',borderRadius:12,border:'1px solid var(--line,#e2e8f0)',fontSize:13}}>
+      <MapPin size={15} style={{color:'var(--orange,#ea580c)'}}/>
+      <span style={{fontSize:12,color:'var(--muted)',fontWeight:600}}>Joylashuv:</span>
+      <select
+        className="select"
+        style={{border:'none',padding:'3px 6px',fontSize:13,background:'transparent',cursor:'pointer',fontWeight:700,color:'var(--navy,#0f172a)'}}
+        value={locationFilter}
+        onChange={e=>setLocationFilter(e.target.value)}
+      >
+        <option value="all">Barcha joylashuvlar ({rows.length})</option>
+        {locations.map(loc=>{
+          const count = rows.filter(r => r.receiving_location_id === loc.id).length;
+          return (
+            <option key={loc.id} value={loc.id}>
+              {loc.name} {loc.type === 'warehouse' ? '(Ombor)' : '(Do‘kon)'} ({count})
+            </option>
+          );
+        })}
+      </select>
+    </div>
+    <div className="batch-filter-pill" style={{display:'flex',alignItems:'center',gap:6,background:'#fff',padding:'5px 12px',borderRadius:12,border:'1px solid var(--line,#e2e8f0)',fontSize:13}}>
+      <ArrowUpDown size={15} style={{color:'var(--muted)'}}/>
+      <span style={{fontSize:12,color:'var(--muted)',fontWeight:600}}>Saralash:</span>
+      <select className="select" style={{border:'none',padding:'3px 6px',fontSize:13,background:'transparent',cursor:'pointer',fontWeight:700,color:'var(--navy,#0f172a)'}} value={sortBy} onChange={e=>setSortBy(e.target.value)}>
+        <option value="newest">Eng yangi (oxirgi yaratilgan)</option>
+        <option value="oldest">Eng avvalgi</option>
+        <option value="units_desc">Birliklar (ko‘pdan ozga)</option>
+        <option value="cost_desc">Tan narxi (yuqoridan pastga)</option>
+        <option value="receipt_no">Hujjat raqami bo‘yicha</option>
+      </select>
+    </div>
+  </div>
+  {loading?<div className="inventory-state">Yuklanmoqda…</div>:error?<ErrorState message={error} retry={load}/>:sortedRows.length===0?<Empty title={selectedDate?"Bu kunda partiya yoki inventarizatsiya yo‘q":"Hech narsa topilmadi"} text={selectedDate?"Boshqa kunni tanlang yoki filtrni tozalang.":"Yangi partiya yoki inventarizatsiya yarating."}/>:<div className="batch-list">{sortedRows.map(x=>{
     const isInv=isInventoryReceipt(x.receipt_no);
     return <article className="card" key={x.id} style={isInv?{borderLeft:'4px solid #7c3aed'}:{borderLeft:'4px solid var(--orange)'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-        <span className={'batch-origin '+(isInv?'batch-origin-inventory':'batch-origin-batch')} style={isInv?{background:'#f3e8ff',color:'#6b21a8',border:'1px solid #d8b4fe'}:{}}>
-          {isInv?'Inventarizatsiya':'Partiya'}
-        </span>
+      <div className="batch-card-header">
+        <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+          <span className={'batch-origin '+(isInv?'batch-origin-inventory':'batch-origin-batch')} style={isInv?{background:'#f3e8ff',color:'#6b21a8',border:'1px solid #d8b4fe'}:{}}>
+            {isInv?'Inventarizatsiya':'Partiya'}
+          </span>
+          <span style={{
+            display:'inline-flex',
+            alignItems:'center',
+            gap:4,
+            background: x.location_type === 'warehouse' ? '#ecfdf5' : '#eff6ff',
+            color: x.location_type === 'warehouse' ? '#047857' : '#1d4ed8',
+            border: `1px solid ${x.location_type === 'warehouse' ? '#a7f3d0' : '#bfdbfe'}`,
+            padding:'2px 8px',
+            borderRadius:6,
+            fontSize:11,
+            fontWeight:700
+          }} title={`Joylashuvi: ${x.location_name || 'Aniqlanmagan'}`}>
+            <MapPin size={11}/>
+            {x.location_name || 'Joylashuv'} {x.location_type === 'warehouse' ? '(Omborda)' : '(Do‘konda)'}
+          </span>
+        </div>
         <Status type={x.payment_status==='paid'?'green':'orange'}>{x.payment_status==='paid'?'To‘langan':x.payment_status==='partial'?'Qisman':'To‘lanmagan'}</Status>
       </div>
       <div className="batch-top">
@@ -158,10 +277,59 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         <span><Clock3/>{new Date(x.received_at).toLocaleDateString('uz-UZ')}</span>
         <span><Boxes/>{Number(x.unit_count)} dona</span>
         <span><QrCode/>{x.line_count} tur QR</span>
+        <span title={`Joylashuvi: ${x.location_name || '—'}`}><Warehouse size={13}/>{x.location_name || '—'}</span>
       </div>
-      <div className="between small" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:8,paddingTop:8,borderTop:'1px solid var(--line,#f1f5f9)',flexWrap:'wrap',gap:8}}>
+      {Array.isArray(x.items) && x.items.length > 0 && (
+        <div className="batch-card-items-preview" style={{
+          margin: '10px 0 6px',
+          padding: '8px 10px',
+          background: 'rgba(248, 250, 252, 0.9)',
+          borderRadius: 8,
+          border: '1px solid #e2e8f0',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 6
+        }}>
+          <div style={{fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.4px', display: 'flex', justifyContent: 'space-between'}}>
+            <span>Ichidagi tovarlar:</span>
+            <span>{x.items.length} xil</span>
+          </div>
+          <div style={{display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 110, overflowY: 'auto'}}>
+            {x.items.slice(0, 4).map((it, idx) => (
+              <div key={it.batch_id || idx} style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, fontSize: 12}}>
+                <div style={{display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flex: 1}}>
+                  {it.image_url ? (
+                    <img src={it.image_url} alt="" style={{width: 26, height: 26, objectFit: 'cover', borderRadius: 5, border: '1px solid #cbd5e1', flexShrink: 0}} />
+                  ) : (
+                    <div style={{width: 26, height: 26, borderRadius: 5, background: '#e2e8f0', display: 'grid', placeItems: 'center', color: '#94a3b8', fontSize: 10, flexShrink: 0}}>
+                      <Boxes size={13}/>
+                    </div>
+                  )}
+                  <span style={{whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600, color: '#0f172a'}} title={it.product_name}>
+                    {it.product_name || 'Nomsiz tovar'}
+                  </span>
+                  {it.variant_color && (
+                    <span style={{fontSize: 10, background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, color: '#475569', flexShrink: 0}}>
+                      {it.variant_color}
+                    </span>
+                  )}
+                </div>
+                <span style={{fontSize: 11, fontWeight: 700, color: '#0369a1', background: '#e0f2fe', padding: '1px 6px', borderRadius: 4, flexShrink: 0}}>
+                  {it.quantity} dona
+                </span>
+              </div>
+            ))}
+            {x.items.length > 4 && (
+              <div style={{fontSize: 11, color: 'var(--muted)', textAlign: 'center', fontStyle: 'italic', paddingTop: 2}}>
+                + yana {x.items.length - 4} ta tovar
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      <div className="batch-card-bottom">
         <span>{x.line_count} xil tovar · Tan: <DualPrice value={Number(x.total_cost||0)} rate={rate}/> · Sotish: <DualPrice value={Number(x.total_retail||0)} rate={rate}/></span>
-        <div style={{display:'flex',alignItems:'center',gap:6}}>
+        <div className="batch-card-actions">
           <button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:12,display:'inline-flex',alignItems:'center',gap:4,height:28}} title="Zahiraga yuklab olish (JSON)" disabled={exportingId===x.id} onClick={()=>handleExportSingle(x.id,x.receipt_no)}>
             <Download size={13}/>{exportingId===x.id?'…':'Zahira'}
           </button>
@@ -178,7 +346,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       </div>
     </article>;
   })}</div>}
-  <ReceiptDetail receipt={detail} initialEditing={detailEdit} close={()=>{setDetail(null);setDetailEdit(false);}} onUpdated={()=>{setDetail(null);setDetailEdit(false);load();}} onExportSingle={handleExportSingle}/>
+  <ReceiptDetail receipt={detail} locations={locations} toast={toast} initialEditing={detailEdit} close={()=>{setDetail(null);setDetailEdit(false);}} onUpdated={()=>{setDetail(null);setDetailEdit(false);load();}} onExportSingle={handleExportSingle}/>
   {passwordModal && (
     <Modal open={Boolean(passwordModal)} onClose={() => setPasswordModal(null)} title="Sotilgan tovarlar mavjud — Parol talab qilinadi">
       <form
@@ -474,7 +642,46 @@ function ProductDetailModal({product,close,branchId,rate,onEdit}){
   const statusCounts=units.reduce((acc,u)=>{acc[u.status]=(acc[u.status]||0)+1;return acc},{});
   const colorCounts=variants.map(v=>({...v,count:units.filter(u=>u.variant_id===v.id).length})).filter(v=>v.count>0);
   const statusLabels={available:'Sotuvga tayyor',reserved:'Band',sold:'Sotilgan',in_transit:"Yo'lda",returned:'Qaytarilgan',written_off:'Hisobdan chiqarilgan',in_repair:"Ta'mirda"};
-  const downloadQR=async(unit)=>{const QRCode=await import('qrcode');const url=(import.meta.env.VITE_STOREFRONT_URL||'https://texnobazar-storefront.netlify.app')+'/qr/'+encodeURIComponent(unit.qr_code);const qrCanvas=await QRCode.toCanvas(url,{width:220,margin:2,errorCorrectionLevel:'L'});const W=300,H=420;const labeled=document.createElement('canvas');labeled.width=W;labeled.height=H;const ctx=labeled.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);ctx.strokeStyle='#ddd';ctx.lineWidth=2;ctx.setLineDash([6,4]);ctx.strokeRect(8,8,W-16,H-16);ctx.drawImage(qrCanvas,(W-220)/2,30);const price=detail?.retail_price?formatDualMoney(Number(detail.retail_price),rate):formatMoney(0);ctx.fillStyle='#000';ctx.font='bold 15px sans-serif';ctx.textAlign='center';const name=detail?.name||'';const colorName=colorById[unit.variant_id]||'';let y=290;if(name.length>28){ctx.fillText(name.slice(0,28),W/2,280);ctx.fillText(name.slice(28,56),W/2,298);y=298}else{ctx.fillText(name,W/2,290)};if(colorName){y+=18;ctx.font='bold 12px sans-serif';ctx.fillStyle='#a86b00';ctx.fillText('Rang: '+colorName,W/2,y);ctx.fillStyle='#000'};ctx.font='bold 22px sans-serif';ctx.fillText(price,W/2,y+32);ctx.font='11px sans-serif';ctx.fillStyle='#666';ctx.fillText(unit.qr_code||'',W/2,y+62);ctx.fillText(unit.serial_number||'',W/2,y+80);const link=document.createElement('a');link.download=(unit.qr_code||'qr')+'.png';link.href=labeled.toDataURL();link.click()};
+  const downloadQR=async(unit)=>{
+    const QRCode=await import('qrcode');
+    const rawCost = (unit.unit_cost_usd != null && Number(unit.unit_cost_usd) > 0)
+      ? Number(unit.unit_cost_usd)
+      : (detail?.cost_price_usd != null && Number(detail.cost_price_usd) > 0)
+        ? Number(detail.cost_price_usd)
+        : '';
+    const costNumStr = (rawCost !== '' && !isNaN(rawCost))
+      ? (rawCost % 1 === 0 ? String(rawCost) : rawCost.toFixed(2))
+      : '';
+    const costParam = costNumStr ? '?c=' + encodeURIComponent(costNumStr) : '';
+    const url=(import.meta.env.VITE_STOREFRONT_URL||'https://texnobazar-storefront.netlify.app')+'/qr/'+encodeURIComponent(unit.qr_code)+costParam;
+    const qrCanvas=await QRCode.toCanvas(url,{width:220,margin:2,errorCorrectionLevel:'L'});
+    const W=300,H=420;
+    const labeled=document.createElement('canvas');labeled.width=W;labeled.height=H;
+    const ctx=labeled.getContext('2d');
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
+    ctx.strokeStyle='#ddd';ctx.lineWidth=2;ctx.setLineDash([6,4]);ctx.strokeRect(8,8,W-16,H-16);
+    ctx.drawImage(qrCanvas,(W-220)/2,30);
+    const price=detail?.retail_price?formatDualMoney(Number(detail.retail_price),rate):formatMoney(0);
+    ctx.fillStyle='#000';ctx.font='bold 15px sans-serif';ctx.textAlign='center';
+    const name=detail?.name||'';
+    const colorName=colorById[unit.variant_id]||'';
+    let y=290;
+    if(name.length>28){ctx.fillText(name.slice(0,28),W/2,280);ctx.fillText(name.slice(28,56),W/2,298);y=298}else{ctx.fillText(name,W/2,290)};
+    if(colorName){y+=18;ctx.font='bold 12px sans-serif';ctx.fillStyle='#a86b00';ctx.fillText('Rang: '+colorName,W/2,y);ctx.fillStyle='#000'};
+    ctx.font='bold 22px sans-serif';ctx.fillText(price,W/2,y+32);
+    ctx.font='11px sans-serif';ctx.fillStyle='#666';
+    ctx.fillText(unit.qr_code||'',W/2,y+62);
+    if(costNumStr){
+      ctx.font='bold 13px monospace';
+      ctx.fillStyle='#333';
+      ctx.fillText(costNumStr,W/2,y+78);
+      ctx.font='11px sans-serif';ctx.fillStyle='#666';
+      ctx.fillText(unit.serial_number||'',W/2,y+94);
+    } else {
+      ctx.fillText(unit.serial_number||'',W/2,y+80);
+    }
+    const link=document.createElement('a');link.download=(unit.qr_code||'qr')+'.png';link.href=labeled.toDataURL();link.click();
+  };
   const saveDesc=async()=>{try{const{updateProductTextFields}=await import('@texnobazar/data');await updateProductTextFields(product.product_id,{description:desc});setEditDesc(false);if(toast)toast('Tavsif saqlandi')}catch(e){alert(e.message)}};
   const saveVideo=async()=>{try{const{updateProductTextFields}=await import('@texnobazar/data');await updateProductTextFields(product.product_id,{seoImageUrl:videoUrl});if(toast)toast('Video URL saqlandi')}catch(e){alert(e.message)}};
   const uploadImage=async(e)=>{const files=[...e.target.files];if(!files.length)return;setUploading(true);try{const{uploadProductMedia}=await import('@texnobazar/data');for(const file of files)await uploadProductMedia(product.product_id,file,detail?.name||'');await loadDetail();if(toast)toast('Rasm yuklandi')}catch(er){alert(er.message)}finally{setUploading(false);e.target.value=''}};
@@ -496,7 +703,7 @@ function ProductDetailModal({product,close,branchId,rate,onEdit}){
   <div style={{position:'relative',marginTop:6}}><Search size={15} style={{position:'absolute',left:10,top:10,color:'var(--muted)'}}/><input className="input" style={{paddingLeft:32}} value={unitQuery} onChange={e=>setUnitQuery(e.target.value)} placeholder="QR kod, seriya yoki joy bo’yicha qidirish"/></div>
   <h4 style={{margin:0}}>Birliklar ({filteredUnits.length}) — QR yuklab olish</h4><div style={{maxHeight:260,overflow:'auto'}}><table className="table"><thead><tr><th>QR kod</th><th>Seriya</th>{colorCounts.length>0&&<th>Rang</th>}<th>Joy</th><th>Status</th><th>QR</th></tr></thead><tbody>{filteredUnits.map(u=><tr key={u.id}><td><code style={{fontSize:10}}>{u.qr_code}</code></td><td>{u.serial_number||'—'}</td>{colorCounts.length>0&&<td>{colorById[u.variant_id]||'—'}</td>}<td>{u.locations?.name}</td><td><Status type={u.status==='available'?'green':u.status==='sold'?'blue':'orange'}>{u.status}</Status></td><td><button className="btn" style={{padding:'4px 8px'}} onClick={()=>downloadQR(u)}><Download size={13}/></button></td></tr>)}</tbody></table></div>
   {media.length>0&&<><h4 style={{margin:0}}>Rasmlar ({media.length})</h4><div style={{display:'flex',gap:8,flexWrap:'wrap'}}>{media.map(m=><img key={m.id} src={m.public_url} alt="" style={{width:56,height:56,borderRadius:8,objectFit:'cover'}}/>)}</div></>}
-  <label className="btn btn-outline" style={{alignSelf:'flex-start',fontSize:12}}><Upload size={14}/> {uploading?'Yuklanmoqda…':'Rasm yuklash'}<input type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple hidden onChange={uploadImage} disabled={uploading}/></label>
+  <label className="btn btn-outline" style={{alignSelf:'flex-start',fontSize:12}}><Upload size={14}/> {uploading?'Yuklanmoqda…':'Rasm yuklash'}<input type="file" accept="image/*" multiple hidden onChange={uploadImage} disabled={uploading}/></label>
   <h4 style={{margin:0}}>Video (YouTube)</h4><div style={{display:'flex',gap:8}}><input className="input" value={videoUrl} onChange={e=>setVideoUrl(e.target.value)} placeholder="https://youtube.com/watch?v=..."/><button className="btn btn-primary" style={{whiteSpace:'nowrap'}} onClick={saveVideo}>Saqlash</button></div>
   <h4 style={{margin:0}}>Tavsif</h4>{editDesc?<><RichTextEditor value={desc} onChange={v=>setDesc(v)}/><div style={{display:'flex',gap:8}}><button className="btn btn-primary" onClick={saveDesc}>Saqlash</button><button className="btn" onClick={()=>setEditDesc(false)}>Bekor</button></div></>:<><div style={{color:'var(--muted)',margin:0}} dangerouslySetInnerHTML={{__html:desc||'Tavsif kiritilmagan'}}/><button className="btn" style={{alignSelf:'flex-start',fontSize:12}} onClick={()=>setEditDesc(true)}>Tahrirlash</button></>}
   </div></Modal>;
@@ -756,16 +963,61 @@ function BatchBackupRestoreModal({ open, onClose, branchId, onRestored, toast })
   );
 }
 
-function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSingle}){
+function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated,initialEditing=false,onExportSingle}){
   const[rate,setRate2]=useState(null);
   useEffect(()=>{getLatestExchangeRate().then(r=>setRate2(Number(r)||null)).catch(()=>{})},[]);
+  const[locations,setLocations]=useState(propLocations||[]);
+  useEffect(()=>{
+    if(propLocations?.length){
+      setLocations(propLocations);
+    }else if(receipt?.branch_id){
+      getInventoryReferences(receipt.branch_id).then(r=>setLocations(r.locations||[])).catch(()=>{});
+    }
+  },[receipt?.branch_id,propLocations]);
   const[labels,setLabels]=useState([]),[printPending,setPrintPending]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState(''),[editing,setEditing]=useState(Boolean(initialEditing)),[editForm,setEditForm]=useState({}),[saving,setSaving]=useState(false),[deleting,setDeleting]=useState(false),[expandedLine,setExpandedLine]=useState(null),[lineUnits,setLineUnits]=useState([]),[lineProduct,setLineProduct]=useState(null),[loadingLine,setLoadingLine]=useState(false),[editingLine,setEditingLine]=useState(false),[linePrices,setLinePrices]=useState({}),[savingLine,setSavingLine]=useState(false);
   const[bluetoothModalOpen,setBluetoothModalOpen]=useState(false);
   const[singlePrintLabel,setSinglePrintLabel]=useState(null);
 
   useEffect(()=>{
     setLabels([]);setPrintPending(false);document.body.classList.remove('printing-qr-labels');setError('');setEditing(Boolean(initialEditing));
-    if(receipt)setEditForm({invoice_number:receipt.invoice_number||'',payment_status:receipt.payment_status||'unpaid',received_at:receipt.received_at?receipt.received_at.split('T')[0]:'',notes:receipt.notes||''});
+    if(receipt){
+      const isReceiptUsd = (receipt.currency || 'USD') === 'USD';
+      setEditForm({
+        invoice_number:receipt.invoice_number||'',
+        payment_status:receipt.payment_status||'unpaid',
+        received_at:receipt.received_at?receipt.received_at.split('T')[0]:'',
+        notes:receipt.notes||'',
+        receiving_location_id:receipt.receiving_location_id||'',
+        currency:receipt.currency||'USD',
+        lines:(receipt.lines||[]).map(l=>({
+          id:l.id,
+          batch_id:l.id,
+          line_no:l.line_no,
+          product_id:l.product_id,
+          product_name:l.product_name,
+          sku:l.sku,
+          quantity:Number(l.quantity)||1,
+          unit_cost: isReceiptUsd
+            ? (l.unit_cost_usd != null ? String(l.unit_cost_usd) : (rate && Number(l.unit_cost) > 0 ? String(Math.round(Number(l.unit_cost)/rate)) : String(l.unit_cost||'')))
+            : (l.unit_cost !== undefined && l.unit_cost !== null ? String(l.unit_cost) : ''),
+          unit_cost_usd: l.unit_cost_usd != null ? String(l.unit_cost_usd) : '',
+          retail_price: isReceiptUsd
+            ? (l.retail_price_usd != null ? String(l.retail_price_usd) : (rate && Number(l.retail_price) > 0 ? String(Math.round(Number(l.retail_price)/rate)) : String(l.retail_price||'')))
+            : (l.retail_price !== undefined && l.retail_price !== null ? String(l.retail_price) : ''),
+          retail_price_usd: l.retail_price_usd != null ? String(l.retail_price_usd) : '',
+          wholesale_price: isReceiptUsd
+            ? (l.wholesale_price_usd != null ? String(l.wholesale_price_usd) : (rate && Number(l.wholesale_price) > 0 ? String(Math.round(Number(l.wholesale_price)/rate)) : String(l.wholesale_price||'')))
+            : (l.wholesale_price !== undefined && l.wholesale_price !== null ? String(l.wholesale_price) : ''),
+          wholesale_price_usd: l.wholesale_price_usd != null ? String(l.wholesale_price_usd) : '',
+          minimum_sale_price: isReceiptUsd
+            ? (l.minimum_sale_price_usd != null ? String(l.minimum_sale_price_usd) : (rate && Number(l.minimum_sale_price) > 0 ? String(Math.round(Number(l.minimum_sale_price)/rate)) : String(l.minimum_sale_price||'')))
+            : (l.minimum_sale_price !== undefined && l.minimum_sale_price !== null ? String(l.minimum_sale_price) : ''),
+          minimum_sale_price_usd: l.minimum_sale_price_usd != null ? String(l.minimum_sale_price_usd) : '',
+          variant_color:l.variant_color||'',
+          qr_count:l.qr_count
+        }))
+      });
+    }
   },[receipt?.id,initialEditing]);
 
   const loadLabelsData=async()=>{
@@ -809,6 +1061,7 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
             (it.product_name === line.product_name && (it.variant_color || null) === (line.variant_color || null))
           );
           const canonicalQr = groupQrMap.get(key) || matchingItem?.qr_code || line.qr_code || '';
+          const lineCost = line.unit_cost_usd || matchingItem?.unit_cost_usd || matchingItem?.cost_usd || matchingItem?.price_label?.cost_usd || matchingItem?.cost_price_usd || '';
           return {
             id: line.id,
             line_no: line.line_no,
@@ -820,6 +1073,8 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
             quantity: Number(line.quantity) || 1,
             code: canonicalQr,
             qr_code: canonicalQr,
+            cost_usd: lineCost,
+            costUsd: lineCost,
             date: receipt?.received_at ? new Date(receipt.received_at).toLocaleDateString('uz-UZ') : new Date().toLocaleDateString('uz-UZ'),
           };
         });
@@ -837,6 +1092,7 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
               const lk = it.line_no || '0';
               return `${lk}___${it.product_name || ''}___${c}` === key;
             });
+            const itemCost = item.unit_cost_usd || item.cost_usd || item.price_label?.cost_usd || item.cost_price_usd || '';
             distinctLabels.push({
               id: item.id,
               line_no: item.line_no,
@@ -848,19 +1104,28 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
               quantity: sameGroupItems.length || 1,
               code: canonicalQr,
               qr_code: canonicalQr,
+              cost_usd: itemCost,
+              costUsd: itemCost,
               date: receipt?.received_at ? new Date(receipt.received_at).toLocaleDateString('uz-UZ') : new Date().toLocaleDateString('uz-UZ'),
             });
           }
         });
       }
 
-      const generated = await Promise.all(distinctLabels.map(async item => ({
-        ...item,
-        qrImage: await QRCode.toDataURL(
-          (import.meta.env.VITE_STOREFRONT_URL || 'https://texnobazar-storefront.netlify.app') + '/qr/' + encodeURIComponent(item.qr_code),
-          { width: 480, margin: 2, errorCorrectionLevel: 'L' }
-        )
-      })));
+      const generated = await Promise.all(distinctLabels.map(async item => {
+        const rawCost = Number(item.cost_usd);
+        const costStr = (item.cost_usd != null && item.cost_usd !== '' && !isNaN(rawCost) && rawCost > 0)
+          ? (rawCost % 1 === 0 ? String(rawCost) : rawCost.toFixed(2))
+          : '';
+        const costParam = costStr ? '?c=' + encodeURIComponent(costStr) : '';
+        const url = (import.meta.env.VITE_STOREFRONT_URL || 'https://texnobazar-storefront.netlify.app') + '/qr/' + encodeURIComponent(item.qr_code) + costParam;
+        return {
+          ...item,
+          cost_usd: costStr,
+          costUsd: costStr,
+          qrImage: await QRCode.toDataURL(url, { width: 480, margin: 2, errorCorrectionLevel: 'L' })
+        };
+      }));
       setLabels(generated);
       return generated;
     }catch(currentError){
@@ -871,7 +1136,15 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
     }
   };
 
-  const openBluetoothPrint=async(targetLabel=null)=>{
+  const [preferredPrinter, setPreferredPrinter] = useState('detonger');
+
+  const openBluetoothPrint=async(targetLabel=null, printerType=null)=>{
+    if(printerType){
+      setPreferredPrinter(printerType);
+      try {
+        localStorage.setItem('texnobazar_selected_thermal_printer', printerType);
+      } catch {}
+    }
     let currentLabels = labels;
     if(!currentLabels.length){
       currentLabels = await loadLabelsData();
@@ -1147,11 +1420,12 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
 
   const startEditLine=(line,prod)=>{
     setEditingLine(true);
+    const isUsd = (receipt?.currency || 'USD') === 'USD';
     setLinePrices({
-      unit_cost:rate?String(Math.round(Number(line.unit_cost||0)/rate)):String(line.unit_cost||0),
-      retail_price:rate?String(Math.round(Number(prod.retail_price||0)/rate)):String(prod.retail_price||0),
-      wholesale_price:rate?String(Math.round(Number(prod.wholesale_price||0)/rate)):String(prod.wholesale_price||0),
-      minimum_sale_price:rate?String(Math.round(Number(prod.minimum_sale_price||0)/rate)):String(prod.minimum_sale_price||0)
+      unit_cost: isUsd && line.unit_cost_usd != null ? String(line.unit_cost_usd) : (rate ? String(Math.round(Number(line.unit_cost||0)/rate)) : String(line.unit_cost||0)),
+      retail_price: isUsd && prod.retail_price_usd != null ? String(prod.retail_price_usd) : (rate ? String(Math.round(Number(prod.retail_price||0)/rate)) : String(prod.retail_price||0)),
+      wholesale_price: isUsd && prod.wholesale_price_usd != null ? String(prod.wholesale_price_usd) : (rate ? String(Math.round(Number(prod.wholesale_price||0)/rate)) : String(prod.wholesale_price||0)),
+      minimum_sale_price: isUsd && prod.minimum_sale_price_usd != null ? String(prod.minimum_sale_price_usd) : (rate ? String(Math.round(Number(prod.minimum_sale_price||0)/rate)) : String(prod.minimum_sale_price||0))
     });
   };
 
@@ -1159,13 +1433,47 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
     setSavingLine(true);setError('');
     try{
       const client=getBrowserClient();
-      const uc=rate?Math.round(Number(linePrices.unit_cost||0)*rate):Number(linePrices.unit_cost||0);
-      const rp=rate?Math.round(Number(linePrices.retail_price||0)*rate):Number(linePrices.retail_price||0);
-      const wp=rate?Math.round(Number(linePrices.wholesale_price||0)*rate):Number(linePrices.wholesale_price||0);
-      const mp=rate?Math.round(Number(linePrices.minimum_sale_price||0)*rate):Number(linePrices.minimum_sale_price||0);
-      const{error:e}=await client.rpc('update_batch_prices',{p_batch_id:batchId,p_unit_cost:uc,p_retail_price:rp,p_wholesale_price:wp||null,p_minimum_sale_price:mp});
+      const isUsd = (receipt?.currency || 'USD') === 'USD';
+      const ucNum = Number(linePrices.unit_cost||0);
+      const rpNum = Number(linePrices.retail_price||0);
+      const wpNum = Number(linePrices.wholesale_price||0);
+      const mpNum = Number(linePrices.minimum_sale_price||0);
+
+      const uc = isUsd && rate ? Math.round(ucNum * rate) : ucNum;
+      const rp = isUsd && rate ? Math.round(rpNum * rate) : rpNum;
+      const wp = isUsd && rate ? Math.round(wpNum * rate) : wpNum;
+      const mp = isUsd && rate ? Math.round(mpNum * rate) : mpNum;
+
+      const ucUsd = isUsd ? ucNum : (rate && uc ? Number((uc / rate).toFixed(2)) : null);
+      const rpUsd = isUsd ? rpNum : (rate && rp ? Number((rp / rate).toFixed(2)) : null);
+      const wpUsd = isUsd ? wpNum : (rate && wp ? Number((wp / rate).toFixed(2)) : null);
+      const mpUsd = isUsd ? mpNum : (rate && mp ? Number((mp / rate).toFixed(2)) : null);
+
+      const{error:e}=await client.rpc('update_batch_prices',{
+        p_batch_id:batchId,
+        p_unit_cost:uc,
+        p_retail_price:rp,
+        p_wholesale_price:wp||null,
+        p_minimum_sale_price:mp,
+        p_unit_cost_usd:ucUsd,
+        p_retail_price_usd:rpUsd,
+        p_wholesale_price_usd:wpUsd||null,
+        p_minimum_sale_price_usd:mpUsd
+      });
       if(e)throw e;
-      setLineProduct(prev=>({...prev,retail_price:rp,wholesale_price:wp,minimum_sale_price:mp,cost_price:uc}));
+      if(productId){
+        await client.from('products').update({
+          retail_price: rp,
+          wholesale_price: wp||null,
+          minimum_sale_price: mp,
+          cost_price: uc,
+          cost_price_usd: ucUsd,
+          retail_price_usd: rpUsd,
+          wholesale_price_usd: wpUsd,
+          minimum_sale_price_usd: mpUsd
+        }).eq('id', productId);
+      }
+      setLineProduct(prev=>({...prev,retail_price:rp,wholesale_price:wp,minimum_sale_price:mp,cost_price:uc,cost_price_usd:ucUsd,retail_price_usd:rpUsd,wholesale_price_usd:wpUsd,minimum_sale_price_usd:mpUsd}));
       setEditingLine(false);
       onUpdated?.();
     }catch(e){setError(err(e))}finally{setSavingLine(false)}
@@ -1173,22 +1481,95 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
 
   const downloadLineQR=async(unit)=>{
     const QRCode=await import('qrcode');
-    const canvas=await QRCode.toCanvas((import.meta.env.VITE_STOREFRONT_URL||'https://texnobazar-storefront.netlify.app')+'/qr/'+encodeURIComponent(unit.qr_code),{width:300,margin:2,errorCorrectionLevel:'L'});
-    const labeled=document.createElement('canvas');labeled.width=300;labeled.height=356;
-    const ctx=labeled.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,300,356);ctx.drawImage(canvas,0,0);
-    ctx.fillStyle='#000';ctx.font='bold 11px sans-serif';ctx.textAlign='center';
+    const rawCost = (unit.unit_cost_usd != null && Number(unit.unit_cost_usd) > 0)
+      ? Number(unit.unit_cost_usd)
+      : (lineProduct?.unit_cost_usd != null && Number(lineProduct.unit_cost_usd) > 0)
+        ? Number(lineProduct.unit_cost_usd)
+        : (lineProduct?.cost_price_usd != null && Number(lineProduct.cost_price_usd) > 0)
+          ? Number(lineProduct.cost_price_usd)
+          : '';
+    const costNumStr = (rawCost !== '' && !isNaN(rawCost))
+      ? (rawCost % 1 === 0 ? String(rawCost) : rawCost.toFixed(2))
+      : '';
+    const costParam = costNumStr ? '?c=' + encodeURIComponent(costNumStr) : '';
+    const canvas=await QRCode.toCanvas((import.meta.env.VITE_STOREFRONT_URL||'https://texnobazar-storefront.netlify.app')+'/qr/'+encodeURIComponent(unit.qr_code)+costParam,{width:300,margin:2,errorCorrectionLevel:'L'});
+    const labeled=document.createElement('canvas');labeled.width=300;labeled.height=370;
+    const ctx=labeled.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,300,370);ctx.drawImage(canvas,0,0);
+    ctx.fillStyle='#000';ctx.font='bold 14px monospace';ctx.textAlign='center';
     ctx.fillText(unit.qr_code||'',150,318);
+    if(costNumStr){
+      ctx.font='bold 13px monospace';
+      ctx.fillStyle='#333';
+      ctx.fillText(costNumStr,150,336);
+    }
     ctx.font='10px sans-serif';ctx.fillStyle='#555';
     const label=lineProduct?.variant_color?`${lineProduct.name} (${lineProduct.variant_color})`:(lineProduct?.name||'');
-    ctx.fillText(label,150,333);
+    ctx.fillText(label,150,costNumStr?354:336);
     const link=document.createElement('a');link.download=(unit.qr_code||'qr')+'.png';link.href=labeled.toDataURL();link.click();
+  };
+
+  const updateLineField=(idx,field,val)=>{
+    setEditForm(prev=>{
+      const lines=[...(prev.lines||[])];
+      const cur = { ...lines[idx], [field]: val };
+      if (editForm.currency === 'USD') {
+        if (field === 'unit_cost') {
+          cur.unit_cost_usd = val;
+        } else if (field === 'retail_price') {
+          cur.retail_price_usd = val;
+        } else if (field === 'wholesale_price') {
+          cur.wholesale_price_usd = val;
+        } else if (field === 'minimum_sale_price') {
+          cur.minimum_sale_price_usd = val;
+        }
+      }
+      lines[idx] = cur;
+      return{...prev,lines};
+    });
   };
 
   const saveEdit=async()=>{
     setSaving(true);setError('');
     try{
-      await updateStockReceipt(receipt.id,{...editForm,received_at:editForm.received_at?new Date(editForm.received_at+'T12:00:00').toISOString():null});
-      setEditing(false);onUpdated?.();
+      const isUsd = (editForm.currency || receipt.currency || 'USD') === 'USD';
+      const payload={
+        invoice_number:editForm.invoice_number,
+        payment_status:editForm.payment_status,
+        received_at:editForm.received_at?new Date(editForm.received_at+'T12:00:00').toISOString():null,
+        notes:editForm.notes,
+        receiving_location_id:editForm.receiving_location_id||null,
+        currency:editForm.currency,
+        lines:(editForm.lines||[]).map(l=>{
+          const uc = l.unit_cost===''?null:Number(l.unit_cost);
+          const rp = l.retail_price===''?null:Number(l.retail_price);
+          const wp = l.wholesale_price===''?null:Number(l.wholesale_price);
+          const mp = l.minimum_sale_price===''?null:Number(l.minimum_sale_price);
+
+          const ucUsd = l.unit_cost_usd !== undefined && l.unit_cost_usd !== '' ? Number(l.unit_cost_usd) : (isUsd ? uc : (rate && uc ? Number((uc / rate).toFixed(2)) : null));
+          const rpUsd = l.retail_price_usd !== undefined && l.retail_price_usd !== '' ? Number(l.retail_price_usd) : (isUsd ? rp : (rate && rp ? Number((rp / rate).toFixed(2)) : null));
+          const wpUsd = l.wholesale_price_usd !== undefined && l.wholesale_price_usd !== '' ? Number(l.wholesale_price_usd) : (isUsd ? wp : (rate && wp ? Number((wp / rate).toFixed(2)) : null));
+          const mpUsd = l.minimum_sale_price_usd !== undefined && l.minimum_sale_price_usd !== '' ? Number(l.minimum_sale_price_usd) : (isUsd ? mp : (rate && mp ? Number((mp / rate).toFixed(2)) : null));
+
+          return {
+            id:l.id||l.batch_id,
+            batch_id:l.id||l.batch_id,
+            quantity:Math.max(1,parseInt(l.quantity,10)||1),
+            unit_cost: isUsd && rate && uc != null ? Math.round(uc * rate) : uc,
+            unit_cost_usd: ucUsd,
+            retail_price: isUsd && rate && rp != null ? Math.round(rp * rate) : rp,
+            retail_price_usd: rpUsd,
+            wholesale_price: isUsd && rate && wp != null ? Math.round(wp * rate) : wp,
+            wholesale_price_usd: wpUsd,
+            minimum_sale_price: isUsd && rate && mp != null ? Math.round(mp * rate) : mp,
+            minimum_sale_price_usd: mpUsd,
+            variant_color:l.variant_color?.trim()||null
+          };
+        })
+      };
+      await updateStockReceipt(receipt.id,payload);
+      setEditing(false);
+      toast?.('Partiya va tovarlar joylashuvi muvaffaqiyatli saqlandi!');
+      onUpdated?.();
     }catch(e){setError(err(e))}finally{setSaving(false)}
   };
 
@@ -1236,20 +1617,102 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
       {receipt&&<div className="stack">
         <div className="receipt-info">
           <span><small>Ta’minotchi</small><b>{receipt.supplier_name}</b></span>
-          <span><small>Qabul joyi</small><b>{receipt.location_name}</b></span>
+          <span><small>Qabul joyi</small><b>{receipt.location_name} {receipt.location_type==='warehouse'?'(Omborda)':receipt.location_type==='store'?'(Do‘konda)':''}</b></span>
           <span><small>Invoice</small><b>{receipt.invoice_number||'—'}</b></span>
           <span><small>Valyuta</small><b>{receipt.currency}</b></span>
           {rate&&<span><small>Kurs</small><b>1$ = {new Intl.NumberFormat('uz-UZ').format(rate)} so'm</b></span>}
         </div>
         {editing?(
-          <div className="ops-form" style={{marginBottom:12}}>
-            <label><span>Invoice</span><input className="input" value={editForm.invoice_number} onChange={e=>setEditForm({...editForm,invoice_number:e.target.value})}/></label>
-            <label><span>To'lov holati</span><select className="select" value={editForm.payment_status} onChange={e=>setEditForm({...editForm,payment_status:e.target.value})}><option value="unpaid">To'lanmagan</option><option value="partial">Qisman</option><option value="paid">To'langan</option></select></label>
-            <label><span>Sana</span><input className="input" type="date" value={editForm.received_at} onChange={e=>setEditForm({...editForm,received_at:e.target.value})}/></label>
-            <label><span>Izoh</span><input className="input" value={editForm.notes} onChange={e=>setEditForm({...editForm,notes:e.target.value})}/></label>
-            <div style={{display:'flex',gap:8}}>
-              <button className="btn btn-primary" onClick={saveEdit} disabled={saving}>{saving?'Saqlanmoqda…':'Saqlash'}</button>
-              <button className="btn" onClick={()=>setEditing(false)}>Bekor</button>
+          <div className="receipt-edit-section" style={{marginBottom:16,background:'#f8fafc',border:'1.5px solid #e2e8f0',borderRadius:12,padding:16}}>
+            <h4 style={{margin:'0 0 12px',fontSize:15,color:'#0f172a',display:'flex',alignItems:'center',gap:6}}>
+              <Pencil size={16} color="var(--orange)"/> Partiya ma'lumotlarini tahrirlash
+            </h4>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(200px, 1fr))',gap:10,marginBottom:14}}>
+              <label>
+                <span style={{fontSize:12,fontWeight:700,color:'#0f172a',display:'flex',alignItems:'center',gap:4,marginBottom:4}}>
+                  <MapPin size={13} color="var(--orange)"/> Qabul joylashuvi (Tovarlar joyi) *
+                </span>
+                <select className="select" style={{width:'100%',fontWeight:600}} value={editForm.receiving_location_id||''} onChange={e=>setEditForm({...editForm,receiving_location_id:e.target.value})}>
+                  {locations.map(loc=>(
+                    <option key={loc.id} value={loc.id}>{loc.name} {loc.type==='warehouse'?'(Ombor)':'(Do‘kon)'}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Valyuta</span>
+                <select className="select" style={{width:'100%'}} value={editForm.currency} onChange={e=>setEditForm({...editForm,currency:e.target.value})}>
+                  <option value="USD">USD</option>
+                  <option value="UZS">UZS</option>
+                  <option value="EUR">EUR</option>
+                </select>
+              </label>
+              <label>
+                <span style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Qabul sanasi</span>
+                <input className="input" style={{width:'100%'}} type="date" value={editForm.received_at} onChange={e=>setEditForm({...editForm,received_at:e.target.value})}/>
+              </label>
+              <label>
+                <span style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Invoice raqami</span>
+                <input className="input" style={{width:'100%'}} value={editForm.invoice_number} onChange={e=>setEditForm({...editForm,invoice_number:e.target.value})} placeholder="Ixtiyoriy"/>
+              </label>
+              <label>
+                <span style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>To'lov holati</span>
+                <select className="select" style={{width:'100%'}} value={editForm.payment_status} onChange={e=>setEditForm({...editForm,payment_status:e.target.value})}>
+                  <option value="unpaid">To'lanmagan</option>
+                  <option value="partial">Qisman</option>
+                  <option value="paid">To'langan</option>
+                </select>
+              </label>
+              <label style={{gridColumn:'1 / -1'}}>
+                <span style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Izoh</span>
+                <input className="input" style={{width:'100%'}} value={editForm.notes} onChange={e=>setEditForm({...editForm,notes:e.target.value})} placeholder="Qo‘shimcha izoh"/>
+              </label>
+            </div>
+
+            <h5 style={{margin:'14px 0 8px',fontSize:13,fontWeight:700,color:'#1e293b'}}>
+              Tovarlar ro'yxati ({editForm.lines?.length||0} ta):
+            </h5>
+            <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
+              {(editForm.lines||[]).map((l,idx)=>(
+                <div key={l.id||idx} style={{background:'#fff',border:'1px solid #cbd5e1',borderRadius:10,padding:12}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                    <b style={{fontSize:14,color:'#0f172a'}}>{l.product_name}</b>
+                    <span style={{fontSize:11,color:'#64748b'}}>SKU: {l.sku||'—'}</span>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:8,fontSize:12}}>
+                    <label>
+                      <span style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:2}}>Soni (dona) *</span>
+                      <input className="input" style={{width:'100%',padding:'6px 8px'}} type="number" min="1" value={l.quantity} onChange={e=>updateLineField(idx,'quantity',e.target.value)}/>
+                    </label>
+                    <label>
+                      <span style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:2}}>Mahsulot rangi / varianti</span>
+                      <input className="input" style={{width:'100%',padding:'6px 8px'}} value={l.variant_color} placeholder="Masalan: Qora" onChange={e=>updateLineField(idx,'variant_color',e.target.value)}/>
+                    </label>
+                    <label>
+                      <span style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:2}}>Tan narxi ({editForm.currency})</span>
+                      <input className="input" style={{width:'100%',padding:'6px 8px'}} type="number" min="0" step="any" value={l.unit_cost} onChange={e=>updateLineField(idx,'unit_cost',e.target.value)}/>
+                    </label>
+                    <label>
+                      <span style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:2}}>Sotish narxi ({editForm.currency})</span>
+                      <input className="input" style={{width:'100%',padding:'6px 8px'}} type="number" min="0" step="any" value={l.retail_price} onChange={e=>updateLineField(idx,'retail_price',e.target.value)}/>
+                    </label>
+                    <label>
+                      <span style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:2}}>Ulgurji narx ({editForm.currency})</span>
+                      <input className="input" style={{width:'100%',padding:'6px 8px'}} type="number" min="0" step="any" value={l.wholesale_price} onChange={e=>updateLineField(idx,'wholesale_price',e.target.value)}/>
+                    </label>
+                    <label>
+                      <span style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:2}}>Min sotuv narxi ({editForm.currency})</span>
+                      <input className="input" style={{width:'100%',padding:'6px 8px'}} type="number" min="0" step="any" value={l.minimum_sale_price} onChange={e=>updateLineField(idx,'minimum_sale_price',e.target.value)}/>
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+              <button type="button" className="btn btn-outline" onClick={()=>setEditing(false)}>Bekor qilish</button>
+              <button type="button" className="btn btn-primary" onClick={saveEdit} disabled={saving}>
+                {saving?'Saqlanmoqda…':'O‘zgarishlarni saqlash'}
+              </button>
             </div>
           </div>
         ):(
@@ -1266,7 +1729,7 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
             <div className="receipt-line" style={{cursor:'pointer'}} onClick={()=>expandLine(x)}>
               <div><b>{x.product_name}</b>{x.variant_color&&<span className="receipt-line-color">{x.variant_color}</span>}<span>{x.sku}</span></div>
               <strong>{Number(x.quantity)} dona</strong>
-              <small><DualPrice value={Number(x.unit_cost||0)} rate={rate}/> · {Number(x.quantity)} dona</small>
+              <small><DualPrice value={Number(x.unit_cost||0)} usdValue={x.unit_cost_usd != null ? Number(x.unit_cost_usd) : undefined} rate={rate}/> · {Number(x.quantity)} dona</small>
             </div>
             {expandedLine===x.id&&<div style={{padding:12,border:'1px solid var(--line)',borderRadius:10,marginTop:6,marginBottom:8}}>
               {loadingLine?<p style={{color:'var(--muted)'}}>Yuklanmoqda…</p>:(
@@ -1274,10 +1737,10 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
                   {lineProduct&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:10,fontSize:11}}>
                     <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Sana</small><b>{receipt.received_at?new Date(receipt.received_at).toLocaleDateString('uz-UZ'):'—'}</b></span>
                     <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Soni</small><b>{Number(x.quantity)} dona</b></span>
-                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Tannarx</small><b><DualPrice value={Number(x.unit_cost||0)} rate={rate}/></b></span>
-                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Sotish narxi</small><b><DualPrice value={Number(lineProduct.retail_price||0)} rate={rate}/></b></span>
-                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Ulgurji</small><b><DualPrice value={Number(lineProduct.wholesale_price||0)} rate={rate}/></b></span>
-                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Min narx</small><b><DualPrice value={Number(lineProduct.minimum_sale_price||0)} rate={rate}/></b></span>
+                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Tannarx</small><b><DualPrice value={Number(x.unit_cost||0)} usdValue={x.unit_cost_usd != null ? Number(x.unit_cost_usd) : undefined} rate={rate}/></b></span>
+                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Sotish narxi</small><b><DualPrice value={Number(lineProduct.retail_price||0)} usdValue={lineProduct.retail_price_usd != null ? Number(lineProduct.retail_price_usd) : undefined} rate={rate}/></b></span>
+                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Ulgurji</small><b><DualPrice value={Number(lineProduct.wholesale_price||0)} usdValue={lineProduct.wholesale_price_usd != null ? Number(lineProduct.wholesale_price_usd) : undefined} rate={rate}/></b></span>
+                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Min narx</small><b><DualPrice value={Number(lineProduct.minimum_sale_price||0)} usdValue={lineProduct.minimum_sale_price_usd != null ? Number(lineProduct.minimum_sale_price_usd) : undefined} rate={rate}/></b></span>
                   </div>}
                   {editingLine?(
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10,fontSize:12}}>
@@ -1369,6 +1832,7 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
                                 color: lineProduct?.variant_color || x.variant_color || '',
                                 qr_code: canonicalQr,
                                 code: canonicalQr,
+                                cost_usd: x.unit_cost_usd || lineProduct?.unit_cost_usd || lineProduct?.cost_price_usd || '',
                                 quantity: Number(x.quantity) || 1,
                                 date: receipt?.received_at ? new Date(receipt.received_at).toLocaleDateString('uz-UZ') : new Date().toLocaleDateString('uz-UZ')
                               })}
@@ -1407,40 +1871,79 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
           </div>
         ))}
         {error&&<div className="employee-error">{error}</div>}
-        <div style={{fontSize:11,color:'var(--muted)',display:'flex',alignItems:'center',gap:6,background:'#f8fafc',padding:'8px 12px',borderRadius:8,marginBottom:10}}>
-          <Printer size={14} style={{color:'var(--orange)',flexShrink:0}}/>
-          <span><b>Detonger portativ termoprinter (40×30 mm)</b> uchun moslangan. Telefonda Bluetooth orqali yoki kompyuterda klassik chop etish mumkin.</span>
+        <div style={{
+          fontSize: 11,
+          color: 'var(--muted)',
+          background: '#f8fafc',
+          border: '1.5px solid #e2e8f0',
+          padding: '10px 14px',
+          borderRadius: 12,
+          marginBottom: 10
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, color: 'var(--navy)', marginBottom: 3 }}>
+            <Printer size={15} color="#ea580c" />
+            <span>Bluetooth Termoprinterlar (Detonger & MHT-L80G):</span>
+          </div>
+          <div style={{ lineHeight: 1.4 }}>
+            Telefonda Bluetooth yoki kompyuterda ulanib, <b>Detonger (40 mm)</b> yoki yangi <b>MHT-L80G (58 mm)</b> termoprinterida chop eting:
+          </div>
         </div>
-        <div style={{display:'flex',flexDirection:'column',gap:8}}>
-          <button
-            type="button"
-            className="btn btn-primary btn-block"
-            style={{
-              padding:'12px',
-              fontSize:13,
-              fontWeight:700,
-              background:'linear-gradient(135deg, #f97316, #ea580c)',
-              boxShadow:'0 4px 14px rgba(249,115,22,0.3)',
-              display:'flex',
-              alignItems:'center',
-              justifyContent:'center',
-              gap:8
-            }}
-            onClick={()=>openBluetoothPrint()}
-            disabled={loading}
-          >
-            <Bluetooth size={16}/>
-            <Printer size={16}/>
-            {loading ? 'Yorliqlar tayyorlanmoqda…' : 'Detonger Bluetooth orqali chop etish (Telefondan)'}
-          </button>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{
+                padding: '12px 8px',
+                fontSize: 12,
+                fontWeight: 700,
+                background: 'linear-gradient(135deg, #f97316, #ea580c)',
+                boxShadow: '0 4px 14px rgba(249,115,22,0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6
+              }}
+              onClick={() => openBluetoothPrint(null, 'detonger')}
+              disabled={loading}
+              title="Detonger printerida chop etish"
+            >
+              <Bluetooth size={15} />
+              <span>Detonger (40 mm)</span>
+            </button>
+
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{
+                padding: '12px 8px',
+                fontSize: 12,
+                fontWeight: 700,
+                background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                boxShadow: '0 4px 14px rgba(2,132,199,0.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: 6
+              }}
+              onClick={() => openBluetoothPrint(null, 'mht')}
+              disabled={loading}
+              title="MHT-L80G printerida 58x40 mm o‘lchamda chop etish"
+            >
+              <Bluetooth size={15} />
+              <span>MHT-L80G (58 mm)</span>
+            </button>
+          </div>
+
           <button
             type="button"
             className="btn btn-outline btn-block"
-            style={{padding:'9px',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}
+            style={{ padding: '9px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
             onClick={handleClassicPrint}
             disabled={loading}
           >
-            <QrCode size={14}/>
+            <QrCode size={14} />
             Kompyuter / Tizim orqali klassik chop etish
           </button>
         </div>
@@ -1452,6 +1955,7 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
       labels={singlePrintLabel?[singlePrintLabel]:labels}
       batchTitle={receipt?.receipt_no?(isInventoryReceipt(receipt.receipt_no)?`Inventarizatsiya #${receipt.receipt_no}`:`Partiya #${receipt.receipt_no}`):''}
       receiptDate={receipt?.received_at?new Date(receipt.received_at).toLocaleDateString('uz-UZ'):''}
+      initialPrinter={preferredPrinter}
       onClassicPrint={()=>{
         setBluetoothModalOpen(false);
         setPrintPending(true);
@@ -1471,6 +1975,8 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
           const receiptDate = receipt?.received_at 
             ? new Date(receipt.received_at).toLocaleDateString('uz-UZ') 
             : new Date().toLocaleDateString('uz-UZ');
+          const rawCost = x.cost_usd || x.unit_cost_usd || x.cost_price_usd || matchedLine?.unit_cost_usd || '';
+          const costStr = rawCost ? (Number(rawCost) % 1 === 0 ? String(Number(rawCost)) : Number(rawCost).toFixed(2)) : '';
 
           return (
             <article className="qr-print-label" key={x.id || idx}>
@@ -1485,6 +1991,7 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
                   </div>
                   <div className="qr-print-meta">
                     <span className="qr-print-date">Sana: {receiptDate}</span>
+                    {costStr && <span className="qr-print-cost">{costStr}</span>}
                     <span className="qr-print-code">{x.qr_code||label.qr}</span>
                   </div>
                 </div>
@@ -1559,14 +2066,14 @@ function ReceiptDetail({receipt,close,onUpdated,initialEditing=false,onExportSin
     )}
   </>;
 }
-export function ReceiptModal({open,close,branchId,created,mode='batch'}){
+export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
   const isInventory = mode === 'inventory';
   const[refs,setRefs]=useState({locations:[],suppliers:[],products:[]});
   const[form,setForm]=useState(()=>{
     const n=new Date();
     const prefix = isInventory ? 'INV-' : 'PT-';
     const rno=prefix+n.toISOString().slice(0,10).replace(/-/g,'')+'-'+String(n.getHours()).padStart(2,'0')+String(n.getMinutes()).padStart(2,'0')+String(n.getSeconds()).padStart(2,'0');
-    return{receipt_no:rno,supplier_id:'',receiving_location_id:'',invoice_number:'',currency:isInventory?'UZS':'USD',payment_status:'paid',received_at:n.toISOString().slice(0,10),notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'',paid_amount:''};
+    return{receipt_no:rno,supplier_id:'',receiving_location_id:'',invoice_number:'',currency:'USD',payment_status:'paid',received_at:n.toISOString().slice(0,10),notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'',paid_amount:''};
   });
   const[lines,setLines]=useState([{
     product_id:'',
@@ -1574,10 +2081,14 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
     variant_id:'',
     quantity:1,
     unit_cost:'',
+    unit_cost_usd:'',
     serials:'',
     retail_price:'',
+    retail_price_usd:'',
     wholesale_price:'',
+    wholesale_price_usd:'',
     minimum_sale_price:'',
+    minimum_sale_price_usd:'',
     priceConfirmed:false,
     variants:[],
     variantConfigs:{}
@@ -1599,11 +2110,11 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
       setForm(f=>({
         ...f,
         receipt_no:rno,
-        currency:isInventory?'UZS':f.currency||'USD',
+        currency:f.currency||'USD',
         notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':f.notes
       }));
       getInventoryReferences(branchId).then(async r=>{
-        const{data:prods}=await getBrowserClient().from('products').select('id,name,sku,cost_price,retail_price,wholesale_price,minimum_sale_price').neq('status','archived');
+        const{data:prods}=await getBrowserClient().from('products').select('id,name,sku,cost_price,retail_price,wholesale_price,minimum_sale_price,cost_price_usd,retail_price_usd,wholesale_price_usd,minimum_sale_price_usd,currency').neq('status','archived');
         const{data:cats}=await getBrowserClient().from('categories').select('id,name,slug,parent_id').eq('is_active',true).order('sort_order');
         const{data:brands}=await getBrowserClient().from('brands').select('id,name').eq('is_active',true).order('name');
         const fullProducts=(prods||[]).map(p=>{const ref=(r.products||[]).find(x=>x.id===p.id);return{...p,image:ref?.image||null,track_individual_units:ref?.track_individual_units??true}});
@@ -1630,28 +2141,34 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
     }));
   };
 
-  const handleProductSelect=async(i,productId)=>{
-    const product=refs.products.find(p=>p.id===productId);
+  const handleProductSelect=async(i,productId,productOverride=null)=>{
+    const product=productOverride || refs.products.find(p=>p.id===productId);
     const initialLine = {
       ...lines[i],
       product_id:productId,
       color_name:'',
       variant_id:'',
-      unit_cost:String(product?.cost_price||''),
-      retail_price:String(product?.retail_price||''),
-      wholesale_price:String(product?.wholesale_price||''),
-      minimum_sale_price:String(product?.minimum_sale_price||''),
+      unit_cost:String(product?.cost_price!=null?product.cost_price:''),
+      unit_cost_usd:product?.cost_price_usd!=null?Number(product.cost_price_usd):(product?.cost_price&&rate?Number((Number(product.cost_price)/rate).toFixed(2)):''),
+      retail_price:String(product?.retail_price!=null?product.retail_price:''),
+      retail_price_usd:product?.retail_price_usd!=null?Number(product.retail_price_usd):(product?.retail_price&&rate?Number((Number(product.retail_price)/rate).toFixed(2)):''),
+      wholesale_price:String(product?.wholesale_price!=null?product.wholesale_price:''),
+      wholesale_price_usd:product?.wholesale_price_usd!=null?Number(product.wholesale_price_usd):(product?.wholesale_price&&rate?Number((Number(product.wholesale_price)/rate).toFixed(2)):''),
+      minimum_sale_price:String(product?.minimum_sale_price!=null?product.minimum_sale_price:''),
+      minimum_sale_price_usd:product?.minimum_sale_price_usd!=null?Number(product.minimum_sale_price_usd):(product?.minimum_sale_price&&rate?Number((Number(product.minimum_sale_price)/rate).toFixed(2)):''),
       priceConfirmed:false,
-      variants:[],
+      variants:product?.variants || [],
       variantConfigs:{}
     };
     setLines(lines.map((x,j)=>j===i?initialLine:x));
     if(!productId)return;
-    try{
-      const{data}=await getBrowserClient().from('product_variants').select('*').eq('product_id',productId).eq('is_active',true).order('sort_order');
-      const loadedVariants = data || [];
-      setLines(current=>current.map((x,j)=>j===i?{...x,variants:loadedVariants}:x));
-    }catch{/* variantsiz mahsulot */}
+    if(!product?.variants?.length){
+      try{
+        const{data}=await getBrowserClient().from('product_variants').select('*').eq('product_id',productId).eq('is_active',true).order('sort_order');
+        const loadedVariants = data || [];
+        setLines(current=>current.map((x,j)=>j===i?{...x,variants:loadedVariants}:x));
+      }catch{/* variantsiz mahsulot */}
+    }
   };
 
   const handleAddColorToLastProduct = () => {
@@ -1669,9 +2186,13 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
         variant_id: '',
         quantity: 1,
         unit_cost: lastLineWithProduct.unit_cost || String(product?.cost_price || ''),
+        unit_cost_usd: lastLineWithProduct.unit_cost_usd ?? (product?.cost_price_usd != null ? Number(product.cost_price_usd) : ''),
         retail_price: lastLineWithProduct.retail_price || String(product?.retail_price || ''),
+        retail_price_usd: lastLineWithProduct.retail_price_usd ?? (product?.retail_price_usd != null ? Number(product.retail_price_usd) : ''),
         wholesale_price: lastLineWithProduct.wholesale_price || String(product?.wholesale_price || ''),
+        wholesale_price_usd: lastLineWithProduct.wholesale_price_usd ?? (product?.wholesale_price_usd != null ? Number(product.wholesale_price_usd) : ''),
         minimum_sale_price: lastLineWithProduct.minimum_sale_price || String(product?.minimum_sale_price || ''),
+        minimum_sale_price_usd: lastLineWithProduct.minimum_sale_price_usd ?? (product?.minimum_sale_price_usd != null ? Number(product.minimum_sale_price_usd) : ''),
         priceConfirmed: lastLineWithProduct.priceConfirmed || false,
         serials: '',
         variants: lastLineWithProduct.variants || [],
@@ -1689,10 +2210,14 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
         variant_id: '',
         quantity: 1,
         unit_cost: '',
+        unit_cost_usd: '',
         serials: '',
         retail_price: '',
+        retail_price_usd: '',
         wholesale_price: '',
+        wholesale_price_usd: '',
         minimum_sale_price: '',
+        minimum_sale_price_usd: '',
         priceConfirmed: false,
         variants: [],
         variantConfigs: {}
@@ -1701,7 +2226,28 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
   };
 
   const confirmPrice=(i,updatePrices)=>{
-    setLine(i,'priceConfirmed',true);
+    const line = lines[i];
+    const product = refs.products.find(p => p.id === line?.product_id);
+    const rUzs = line?.retail_price || String(product?.retail_price != null ? product.retail_price : '');
+    const rUsd = line?.retail_price_usd !== undefined && line?.retail_price_usd !== '' ? line.retail_price_usd : (product?.retail_price_usd != null ? Number(product.retail_price_usd) : (product?.retail_price && rate ? Number((Number(product.retail_price) / rate).toFixed(2)) : ''));
+    const wUzs = line?.wholesale_price || String(product?.wholesale_price != null ? product.wholesale_price : '');
+    const wUsd = line?.wholesale_price_usd !== undefined && line?.wholesale_price_usd !== '' ? line.wholesale_price_usd : (product?.wholesale_price_usd != null ? Number(product.wholesale_price_usd) : (product?.wholesale_price && rate ? Number((Number(product.wholesale_price) / rate).toFixed(2)) : ''));
+    const mUzs = line?.minimum_sale_price || String(product?.minimum_sale_price != null ? product.minimum_sale_price : '');
+    const mUsd = line?.minimum_sale_price_usd !== undefined && line?.minimum_sale_price_usd !== '' ? line.minimum_sale_price_usd : (product?.minimum_sale_price_usd != null ? Number(product.minimum_sale_price_usd) : (product?.minimum_sale_price && rate ? Number((Number(product.minimum_sale_price) / rate).toFixed(2)) : ''));
+    const cUzs = line?.unit_cost || String(product?.cost_price != null ? product.cost_price : '');
+    const cUsd = line?.unit_cost_usd !== undefined && line?.unit_cost_usd !== '' ? line.unit_cost_usd : (product?.cost_price_usd != null ? Number(product.cost_price_usd) : (product?.cost_price && rate ? Number((Number(product.cost_price) / rate).toFixed(2)) : ''));
+
+    setLine(i, {
+      priceConfirmed: true,
+      retail_price: rUzs,
+      retail_price_usd: rUsd,
+      wholesale_price: wUzs,
+      wholesale_price_usd: wUsd,
+      minimum_sale_price: mUzs,
+      minimum_sale_price_usd: mUsd,
+      unit_cost: cUzs,
+      unit_cost_usd: cUsd
+    });
   };
 
   const submit=async e=>{
@@ -1740,10 +2286,27 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
 
       for(const line of lines){
         const product = refs.products.find(p=>p.id===line.product_id);
+        const isReceiptUsd = form.currency === 'USD';
         const baseCost = Number(line.unit_cost) || 0;
         const baseRetail = Number(line.retail_price) || Number(product?.retail_price) || 0;
         const baseWholesale = Number(line.wholesale_price) || Number(product?.wholesale_price) || 0;
         const baseMin = Number(line.minimum_sale_price) || Number(product?.minimum_sale_price) || 0;
+
+        const baseCostUsd = line.unit_cost_usd !== undefined && line.unit_cost_usd !== '' 
+          ? Number(line.unit_cost_usd) 
+          : (isReceiptUsd && baseCost > 0 ? (rate ? Number((baseCost / rate).toFixed(2)) : baseCost) : (product?.cost_price_usd ? Number(product.cost_price_usd) : null));
+        
+        const baseRetailUsd = line.retail_price_usd !== undefined && line.retail_price_usd !== ''
+          ? Number(line.retail_price_usd)
+          : (isReceiptUsd && baseRetail > 0 ? (rate ? Number((baseRetail / rate).toFixed(2)) : baseRetail) : (product?.retail_price_usd ? Number(product.retail_price_usd) : null));
+
+        const baseWholesaleUsd = line.wholesale_price_usd !== undefined && line.wholesale_price_usd !== ''
+          ? Number(line.wholesale_price_usd)
+          : (isReceiptUsd && baseWholesale > 0 ? (rate ? Number((baseWholesale / rate).toFixed(2)) : baseWholesale) : (product?.wholesale_price_usd ? Number(product.wholesale_price_usd) : null));
+
+        const baseMinUsd = line.minimum_sale_price_usd !== undefined && line.minimum_sale_price_usd !== ''
+          ? Number(line.minimum_sale_price_usd)
+          : (isReceiptUsd && baseMin > 0 ? (rate ? Number((baseMin / rate).toFixed(2)) : baseMin) : (product?.minimum_sale_price_usd ? Number(product.minimum_sale_price_usd) : null));
 
         let variantId = line.variant_id || null;
         const colorName = (line.color_name || '').trim();
@@ -1768,8 +2331,11 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
                     product_id: line.product_id,
                     color_name: colorName,
                     retail_price: baseRetail || null,
+                    retail_price_usd: baseRetailUsd || null,
                     wholesale_price: baseWholesale || null,
+                    wholesale_price_usd: baseWholesaleUsd || null,
                     minimum_sale_price: baseMin || null,
+                    minimum_sale_price_usd: baseMinUsd || null,
                     is_active: true
                   })
                   .select('id')
@@ -1787,8 +2353,11 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
         const serials = (line.serials || '').split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean);
         const priceOverride = line.priceConfirmed && baseRetail > 0 ? {
           retail_price: baseRetail,
+          retail_price_usd: baseRetailUsd,
           wholesale_price: baseWholesale,
-          minimum_sale_price: baseMin
+          wholesale_price_usd: baseWholesaleUsd,
+          minimum_sale_price: baseMin,
+          minimum_sale_price_usd: baseMinUsd
         } : {};
 
         payloadLines.push({
@@ -1796,6 +2365,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
           variant_id: variantId || null,
           quantity: Number(line.quantity) || 1,
           unit_cost: baseCost,
+          unit_cost_usd: baseCostUsd,
           serial_numbers: serials,
           ...priceOverride
         });
@@ -1803,6 +2373,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
 
       await createStockReceipt({
         ...form,
+        exchange_rate: rate || 12800,
         supplier_id: isInventory ? (supplierId || null) : supplierId,
         branch_id: branchId,
         received_at: new Date(`${form.received_at}T12:00:00`).toISOString(),
@@ -1810,7 +2381,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
       }, payloadLines);
 
       setLines([{
-        product_id:'',color_name:'',variant_id:'',quantity:1,unit_cost:'',serials:'',retail_price:'',wholesale_price:'',minimum_sale_price:'',priceConfirmed:false,variants:[],variantConfigs:{}
+        product_id:'',color_name:'',variant_id:'',quantity:1,unit_cost:'',unit_cost_usd:'',serials:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',minimum_sale_price:'',minimum_sale_price_usd:'',priceConfirmed:false,variants:[],variantConfigs:{}
       }]);
       await created();
     }catch(e){
@@ -1830,18 +2401,38 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
       category_id:newProdForm.category_id||null,
       brand_id:newProdForm.brand_id||null,
       cost_price:Number(newProdForm.cost_price)||0,
+      cost_price_usd:newProdForm.cost_price_usd!=null?Number(newProdForm.cost_price_usd):(rate&&newProdForm.cost_price?Number((Number(newProdForm.cost_price)/rate).toFixed(2)):null),
       retail_price:Number(newProdForm.retail_price)||0,
+      retail_price_usd:newProdForm.retail_price_usd!=null?Number(newProdForm.retail_price_usd):(rate&&newProdForm.retail_price?Number((Number(newProdForm.retail_price)/rate).toFixed(2)):null),
       wholesale_price:Number(newProdForm.wholesale_price)||null,
+      wholesale_price_usd:newProdForm.wholesale_price_usd!=null?Number(newProdForm.wholesale_price_usd):(rate&&newProdForm.wholesale_price?Number((Number(newProdForm.wholesale_price)/rate).toFixed(2)):null),
       minimum_sale_price:Number(newProdForm.minimum_sale_price)||0,
+      minimum_sale_price_usd:newProdForm.minimum_sale_price_usd!=null?Number(newProdForm.minimum_sale_price_usd):(rate&&newProdForm.minimum_sale_price?Number((Number(newProdForm.minimum_sale_price)/rate).toFixed(2)):null),
       status:'active',
+      currency:'USD',
       is_published:true,
       track_individual_units:true,
       tax_rate:0,
       description:newProdForm.description||null
-    }).select('id,name,sku,cost_price,retail_price,wholesale_price,minimum_sale_price').single();
+    }).select('id,name,sku,cost_price,retail_price,wholesale_price,minimum_sale_price,cost_price_usd,retail_price_usd,wholesale_price_usd,minimum_sale_price_usd,currency').single();
     if(insertErr)throw insertErr;
+    let primaryUrl=null;
     for(const file of images){
-      try{await uploadProductMedia(data.id,file,newProdForm.name.trim())}catch{}
+      try{
+        const uploaded = await uploadProductMedia(data.id,file,newProdForm.name.trim());
+        if(!primaryUrl && (uploaded?.publicUrl || uploaded?.url)){
+          primaryUrl = uploaded.publicUrl || uploaded.url;
+        }
+      }catch(imgErr){
+        console.warn('Image upload error:', imgErr);
+      }
+    }
+    if(primaryUrl){
+      data.image = primaryUrl;
+      data.seo_image_url = primaryUrl;
+      try{
+        await client.from('products').update({ seo_image_url: primaryUrl }).eq('id', data.id);
+      }catch{}
     }
     const namedVariants=(variants||[]).filter(v=>v.color_name?.trim());
     if(namedVariants.length){
@@ -1853,11 +2444,13 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
       }catch{}
     }
     setRefs(prev=>({...prev,products:[...prev.products,data]}));
-    if(createForLineIdx!==null){
-      handleProductSelect(createForLineIdx, data.id);
-    }
     setShowCreateProduct(false);
+    const targetIdx = createForLineIdx;
     setCreateForLineIdx(null);
+    toast?.('Yangi tovar muvaffaqiyatli saqlandi va ro‘yxatga qo‘shildi');
+    if(targetIdx!==null){
+      handleProductSelect(targetIdx, data.id, data);
+    }
   };
 
   const createSupplier=async()=>{
@@ -2034,13 +2627,15 @@ export function ReceiptModal({open,close,branchId,created,mode='batch'}){
       </button>
     </form>
 
-    {showCreateProduct&&<div className="receipt-create-overlay"><div className="receipt-create-form card" style={{width:"min(780px,95vw)",padding:20,maxHeight:"90vh",overflow:"auto",borderRadius:16}}><CreateProductInline categories={refs.categories||[]} brands={refs.brands||[]} categoryId="" onCreated={onProductCreatedFromForm} onCancel={()=>{setShowCreateProduct(false);setCreateForLineIdx(null)}} rate={rate}/></div></div>}
+    {showCreateProduct&&<div className="receipt-create-overlay"><div className="receipt-create-form card"><CreateProductInline categories={refs.categories||[]} brands={refs.brands||[]} categoryId="" onCreated={onProductCreatedFromForm} onCancel={()=>{setShowCreateProduct(false);setCreateForLineIdx(null)}} rate={rate}/></div></div>}
   </Modal>;
 }
 
 function CurrencyNumberInput({
   valueUzs,
   onChangeUzs,
+  valueUsd,
+  onChangeUsd,
   currency = 'USD',
   rate,
   placeholder,
@@ -2055,55 +2650,76 @@ function CurrencyNumberInput({
 
   useEffect(() => {
     if (isFocused) return;
-    if (valueUzs === '' || valueUzs === null || valueUzs === undefined) {
+    if (currency === 'USD') {
+      if (valueUsd !== undefined && valueUsd !== '' && valueUsd !== null) {
+        const num = Number(valueUsd);
+        setText(isNaN(num) || num === 0 ? '' : String(num));
+        return;
+      }
+      if (valueUzs !== '' && valueUzs !== null && valueUzs !== undefined) {
+        const num = Number(valueUzs);
+        if (!isNaN(num) && num > 0 && rate) {
+          setText(Number((num / rate).toFixed(2)).toString());
+          return;
+        }
+      }
       setText('');
-      return;
-    }
-    const num = Number(valueUzs);
-    if (isNaN(num) || num === 0) {
-      setText('');
-      return;
-    }
-    if (currency === 'USD' && rate) {
-      const usdVal = num / rate;
-      setText(Number(usdVal.toFixed(2)).toString());
     } else {
-      setText(String(num));
+      if (valueUzs === '' || valueUzs === null || valueUzs === undefined) {
+        setText('');
+        return;
+      }
+      const num = Number(valueUzs);
+      setText(isNaN(num) || num === 0 ? '' : String(num));
     }
-  }, [valueUzs, currency, rate, isFocused]);
+  }, [valueUzs, valueUsd, currency, rate, isFocused]);
 
   const handleChange = (e) => {
     const val = e.target.value;
     setText(val);
     if (val.trim() === '') {
-      onChangeUzs('');
+      onChangeUzs?.('');
+      onChangeUsd?.('');
       return;
     }
     const clean = val.replace(',', '.');
     const num = parseFloat(clean);
     if (!isNaN(num)) {
-      const uzs = currency === 'USD' && rate ? Math.round(num * rate) : Math.round(num);
-      onChangeUzs(String(uzs));
+      if (currency === 'USD') {
+        onChangeUsd?.(num);
+        const uzs = rate ? Math.round(num * rate) : Math.round(num);
+        onChangeUzs?.(String(uzs));
+      } else {
+        onChangeUzs?.(String(Math.round(num)));
+        if (rate) {
+          onChangeUsd?.(Number((num / rate).toFixed(2)));
+        }
+      }
     }
   };
 
   const handleBlur = () => {
     setIsFocused(false);
     if (text.trim() === '') {
-      onChangeUzs('');
+      onChangeUzs?.('');
+      onChangeUsd?.('');
       return;
     }
     const clean = text.replace(',', '.');
     const num = parseFloat(clean);
     if (!isNaN(num) && num > 0) {
       if (currency === 'USD') {
-        setText(num.toFixed(2));
+        setText(Number(num.toFixed(2)).toString());
+        onChangeUsd?.(num);
+        if (rate) onChangeUzs?.(String(Math.round(num * rate)));
       } else {
         setText(String(Math.round(num)));
+        onChangeUzs?.(String(Math.round(num)));
       }
     } else {
       setText('');
-      onChangeUzs('');
+      onChangeUzs?.('');
+      onChangeUsd?.('');
     }
   };
 
@@ -2113,7 +2729,7 @@ function CurrencyNumberInput({
       style={style}
       type="number"
       min={min}
-      step={step}
+      step={currency === 'USD' ? '0.01' : '1'}
       value={text}
       onChange={handleChange}
       onFocus={() => setIsFocused(true)}
@@ -2138,22 +2754,22 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
 
   return <div className="receipt-product card" style={{padding:16,marginBottom:14,border:'1px solid var(--line)',borderRadius:14,background:index%2===1?'#fcfdfd':'#fff'}}>
     {/* Qator sarlavhasi va o'chirish tugmasi */}
-    <div className="wide" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,paddingBottom:8,borderBottom:'1px solid var(--line,#e2e8f0)'}}>
-      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
-        <span style={{background:'#f1f5f9',color:'#334155',fontSize:12,fontWeight:700,padding:'2px 8px',borderRadius:6}}>
+    <div className="wide" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,paddingBottom:8,borderBottom:'1px solid var(--line,#e2e8f0)',gap:8}}>
+      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',minWidth:0,flex:1}}>
+        <span style={{background:'#f1f5f9',color:'#334155',fontSize:12,fontWeight:700,padding:'2px 8px',borderRadius:6,flexShrink:0}}>
           #{index + 1}-qator
         </span>
         {selectedProduct && (
-          <b style={{fontSize:13,color:'var(--text)'}}>
+          <b style={{fontSize:13,color:'var(--text)',overflowWrap:'anywhere',wordBreak:'break-word'}}>
             {selectedProduct.name}
           </b>
         )}
         {line.color_name ? (
-          <span style={{background:'#dbeafe',color:'#1d4ed8',padding:'2px 10px',borderRadius:20,fontSize:12,fontWeight:700,display:'inline-flex',alignItems:'center',gap:4}}>
+          <span style={{background:'#dbeafe',color:'#1d4ed8',padding:'2px 10px',borderRadius:20,fontSize:12,fontWeight:700,display:'inline-flex',alignItems:'center',gap:4,flexShrink:0}}>
             🎨 {line.color_name} rangi
           </span>
         ) : (
-          <span style={{fontSize:11,color:'var(--muted)'}}>
+          <span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>
             (Rangi kiritilmagan)
           </span>
         )}
@@ -2177,7 +2793,7 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
         <div className="receipt-selected-product">
           <div>
             <b>{selectedProduct.name}</b>
-            <small>{selectedProduct.sku} · Baza narxi: <DualPrice value={Number(selectedProduct.retail_price)} rate={rate}/></small>
+            <small>{selectedProduct.sku} · Baza narxi: <DualPrice value={Number(selectedProduct.retail_price)} usdValue={selectedProduct.retail_price_usd != null ? Number(selectedProduct.retail_price_usd) : undefined} rate={rate}/></small>
           </div>
           <button type="button" className="btn btn-sm" style={{padding:'4px 10px',fontSize:11}} onClick={()=>{onSelect(index,'');setSearch('')}}>O'zgartirish</button>
         </div>
@@ -2211,7 +2827,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
                 setLine(index, {
                   color_name: val,
                   variant_id: matched.id,
-                  retail_price: matched.retail_price ? String(matched.retail_price) : line.retail_price
+                  retail_price: matched.retail_price ? String(matched.retail_price) : line.retail_price,
+                  retail_price_usd: matched.retail_price_usd ?? line.retail_price_usd
                 });
               } else {
                 setLine(index, {
@@ -2248,7 +2865,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
                     setLine(index, {
                       color_name: v.color_name,
                       variant_id: v.id,
-                      retail_price: v.retail_price ? String(v.retail_price) : line.retail_price
+                      retail_price: v.retail_price ? String(v.retail_price) : line.retail_price,
+                      retail_price_usd: v.retail_price_usd ?? line.retail_price_usd
                     });
                   }}
                 >
@@ -2281,6 +2899,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
           <CurrencyNumberInput
             valueUzs={line.unit_cost}
             onChangeUzs={v=>setLine(index,'unit_cost',v)}
+            valueUsd={line.unit_cost_usd}
+            onChangeUsd={v=>setLine(index,'unit_cost_usd',v)}
             currency={priceCurrency}
             rate={rate}
             placeholder={priceCurrency==='USD'?'0.00':'0'}
@@ -2293,10 +2913,10 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
           <div className="receipt-price-confirm wide">
             <p><b>{line.color_name ? `"${line.color_name}" rangi` : 'Ushbu qator'} uchun asosiy sotish narxlarini o'zgartirish</b></p>
             <div className="receipt-price-current">
-              <span>Sotish: <b><DualPrice value={Number(line.retail_price || selectedProduct.retail_price)} rate={rate}/></b></span>
-              <span>Ulgurji: <b><DualPrice value={Number(line.wholesale_price || selectedProduct.wholesale_price || 0)} rate={rate}/></b></span>
-              <span>Minimal: <b><DualPrice value={Number(line.minimum_sale_price || selectedProduct.minimum_sale_price || 0)} rate={rate}/></b></span>
-              <span>Tannarx: <b><DualPrice value={Number(line.unit_cost || selectedProduct.cost_price || 0)} rate={rate}/></b></span>
+              <span>Sotish: <b><DualPrice value={Number(line.retail_price || selectedProduct.retail_price)} usdValue={Number(line.retail_price_usd || selectedProduct.retail_price_usd) || undefined} rate={rate}/></b></span>
+              <span>Ulgurji: <b><DualPrice value={Number(line.wholesale_price || selectedProduct.wholesale_price || 0)} usdValue={Number(line.wholesale_price_usd || selectedProduct.wholesale_price_usd) || undefined} rate={rate}/></b></span>
+              <span>Minimal: <b><DualPrice value={Number(line.minimum_sale_price || selectedProduct.minimum_sale_price || 0)} usdValue={Number(line.minimum_sale_price_usd || selectedProduct.minimum_sale_price_usd) || undefined} rate={rate}/></b></span>
+              <span>Tannarx: <b><DualPrice value={Number(line.unit_cost || selectedProduct.cost_price || 0)} usdValue={Number(line.unit_cost_usd || selectedProduct.cost_price_usd) || undefined} rate={rate}/></b></span>
             </div>
             <div className="receipt-price-buttons">
               <button type="button" className="btn btn-primary btn-sm" onClick={()=>confirmPrice(index,true)}>
@@ -2324,6 +2944,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
               <CurrencyNumberInput
                 valueUzs={line.retail_price}
                 onChangeUzs={v=>setLine(index,'retail_price',v)}
+                valueUsd={line.retail_price_usd}
+                onChangeUsd={v=>setLine(index,'retail_price_usd',v)}
                 currency={priceCurrency}
                 rate={rate}
                 placeholder={priceCurrency==='USD'?'0.00':'0'}
@@ -2335,6 +2957,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
               <CurrencyNumberInput
                 valueUzs={line.wholesale_price}
                 onChangeUzs={v=>setLine(index,'wholesale_price',v)}
+                valueUsd={line.wholesale_price_usd}
+                onChangeUsd={v=>setLine(index,'wholesale_price_usd',v)}
                 currency={priceCurrency}
                 rate={rate}
                 placeholder={priceCurrency==='USD'?'0.00':'0'}
@@ -2345,6 +2969,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
               <CurrencyNumberInput
                 valueUzs={line.minimum_sale_price}
                 onChangeUzs={v=>setLine(index,'minimum_sale_price',v)}
+                valueUsd={line.minimum_sale_price_usd}
+                onChangeUsd={v=>setLine(index,'minimum_sale_price_usd',v)}
                 currency={priceCurrency}
                 rate={rate}
                 placeholder={priceCurrency==='USD'?'0.00':'0'}
@@ -2422,7 +3048,7 @@ export function InventoryScanner({open,close,branchId,toast}){
         >
           <Bluetooth size={14}/>
           <Printer size={14}/>
-          Detonger yorliq chop etish (40×30 mm)
+          Termoprinterda chop etish (Detonger / MHT-L80G)
         </button>
       </div>
       <div className="passport-grid">
@@ -2463,6 +3089,7 @@ export function InventoryScanner({open,close,branchId,toast}){
         variant_color: unit.variant_color,
         code: unit.qr_code,
         qr_code: unit.qr_code,
+        cost_usd: unit.cost_price_usd || unit.batch?.unit_cost_usd || unit.product?.cost_price_usd || '',
         quantity: availableCount || 1,
         date: unit.batch?.received_at ? new Date(unit.batch.received_at).toLocaleDateString('uz-UZ') : new Date().toLocaleDateString('uz-UZ'),
       }]}

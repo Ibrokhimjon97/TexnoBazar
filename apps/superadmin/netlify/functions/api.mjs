@@ -1,10 +1,12 @@
 import createEmployee from '../../api/employees/create.js';
 import presignMedia from '../../api/media/presign.js';
+import uploadMedia from '../../api/media/upload.js';
 import completeMedia from '../../api/media/complete.js';
 import deleteMedia from '../../api/media/delete.js';
 import deliveryProof from '../../api/media/delivery-proof.js';
 import bannerMedia from '../../api/media/banner.js';
 import cleanupMedia from '../../api/media/cleanup.js';
+import promotionMedia from '../../api/media/promotion.js';
 import dispatchReceipts from '../../api/receipts/dispatch.js';
 import telegramWebhook from '../../api/telegram/webhook.js';
 import aiChat from '../../api/ai/chat.js';
@@ -12,19 +14,21 @@ import aiTestProvider from '../../api/ai/test-provider.js';
 import aiListModels from '../../api/ai/list-models.js';
 
 const DEFAULT_MAX_BODY_BYTES = 16 * 1024;
-// Chat turns carry conversation context, so they need a larger ceiling than the
-// small JSON payloads the other routes accept.
+// Chat turns and file uploads carry larger payloads.
 const ROUTE_MAX_BODY_BYTES = new Map([
   ['/api/ai/chat', 256 * 1024],
+  ['/api/media/upload', 12 * 1024 * 1024],
 ]);
 const routes = new Map([
   ['/api/employees/create', createEmployee],
   ['/api/media/presign', presignMedia],
+  ['/api/media/upload', uploadMedia],
   ['/api/media/complete', completeMedia],
   ['/api/media/delete', deleteMedia],
   ['/api/media/delivery-proof', deliveryProof],
   ['/api/media/banner', bannerMedia],
   ['/api/media/cleanup', cleanupMedia],
+  ['/api/media/promotion', promotionMedia],
   ['/api/receipts/dispatch', dispatchReceipts],
   ['/api/telegram/webhook', telegramWebhook],
   ['/api/ai/chat', aiChat],

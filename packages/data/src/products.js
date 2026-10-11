@@ -1,7 +1,8 @@
 import { getAccessToken, getBrowserClient } from './auth.js';
 import { throwDataError } from './errors.js';
 import { compressImageFile } from './mediaCompress.js';
-export { compressImageFile };
+import { getApiBase } from './apiBase.js';
+export { compressImageFile, getApiBase };
 async function rpc(name,args){const{data,error}=await getBrowserClient().rpc(name,args);if(error)throwDataError(error,name);return data}
 export async function listCatalogProducts({query=null,status=null,categoryId=null,brandId=null,page=1,pageSize=20}={}){
  return rpc('list_catalog_products',{p_query:query||null,p_status:status||null,p_category_id:categoryId||null,p_brand_id:brandId||null,p_limit:pageSize,p_offset:(page-1)*pageSize});
@@ -15,14 +16,37 @@ export const setPrimaryProductMedia=(productId,mediaId)=>rpc('set_primary_produc
 export const saveProductVariants=(productId,variants=[])=>rpc('save_product_variants',{p_product_id:productId,p_variants:variants});
 export const bulkDeleteProducts=productIds=>rpc('delete_products_cascade',{p_product_ids:productIds});
 export const deleteCategoryProducts=(categoryId,includeChildren=true)=>rpc('delete_category_products_cascade',{p_category_id:categoryId,p_include_children:includeChildren});
-async function api(path,method,body){const token=await getAccessToken();if(!token)throw new Error('Sessiya topilmadi. Tizimga qayta kiring.');const base=(import.meta.env?.VITE_API_BASE||'').replace(/\/$/,'');const response=await fetch(base+path,{method,headers:{'Content-Type':'application/json',Authorization:`Bearer ${token}`},body:JSON.stringify(body)});const text=await response.text();let result={};try{result=text?JSON.parse(text):{}}catch{if(!response.ok)throw new Error(`Media serveri noto‘g‘ri javob qaytardi (${response.status}).`)}if(!response.ok)throw new Error(result.error||`Server amali bajarilmadi (${response.status}).`);return result}
+
+async function api(path, method, body) {
+  const token = await getAccessToken();
+  if (!token) throw new Error('Sessiya topilmadi. Tizimga qayta kiring.');
+  const base = getApiBase();
+  const response = await fetch(base + path, {
+    method,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  let result = {};
+  try {
+    result = text ? JSON.parse(text) : {};
+  } catch {
+    throw new Error(`Media serveri noto‘g‘ri javob qaytardi (${response.status}).`);
+  }
+  if (!response.ok) {
+    throw new Error(result.error || `Server amali bajarilmadi (${response.status}).`);
+  }
+  return result;
+}
+
 async function uploadViaProxy(key, file) {
   const token = await getAccessToken();
   if (!token) throw new Error('Sessiya topilmadi. Tizimga qayta kiring.');
-  const base = (import.meta.env?.VITE_API_BASE || '').replace(/\/$/, '');
+  const base = getApiBase();
+  const contentType = (file.type || 'image/jpeg').toLowerCase();
   const response = await fetch(`${base}/api/media/upload?key=${encodeURIComponent(key)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': file.type, Authorization: `Bearer ${token}` },
+    headers: { 'Content-Type': contentType, Authorization: `Bearer ${token}` },
     body: file,
   });
   if (!response.ok) {
@@ -32,10 +56,12 @@ async function uploadViaProxy(key, file) {
     throw new Error(result.error || `Rasm R2 serveriga yuklanmadi (${response.status}).`);
   }
 }
+
 async function uploadToPresignedUrl(uploadUrl, file) {
+  const contentType = (file.type || 'image/jpeg').toLowerCase();
   const response = await fetch(uploadUrl, {
     method: 'PUT',
-    headers: { 'Content-Type': file.type },
+    headers: { 'Content-Type': contentType },
     body: file,
   });
   if (!response.ok) {
@@ -45,33 +71,70 @@ async function uploadToPresignedUrl(uploadUrl, file) {
 
 export async function uploadProductMedia(productId, file, altText = '', variantId = null) {
   const compressed = await compressImageFile(file, { maxWidth: 1600, maxHeight: 1600, quality: 0.82 });
-  const signed = await api('/api/media/presign', 'POST', {
-    contentType: compressed.type,
-    size: compressed.size,
-    scope: 'products',
-    ownerId: productId,
-  });
-  let uploaded = false;
-  if (signed?.uploadUrl) {
-    try {
-      await uploadToPresignedUrl(signed.uploadUrl, compressed);
-      uploaded = true;
-    } catch {
-      // Direct presigned upload failed (e.g. CORS on R2 bucket), fall back to proxy
-    }
-  }
-  if (!uploaded) {
-    await uploadViaProxy(signed.key, compressed);
-  }
+  const rawType = (compressed.type || file.type || '').toLowerCase();
+  const contentType = rawType === 'image/jpg' ? 'image/jpeg' : (rawType || 'image/jpeg');
+
   try {
-    return await api('/api/media/complete', 'POST', {
-      productId,
-      key: signed.key,
-      altText,
-      variantId: variantId || null,
+    const signed = await api('/api/media/presign', 'POST', {
+      contentType,
+      size: compressed.size,
+      scope: 'products',
+      ownerId: productId,
     });
+    if (!signed?.key) {
+      throw new Error(signed?.error || 'Media kaliti olinmadi.');
+    }
+    let uploaded = false;
+    if (signed?.uploadUrl) {
+      try {
+        await uploadToPresignedUrl(signed.uploadUrl, compressed);
+        uploaded = true;
+      } catch (presignErr) {
+        console.warn('Direct presigned R2 upload failed, attempting proxy upload:', presignErr);
+      }
+    }
+    if (!uploaded) {
+      await uploadViaProxy(signed.key, compressed);
+    }
+    try {
+      const completed = await api('/api/media/complete', 'POST', {
+        productId,
+        key: signed.key,
+        altText,
+        variantId: variantId || null,
+      });
+      return completed;
+    } catch (err) {
+      console.warn('Complete media RPC failed, returning signed public URL:', err);
+      return { url: signed.publicUrl, publicUrl: signed.publicUrl, key: signed.key };
+    }
   } catch (err) {
-    return { url: signed.publicUrl, publicUrl: signed.publicUrl, key: signed.key };
+    console.warn('R2 upload failed, attempting Supabase storage fallback:', err);
+    try {
+      const client = getBrowserClient();
+      const ext = (compressed.name || 'image.jpg').split('.').pop() || 'jpg';
+      const path = `products/${productId}/${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`;
+      const { data: storageData, error: sErr } = await client.storage.from('logos').upload(path, compressed, { upsert: true });
+      if (!sErr && storageData) {
+        const { data: { publicUrl } } = client.storage.from('logos').getPublicUrl(path);
+        try {
+          await client.rpc('attach_product_media', {
+            p_actor_id: (await client.auth.getUser())?.data?.user?.id || null,
+            p_product_id: productId,
+            p_storage_path: path,
+            p_public_url: publicUrl,
+            p_file_size: compressed.size,
+            p_mime_type: contentType,
+            p_alt_text: altText || null,
+            p_variant_id: variantId || null,
+          });
+        } catch {}
+        return { url: publicUrl, publicUrl, key: path };
+      }
+    } catch (fallbackErr) {
+      console.error('Storage fallback failed:', fallbackErr);
+    }
+    throw err;
   }
 }
 

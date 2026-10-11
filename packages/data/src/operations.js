@@ -104,15 +104,24 @@ export const settleSupplierReceipt = (receiptId, amount, method, reference, note
 
 // Sotuvlar tarixi: har bir sotilgan birlik haqida to'liq ma'lumot (RPC orqali)
 export async function listSalesHistory({ branchId = null, sellerId = null, from, to, query = '', page = 1, pageSize = 50 }) {
+  let cleanFrom = from || null;
+  let cleanTo = to || null;
+  if (cleanFrom && cleanTo && cleanFrom > cleanTo) {
+    const tmp = cleanFrom;
+    cleanFrom = cleanTo;
+    cleanTo = tmp;
+  }
   const result = await rpc('list_sales_history', {
     p_branch_id: branchId || null,
     p_seller_id: sellerId || null,
-    p_from: from || null,
-    p_to: to || null,
+    p_from: cleanFrom,
+    p_to: cleanTo,
     p_query: query || null,
     p_limit: pageSize,
     p_offset: (page - 1) * pageSize,
   });
   return { items: result?.items || [], total: Number(result?.total || 0) };
 }
+export const deleteSale = (saleId, restoreStock = true) => rpc('delete_sale', { p_sale_id: saleId, p_restore_stock: restoreStock });
+export const deletePosPendingSale = (id, restoreStock = true) => rpc('delete_pos_pending_sale', { p_pending_id: id, p_restore_stock: restoreStock });
 

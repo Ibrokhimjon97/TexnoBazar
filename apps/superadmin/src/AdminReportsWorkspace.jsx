@@ -26,7 +26,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { DualPrice, formatDualMoney, useExchangeRate } from '@texnobazar/ui';
+import { DualPrice, formatDualMoney, useExchangeRate, Modal } from '@texnobazar/ui';
 import {
   deleteReportRows,
   listActiveBranches,
@@ -99,6 +99,7 @@ export default function AdminReportsWorkspace({ initialType = 'sales', picker = 
   // Selection for deletion
   const [selectedKeys, setSelectedKeys] = useState(() => new Set());
   const [deleting, setDeleting] = useState(false);
+  const [deletingSalesModal, setDeletingSalesModal] = useState(null);
 
   const config = configs[type] || configs.sales;
   const isDeletable = DELETABLE_TYPES.includes(type);
@@ -199,25 +200,17 @@ export default function AdminReportsWorkspace({ initialType = 'sales', picker = 
     }
   };
 
-  const handleDeleteRows = async keysToDelete => {
-    const list = keysToDelete || Array.from(selectedKeys);
-    if (!list.length) return;
-    const count = list.length;
-    const confirmMsg =
-      count === 1
-        ? 'Haqiqatan ham ushbu hisobot qatorini o‘chirmoqchimisiz? (Savdo bo‘lsa tovarlar omborga qaytariladi)'
-        : `Haqiqatan ham tanlangan ${count} ta hisobot qatorini o‘chirmoqchimisiz? (Savdolar bo‘lsa tovarlar omborga qaytariladi)`;
-    if (!window.confirm(confirmMsg)) return;
-
+  const executeDelete = async (list, restoreStock = true) => {
     setDeleting(true);
     try {
-      const res = await deleteReportRows(type, list);
+      const res = await deleteReportRows(type, list, restoreStock);
       toast?.(res?.deleted_count != null ? `${res.deleted_count} ta qator o‘chirildi` : 'Hisobot qatorlari o‘chirildi');
       setSelectedKeys(prev => {
         const next = new Set(prev);
         list.forEach(k => next.delete(k));
         return next;
       });
+      setDeletingSalesModal(null);
       await load();
     } catch (err) {
       console.error('Hisobot qatorlarini o‘chirishda xatolik:', err);
@@ -225,6 +218,22 @@ export default function AdminReportsWorkspace({ initialType = 'sales', picker = 
     } finally {
       setDeleting(false);
     }
+  };
+
+  const handleDeleteRows = async keysToDelete => {
+    const list = keysToDelete || Array.from(selectedKeys);
+    if (!list.length) return;
+    if (type === 'sales') {
+      setDeletingSalesModal({ list });
+      return;
+    }
+    const count = list.length;
+    const confirmMsg =
+      count === 1
+        ? 'Haqiqatan ham ushbu hisobot qatorini o‘chirmoqchimisiz?'
+        : `Haqiqatan ham tanlangan ${count} ta hisobot qatorini o‘chirmoqchimisiz?`;
+    if (!window.confirm(confirmMsg)) return;
+    await executeDelete(list, true);
   };
 
   return (
@@ -416,6 +425,58 @@ export default function AdminReportsWorkspace({ initialType = 'sales', picker = 
         />
       ) : (
         <ChartView type={type} view={view} data={visualization} rate={rate} />
+      )}
+
+      {deletingSalesModal && (
+        <Modal
+          open={Boolean(deletingSalesModal)}
+          onClose={() => !deleting && setDeletingSalesModal(null)}
+          title="Savdo chekini o‘chirish"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <p style={{ margin: 0, fontSize: 14, color: 'var(--navy)' }}>
+              Haqiqatan ham {deletingSalesModal.list.length === 1 ? (
+                <><b>{deletingSalesModal.list[0]}</b> raqamli savdo chekini</>
+              ) : (
+                <>tanlangan <b>{deletingSalesModal.list.length} ta</b> savdo chekini</>
+              )} hisobotdan o‘chirmoqchimisiz?
+            </p>
+            <div style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 13, color: '#166534' }}>
+              <b>1-usul: Tovar omborga qaytariladi</b> — oddiy o‘chirish. Sotilgan tovar birliklari yana ombor/do‘konda mavjud holatga o‘tadi.
+            </div>
+            <div style={{ padding: '10px 14px', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, fontSize: 13, color: '#be123c' }}>
+              <b>2-usul: Tovar omborga qaytarilmaydi</b> — test yoki xato yozuvlarni tozalash uchun. Tovar omborga qaytarilmasdan faqat hisobot va savdo yozuvlari o‘chiriladi.
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                className="btn"
+                disabled={deleting}
+                onClick={() => setDeletingSalesModal(null)}
+              >
+                Bekor qilish
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={deleting}
+                style={{ background: '#ef4444', borderColor: '#ef4444', color: '#fff', fontWeight: 600 }}
+                onClick={() => executeDelete(deletingSalesModal.list, false)}
+              >
+                {deleting ? 'O‘chirilmoqda…' : 'Qaytarmasdan o‘chirish'}
+              </button>
+              <button
+                type="button"
+                className="btn"
+                disabled={deleting}
+                style={{ background: '#16a34a', borderColor: '#16a34a', color: '#fff', fontWeight: 600 }}
+                onClick={() => executeDelete(deletingSalesModal.list, true)}
+              >
+                {deleting ? 'O‘chirilmoqda…' : 'Qaytarib o‘chirish'}
+              </button>
+            </div>
+          </div>
+        </Modal>
       )}
     </>
   );

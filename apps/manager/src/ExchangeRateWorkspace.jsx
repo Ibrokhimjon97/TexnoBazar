@@ -44,7 +44,10 @@ export default function ExchangeRateWorkspace({toast}){
           rate:Number(form.rate)
         },{onConflict:'rate_date,currency_from,currency_to'});
       if(err)throw err;
-      toast?.('Valyuta kursi saqlandi');
+      try{
+        await getBrowserClient().rpc('sync_usd_prices_on_rate_change',{p_new_rate:Number(form.rate)});
+      }catch{}
+      toast?.('Valyuta kursi saqlandi. USD tovarlarning so‘mdagi narxlari avtomatik qayta hisoblandi');
       setForm(f=>({...f,rate:''}));
       await load();
     }catch(e){setError(e.message||'Kurs saqlanmadi')}

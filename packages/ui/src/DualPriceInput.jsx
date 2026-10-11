@@ -15,40 +15,53 @@ export function useExchangeRate(){
  * Matn ichida (masalan confirm() yoki alert() ichida) ishlatish uchun UZS + USD qatorini qaytaradi.
  * rate bo'lmasa faqat UZS qaytaradi.
  */
-export function formatDualMoney(value,rate){
+export function formatDualMoney(value,rate,usdValue){
   const uzs=Number(value||0);
   const formatted=new Intl.NumberFormat('uz-UZ').format(uzs)+" so'm";
-  if(!rate||rate<=0)return formatted;
-  const usd=Math.round(uzs/rate);
+  const usd=usdValue!==undefined&&usdValue!==null&&!isNaN(Number(usdValue))&&Number(usdValue)>0?Number(usdValue):(rate&&rate>0?Math.round(uzs/rate):null);
+  if(usd===null)return formatted;
   return `${formatted} ($${usd.toLocaleString('en-US')})`;
 }
 
 /**
  * Ikki valyutali narx input — UZS kiritilganda USD avtomatik hisoblanadi va aksincha.
- * Props: label, valueUzs, onChangeUzs, rate (1 USD = X UZS), disabled
+ * Props: label, valueUzs, onChangeUzs, valueUsd, onChangeUsd, rate (1 USD = X UZS), disabled
  */
-export function DualPriceInput({label,valueUzs='',onChangeUzs,rate,disabled=false}){
-  const[usd,setUsd]=useState('');
-  const[source,setSource]=useState('uzs');
+export function DualPriceInput({label,valueUzs='',onChangeUzs,valueUsd,onChangeUsd,rate,disabled=false}){
+  const[usd,setUsd]=useState(()=>{
+    if(valueUsd!==undefined&&valueUsd!==null&&valueUsd!=='')return String(valueUsd);
+    if(rate&&Number(valueUzs)>0)return (Number(valueUzs)/rate).toFixed(2);
+    return '';
+  });
+  const[source,setSource]=useState(valueUsd ? 'usd' : 'uzs');
 
   useEffect(()=>{
-    if(source==='uzs'&&rate&&Number(valueUzs)>0){
+    if(valueUsd!==undefined&&valueUsd!==null&&valueUsd!==''){
+      setUsd(String(valueUsd));
+    }else if(source==='uzs'&&rate&&Number(valueUzs)>0){
       setUsd((Number(valueUzs)/rate).toFixed(2));
     }
-  },[valueUzs,rate]);
+  },[valueUsd,valueUzs,rate,source]);
 
   const handleUzs=e=>{
     const v=e.target.value;
     onChangeUzs(v);
     setSource('uzs');
-    if(rate&&Number(v)>0)setUsd((Number(v)/rate).toFixed(2));
-    else setUsd('');
+    if(rate&&Number(v)>0){
+      const calculatedUsd=(Number(v)/rate).toFixed(2);
+      setUsd(calculatedUsd);
+      onChangeUsd?.(calculatedUsd);
+    }else{
+      setUsd('');
+      onChangeUsd?.('');
+    }
   };
 
   const handleUsd=e=>{
     const v=e.target.value;
     setUsd(v);
     setSource('usd');
+    onChangeUsd?.(v);
     if(rate&&Number(v)>0)onChangeUzs(String(Math.round(Number(v)*rate)));
     else onChangeUzs('');
   };
@@ -72,12 +85,17 @@ export function DualPriceInput({label,valueUzs='',onChangeUzs,rate,disabled=fals
 
 /**
  * Ikki valyutali narx display — UZS asosiy, USD kursga qarab yonida ko'rsatiladi.
- * Props: value (UZS son), rate (1 USD = X UZS), className, style, bold
+ * Props: value (UZS son), rate (1 USD = X UZS), usdValue (ixtiyoriy, aniq USD son), className, style, bold
  * rate null yoki 0 bo'lsa faqat UZS ko'rsatiladi.
  */
-export function DualPrice({value,rate,className='',style,bold=false}){
+export function DualPrice({value,rate,usdValue,className='',style,bold=false}){
   const uzs=Number(value||0);
-  const usd=rate&&rate>0?Math.round(uzs/rate):null;
+  let usd=null;
+  if(usdValue!==undefined&&usdValue!==null&&!isNaN(Number(usdValue))&&Number(usdValue)>0){
+    usd=Number(usdValue);
+  }else if(rate&&rate>0){
+    usd=Math.round(uzs/rate);
+  }
   const formatted=new Intl.NumberFormat('uz-UZ').format(uzs);
   return <span className={`dual-price ${className}`} style={style}>
     {bold?<b>{formatted} so'm</b>:<>{formatted} so'm</>}

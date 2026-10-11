@@ -133,7 +133,7 @@ function VariantRow({ variant, onChange, onRemove, showQuantity, showWholesale, 
           ))}
           <label className="variant-media-upload">
             <Upload size={16} />
-            <input type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple hidden onChange={addImages} />
+            <input type="file" accept="image/*" multiple hidden onChange={addImages} />
           </label>
         </div>
       </div>

@@ -376,11 +376,11 @@ function Receipt({receipt,close,rate}){
           )}
         </div>
         {multipleLines&&(
-          <div style={{display:'flex',gap:8,marginBottom:12}}>
-            <button type="button" className={`btn btn-sm ${printMode==='per_item'?'btn-primary':'btn-outline'}`} onClick={()=>{setPrintMode('per_item');setPreviewIndex(0);}} style={{flex:1,fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
+          <div className="pos-print-mode-btns" style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+            <button type="button" className={`btn btn-sm ${printMode==='per_item'?'btn-primary':'btn-outline'}`} onClick={()=>{setPrintMode('per_item');setPreviewIndex(0);}} style={{flex:'1 1 140px',fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
               <Layers size={13}/> Har bir tovar alohida ({lines.length} ta)
             </button>
-            <button type="button" className={`btn btn-sm ${printMode==='summary'?'btn-primary':'btn-outline'}`} onClick={()=>setPrintMode('summary')} style={{flex:1,fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
+            <button type="button" className={`btn btn-sm ${printMode==='summary'?'btn-primary':'btn-outline'}`} onClick={()=>setPrintMode('summary')} style={{flex:'1 1 140px',fontSize:11,display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
               <FileText size={13}/> Jamlangan bitta chek
             </button>
           </div>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Boxes, CheckCircle2, Package, Pencil, Plus, Trash2, Upload, X } from 'lucide-react';
 import { Modal } from './index.jsx';
 import { DualPriceInput, useExchangeRate } from './DualPriceInput.jsx';
@@ -268,10 +268,14 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
       category_id: prod.category_id || '',
       brand_id: prod.brand_id || '',
       cost_price: prod.cost_price != null ? String(prod.cost_price) : '',
+      cost_price_usd: prod.cost_price_usd != null ? String(prod.cost_price_usd) : (prod.cost_price && rate ? String(Math.round(Number(prod.cost_price)/rate)) : ''),
       retail_price: prod.retail_price != null ? String(prod.retail_price) : '',
+      retail_price_usd: prod.retail_price_usd != null ? String(prod.retail_price_usd) : (prod.retail_price && rate ? String(Math.round(Number(prod.retail_price)/rate)) : ''),
       wholesale_price: prod.wholesale_price != null ? String(prod.wholesale_price) : '',
+      wholesale_price_usd: prod.wholesale_price_usd != null ? String(prod.wholesale_price_usd) : (prod.wholesale_price && rate ? String(Math.round(Number(prod.wholesale_price)/rate)) : ''),
       promotion_price: prod.promotion_price != null ? String(prod.promotion_price) : '',
       minimum_sale_price: prod.minimum_sale_price != null ? String(prod.minimum_sale_price) : '0',
+      minimum_sale_price_usd: prod.minimum_sale_price_usd != null ? String(prod.minimum_sale_price_usd) : (prod.minimum_sale_price && rate ? String(Math.round(Number(prod.minimum_sale_price)/rate)) : '0'),
       compare_at_price: prod.compare_at_price != null ? String(prod.compare_at_price) : '',
       slug: prod.slug || '',
       video_url: prod.video_url || prod.seo_image_url || '',
@@ -329,13 +333,18 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
           category_id: form.category_id || null,
           brand_id: form.brand_id || null,
           cost_price: Number(form.cost_price) || 0,
+          cost_price_usd: Number(form.cost_price_usd) || (rate && Number(form.cost_price) ? Number((Number(form.cost_price)/rate).toFixed(2)) : null),
           retail_price: Number(form.retail_price) || 0,
+          retail_price_usd: Number(form.retail_price_usd) || (rate && Number(form.retail_price) ? Number((Number(form.retail_price)/rate).toFixed(2)) : null),
           wholesale_price: form.wholesale_price === '' ? null : Number(form.wholesale_price),
+          wholesale_price_usd: form.wholesale_price_usd === '' ? null : (Number(form.wholesale_price_usd) || (rate && Number(form.wholesale_price) ? Number((Number(form.wholesale_price)/rate).toFixed(2)) : null)),
           promotion_price: form.promotion_price === '' ? null : Number(form.promotion_price),
           minimum_sale_price: Number(form.minimum_sale_price) || 0,
+          minimum_sale_price_usd: Number(form.minimum_sale_price_usd) || (rate && Number(form.minimum_sale_price) ? Number((Number(form.minimum_sale_price)/rate).toFixed(2)) : null),
           compare_at_price: form.compare_at_price === '' ? null : Number(form.compare_at_price),
           description: form.description || null,
           video_url: form.video_url?.trim() || null,
+          currency: 'USD',
           status: 'active',
           is_published: false,
           track_individual_units: true,
@@ -352,10 +361,15 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
           category_id: form.category_id || null,
           brand_id: form.brand_id || null,
           cost_price: Number(form.cost_price) || 0,
+          cost_price_usd: Number(form.cost_price_usd) || (rate && Number(form.cost_price) ? Number((Number(form.cost_price)/rate).toFixed(2)) : null),
           retail_price: Number(form.retail_price) || 0,
+          retail_price_usd: Number(form.retail_price_usd) || (rate && Number(form.retail_price) ? Number((Number(form.retail_price)/rate).toFixed(2)) : null),
           wholesale_price: form.wholesale_price === '' ? null : Number(form.wholesale_price),
+          wholesale_price_usd: form.wholesale_price_usd === '' ? null : (Number(form.wholesale_price_usd) || (rate && Number(form.wholesale_price) ? Number((Number(form.wholesale_price)/rate).toFixed(2)) : null)),
           promotion_price: form.promotion_price === '' ? null : Number(form.promotion_price),
           minimum_sale_price: Number(form.minimum_sale_price) || 0,
+          minimum_sale_price_usd: Number(form.minimum_sale_price_usd) || (rate && Number(form.minimum_sale_price) ? Number((Number(form.minimum_sale_price)/rate).toFixed(2)) : null),
+          currency: 'USD',
           compare_at_price: form.compare_at_price === '' ? null : Number(form.compare_at_price),
           description: form.description || null,
           video_url: form.video_url?.trim() || null,
@@ -467,17 +481,14 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
             </div>
           </label>
 
-          <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v => setForm({ ...form, cost_price: v })} rate={rate} />
-          <DualPriceInput label="Sotish narxi" valueUzs={form.retail_price} onChangeUzs={v => setForm({ ...form, retail_price: v })} rate={rate} />
-          <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v => setForm({ ...form, wholesale_price: v })} rate={rate} />
+          <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v => setForm(f => ({ ...f, cost_price: v }))} valueUsd={form.cost_price_usd} onChangeUsd={v => setForm(f => ({ ...f, cost_price_usd: v }))} rate={rate} />
+          <DualPriceInput label="Sotish narxi" valueUzs={form.retail_price} onChangeUzs={v => setForm(f => ({ ...f, retail_price: v }))} valueUsd={form.retail_price_usd} onChangeUsd={v => setForm(f => ({ ...f, retail_price_usd: v }))} rate={rate} />
+          <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v => setForm(f => ({ ...f, wholesale_price: v }))} valueUsd={form.wholesale_price_usd} onChangeUsd={v => setForm(f => ({ ...f, wholesale_price_usd: v }))} rate={rate} />
+          <DualPriceInput label="Minimal sotuv narxi" valueUzs={form.minimum_sale_price} onChangeUzs={v => setForm(f => ({ ...f, minimum_sale_price: v }))} valueUsd={form.minimum_sale_price_usd} onChangeUsd={v => setForm(f => ({ ...f, minimum_sale_price_usd: v }))} rate={rate} />
 
           <label>
             <span className="label">Aksiya narxi</span>
             <input className="input" type="number" min="0" value={form.promotion_price} onChange={e => setForm({ ...form, promotion_price: e.target.value })} placeholder="0" />
-          </label>
-          <label>
-            <span className="label">Minimal sotuv narxi</span>
-            <input className="input" type="number" min="0" value={form.minimum_sale_price} onChange={e => setForm({ ...form, minimum_sale_price: e.target.value })} placeholder="0" />
           </label>
           <label>
             <span className="label">Eski narx (chizilgan narx)</span>
@@ -548,10 +559,10 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
 
             <label className="btn btn-outline btn-sm" style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: 6, width: 'fit-content' }}>
               <Upload size={14} /> Rasm qo‘shish
-              <input type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple hidden onChange={e => {
+              <input type="file" accept="image/*" multiple hidden onChange={e => {
                 const files = [...e.target.files];
-                const invalid = files.find(file => file.size > 10 * 1024 * 1024 || !['image/jpeg', 'image/png', 'image/webp', 'image/avif'].includes(file.type));
-                if (invalid) setError(`${invalid.name}: faqat JPG, PNG, WebP yoki AVIF, maksimal 10 MB.`);
+                const invalid = files.find(file => file.size > 10 * 1024 * 1024 || !file.type.startsWith('image/'));
+                if (invalid) setError(`${invalid.name}: faqat rasm fayli, maksimal 10 MB.`);
                 else if (files.length) { setError(''); setImages(prev => [...prev, ...files]); }
                 e.target.value = '';
               }} />
@@ -574,3 +585,4 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
 }
 
 export default ProductEditor;
+

@@ -10,12 +10,14 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Trash2,
   User,
   Users,
 } from 'lucide-react';
 import { Modal, Status } from '@texnobazar/ui';
 import {
   adminManualSetAttendance,
+  deleteEmployeeAttendance,
   formatUzDate,
   formatUzTime,
   formatWorkedDuration,
@@ -110,6 +112,25 @@ export default function AttendanceWorkspace({ branchId, toast }) {
   const [editItem, setEditItem] = useState(null);
   const [editForm, setEditForm] = useState({ checkInTime: '', checkOutTime: '', notes: '' });
   const [editSubmitting, setEditSubmitting] = useState(false);
+
+  // Delete Attendance State
+  const [deletingItem, setDeletingItem] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
+  const handleDeleteAttendance = async () => {
+    if (!deletingItem) return;
+    setDeleteBusy(true);
+    try {
+      await deleteEmployeeAttendance([deletingItem.id]);
+      toast?.('Davomat muvaffaqiyatli o‘chirildi!');
+      setDeletingItem(null);
+      loadData();
+    } catch (err) {
+      toast?.(err?.message || 'Davomatni o‘chirishda xatolik yuz berdi.');
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const extractTimeStr = iso => {
     if (!iso) return '';
@@ -590,26 +611,49 @@ export default function AttendanceWorkspace({ branchId, toast }) {
                       )}
                     </td>
                     <td>
-                      <button
-                        type="button"
-                        className="btn secondary"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          padding: '4px 8px',
-                          fontSize: 11,
-                          borderRadius: 7,
-                          background: isMissed ? '#fff1f2' : '#f8fafc',
-                          borderColor: isMissed ? '#fecdd3' : '#e2e8f0',
-                          color: isMissed ? '#e11d48' : '#334155',
-                          fontWeight: 600,
-                        }}
-                        onClick={() => openEditModal(row)}
-                      >
-                        <Pencil size={11} />
-                        {isMissed ? 'Vaqt kiritish' : 'Tahrirlash'}
-                      </button>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <button
+                          type="button"
+                          className="btn secondary"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 5,
+                            padding: '4px 8px',
+                            fontSize: 11,
+                            borderRadius: 7,
+                            background: isMissed ? '#fff1f2' : '#f8fafc',
+                            borderColor: isMissed ? '#fecdd3' : '#e2e8f0',
+                            color: isMissed ? '#e11d48' : '#334155',
+                            fontWeight: 600,
+                          }}
+                          onClick={() => openEditModal(row)}
+                        >
+                          <Pencil size={11} />
+                          {isMissed ? 'Vaqt kiritish' : 'Tahrirlash'}
+                        </button>
+                        <button
+                          type="button"
+                          className="btn"
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            padding: '4px 8px',
+                            fontSize: 11,
+                            borderRadius: 7,
+                            background: '#fff1f2',
+                            borderColor: '#fecdd3',
+                            color: '#e11d48',
+                            fontWeight: 600,
+                          }}
+                          onClick={() => setDeletingItem(row)}
+                          title="Davomatni o‘chirish"
+                        >
+                          <Trash2 size={11} />
+                          O‘chirish
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -704,6 +748,51 @@ export default function AttendanceWorkspace({ branchId, toast }) {
             </div>
           </form>
         )}
+      </Modal>
+
+      {/* Delete Attendance Confirmation Modal */}
+      <Modal
+        open={Boolean(deletingItem)}
+        onClose={() => !deleteBusy && setDeletingItem(null)}
+        title="Davomatni o‘chirish"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--navy)' }}>
+            Haqiqatan ham <b>{deletingItem?.employee_name}</b> xodimining{' '}
+            <b>{deletingItem?.work_date ? formatUzDate(deletingItem.work_date) : ''}</b> kungi davomat yozuvini o‘chirmoqchimisiz?
+          </p>
+          <div
+            style={{
+              padding: '10px 14px',
+              background: '#fff1f2',
+              border: '1px solid #fecdd3',
+              borderRadius: 8,
+              fontSize: 13,
+              color: '#be123c',
+            }}
+          >
+            Ushbu yozuv o‘chirilgandan so‘ng xodimning o‘z profilida ham davomat bekor qilinadi va u shu kuni kelmagan hisoblanadi.
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 6 }}>
+            <button
+              type="button"
+              className="btn secondary"
+              disabled={deleteBusy}
+              onClick={() => setDeletingItem(null)}
+            >
+              Bekor qilish
+            </button>
+            <button
+              type="button"
+              className="btn"
+              disabled={deleteBusy}
+              style={{ background: '#e11d48', borderColor: '#e11d48', color: '#fff', fontWeight: 600 }}
+              onClick={handleDeleteAttendance}
+            >
+              {deleteBusy ? 'O‘chirilmoqda…' : 'Ha, o‘chirish'}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

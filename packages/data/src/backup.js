@@ -1,8 +1,9 @@
 import JSZip from 'jszip';
 import { getAccessToken, getBrowserClient } from './auth.js';
 import { throwDataError } from './errors.js';
+import { getApiBase } from './apiBase.js';
 
-const API_BASE = (import.meta.env?.VITE_API_BASE || '').replace(/\/+$/, '');
+const getBackendBase = () => getApiBase();
 
 async function rpc(name, args = {}) {
   const { data, error } = await getBrowserClient().rpc(name, args);
@@ -166,7 +167,7 @@ export async function exportBackupArchive({ branchId = null, includeMedia = true
           }
           // Agar yuklanmasa yoki CORS bo'lsa, server media-proxy orqali 100% yuklab olamiz
           if (!resp || !resp.ok) {
-            resp = await fetch(`${API_BASE}/api/backup/media-proxy?key=${encodeURIComponent(item.r2Key)}`);
+            resp = await fetch(`${getBackendBase()}/api/backup/media-proxy?key=${encodeURIComponent(item.r2Key)}`);
           }
           if (resp && resp.ok) {
             const buffer = await resp.arrayBuffer();
@@ -323,7 +324,7 @@ export async function restoreBackupArchive(file, { onProgress } = {}) {
         message: `Cloudflare R2 ga rasmlar tiklanmoqda (${Math.min(i + slice.length, mediaEntries.length)}/${mediaEntries.length})…`,
       });
 
-      const res = await fetch(`${API_BASE}/api/backup/restore-media`, {
+      const res = await fetch(`${getBackendBase()}/api/backup/restore-media`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

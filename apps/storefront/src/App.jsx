@@ -564,28 +564,39 @@ function Header({ go, cart, favorites, query, setQuery, menu, setMenu, session, 
   const catalogLabel=siteText(settings,'catalog_button_label','Katalog'),searchPlaceholder=siteText(settings,'search_placeholder','Mahsulot, brend yoki SKU qidiring…');
   const homeLabel=siteText(settings,'nav_home_label','Bosh sahifa'),saleLabel=siteText(settings,'nav_sale_label','Chegirmalar'),saleUrl=siteText(settings,'nav_sale_url','/catalog');
   const favoritesLabel=siteText(settings,'label_favorites','Saralangan'),cartLabel=siteText(settings,'label_cart','Savatcha'),accountLabel=siteText(settings,'label_account','Kabinet');
-  const[catalogOpen,setCatalogOpen]=useState(false),[activeRootId,setActiveRootId]=useState('');
-  const catalogRoots=useMemo(()=>{const roots=safeArray(references?.categoryRoots);return roots.length?roots:navItems.filter(item=>item.category).map(item=>item.category)},[references,navItems]);
-  const activeRoot=catalogRoots.find(root=>String(root.id)===String(activeRootId))||catalogRoots[0]||null;
-  const activeGroups=safeArray(activeRoot?.children),hasDeepGroups=activeGroups.some(group=>safeArray(group.children).length>0);
-  const openCategory=category=>{setCatalogOpen(false);go('category',category)};
-  useEffect(()=>{if(!catalogOpen)return;const onKey=event=>{if(event.key==='Escape')setCatalogOpen(false)};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[catalogOpen]);
-  useEffect(()=>{setCatalogOpen(false)},[route?.view,route?.slug]);
-  useEffect(()=>{if(catalogOpen)setActiveRootId(current=>current||String(catalogRoots[0]?.id||''))},[catalogOpen,catalogRoots]);
+  const [catalogOpen, setCatalogOpen] = useState(false), [categoryFilter, setCategoryFilter] = useState('');
+  const catalogRoots = useMemo(() => { const roots = safeArray(references?.categoryRoots); return roots.length ? roots : navItems.filter(item => item.category).map(item => item.category); }, [references, navItems]);
+  const filteredRoots = useMemo(() => {
+    if (!categoryFilter.trim()) return catalogRoots;
+    const q = categoryFilter.trim().toLowerCase();
+    return catalogRoots.filter(root => plainValue(root.name).toLowerCase().includes(q) || safeArray(root.children).some(child => plainValue(child.name).toLowerCase().includes(q)));
+  }, [catalogRoots, categoryFilter]);
+  const openCategory = category => { setCatalogOpen(false); go('category', category); };
+  useEffect(() => { if (!catalogOpen) { setCategoryFilter(''); return; } const onKey = event => { if (event.key === 'Escape') setCatalogOpen(false); }; window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey); }, [catalogOpen]);
+  useEffect(() => { setCatalogOpen(false); }, [route?.view, route?.slug]);
   return <><header className="site-header"><div className="container header-main"><Logo go={go} siteName={siteName}/><button className={catalogOpen?'btn catalog-btn open':'btn catalog-btn'} onClick={()=>setCatalogOpen(value=>!value)} aria-expanded={catalogOpen} aria-label={catalogLabel}>{catalogOpen?<X size={18}/>:<Menu size={18}/>}<span>{catalogLabel}</span></button><label className="search"><Search size={18}/><span className="sr-only">Mahsulot qidirish</span><input value={query} onChange={event=>setQuery(event.target.value)} onKeyDown={event=>event.key==='Enter'&&submitSearch()} placeholder={searchPlaceholder}/><button onClick={submitSearch} aria-label="Qidirish"><Search size={17}/></button></label><div className="header-actions"><HeaderAction icon={User} text={session?accountLabel:'Kirish'} onClick={()=>go('profile')}/><HeaderAction icon={Heart} text={favoritesLabel} count={favorites.length} onClick={()=>go('profile')}/><HeaderAction icon={ShoppingCart} text={cartLabel} count={cart.reduce((sum,item)=>sum+item.qty,0)} onClick={()=>go('cart')}/><SocialIcons settings={settings}/></div><ThemeToggle/><button className="icon-btn mobile-menu" onClick={()=>setMenu(!menu)} aria-expanded={menu} aria-label="Menyuni ochish">{menu?<X/>:<Menu/>}</button></div>{catalogOpen&&<div className="catalog-mega desktop-only"><div className="container catalog-mega-inner">
-    <aside className="catalog-mega-roots" aria-label="Katalog bo‘limlari">
-      {catalogRoots.map(root=><button key={root.id} className={String(root.id)===String(activeRoot?.id)?'catalog-mega-root active':'catalog-mega-root'} onMouseEnter={()=>setActiveRootId(String(root.id))} onFocus={()=>setActiveRootId(String(root.id))} onClick={()=>openCategory(root)}><span>{plainValue(root.name)}</span>{safeArray(root.children).length>0&&<ChevronRight size={15}/>}</button>)}
-      <button className="catalog-mega-root catalog-mega-all" onClick={()=>{setCatalogOpen(false);go('catalog')}}><span><Grid2X2 size={15}/> Barcha mahsulotlar</span></button>
-      {saleLabel&&<button className="catalog-mega-root catalog-mega-sale" onClick={()=>{setCatalogOpen(false);navigateTarget(saleUrl||'/catalog')}}><span><BadgePercent size={15}/> {saleLabel}</span></button>}
-    </aside>
-    <div className="catalog-mega-panel">
-      {activeRoot&&<><button className="catalog-mega-title" onClick={()=>openCategory(activeRoot)}>{plainValue(activeRoot.name)}</button>
-      {activeGroups.length===0
-        ? <p className="catalog-mega-empty">Bu bo‘limda ichki kategoriya yo‘q. Barcha mahsulotlarni ko‘rish uchun bo‘lim nomini bosing.</p>
-        : hasDeepGroups
-          ? <div className="catalog-mega-columns">{activeGroups.map(group=><div className="catalog-mega-group" key={group.id}><button className="catalog-mega-group-head" onClick={()=>openCategory(group)}>{plainValue(group.name)}</button>{safeArray(group.children).map(leaf=><button className="catalog-mega-leaf" key={leaf.id} onClick={()=>openCategory(leaf)}>{plainValue(leaf.name)}</button>)}</div>)}</div>
-          : <div className="catalog-mega-flat">{activeGroups.map(group=><button className="catalog-mega-leaf" key={group.id} onClick={()=>openCategory(group)}>{plainValue(group.name)}</button>)}</div>}
-      </>}
+    <div className="catalog-mega-header">
+      <div className="catalog-mega-meta">
+        <span className="catalog-mega-badge"><Grid2X2 size={16}/> <b>Katalog</b><span className="catalog-mega-count">({filteredRoots.length} ta bo‘lim)</span></span>
+        {catalogRoots.length>10&&<div className="catalog-mega-filter"><Search size={14}/><input type="text" value={categoryFilter} onChange={e=>setCategoryFilter(e.target.value)} placeholder="Bo‘lim nomini qidirish…" aria-label="Bo‘limni qidirish"/>{categoryFilter&&<button type="button" onClick={()=>setCategoryFilter('')} aria-label="Tozalash"><X size={12}/></button>}</div>}
+      </div>
+      <div className="catalog-mega-actions">
+        <button type="button" className="catalog-quick-btn all" onClick={()=>{setCatalogOpen(false);go('catalog')}}><Grid2X2 size={14}/><span>Barcha mahsulotlar</span></button>
+        {saleLabel&&<button type="button" className="catalog-quick-btn sale" onClick={()=>{setCatalogOpen(false);navigateTarget(saleUrl||'/catalog')}}><BadgePercent size={14}/><span>{saleLabel}</span></button>}
+      </div>
+    </div>
+    <div className="catalog-mega-columns-flow" aria-label="Katalog bo‘limlari">
+      {filteredRoots.map(root=>{
+        const children=safeArray(root.children),hasKids=children.length>0;
+        return <div className="catalog-mega-col-card" key={root.id}>
+          <button type="button" className={`catalog-mega-col-item${hasKids?' is-parent':''}`} onClick={()=>openCategory(root)} title={plainValue(root.name)}>
+            <span className="catalog-cat-name">{plainValue(root.name)}</span>
+            {hasKids&&<ChevronRight size={13} className="cat-chevron"/>}
+          </button>
+          {hasKids&&<div className="catalog-mega-col-sublist">{children.map(child=><button key={child.id} type="button" className="catalog-mega-col-subitem" onClick={()=>openCategory(child)} title={plainValue(child.name)}>{plainValue(child.name)}</button>)}</div>}
+        </div>;
+      })}
+      {filteredRoots.length===0&&<div className="catalog-mega-no-results"><span>«{categoryFilter}» bo‘yicha kategoriya topilmadi</span></div>}
     </div>
   </div></div>}</header>{catalogOpen&&<button className="catalog-panel-backdrop desktop-only" aria-label="Katalog menyusini yopish" onClick={()=>setCatalogOpen(false)}/>}{menu&&<MobileDrawer go={go} setMenu={setMenu} catalogRoots={catalogRoots} openCategory={openCategory} siteName={siteName} catalogLabel={catalogLabel} accountLabel={accountLabel} cartLabel={cartLabel}/>}</>;
 }

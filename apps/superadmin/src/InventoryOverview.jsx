@@ -238,7 +238,7 @@ function BalanceTable({rows,selected=[],toggleSelect,allSelected=false,toggleSel
 function UnitTable({rows,rate}){
   const[printUnit,setPrintUnit]=useState(null);
   return <>
-    <div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>QR / seriya</th><th>Partiya</th><th>Filial / joy</th><th>Status</th><th>Narx</th><th>Sotilgan sana</th><th>Chop</th></tr></thead><tbody>{rows.map(item=><tr key={item.id}><td><b>{item.product_name}</b><small>{item.sku}</small></td><td><code>{item.qr_code}</code><small>{item.serial_number||'—'}</small></td><td>{item.batch_reference||'—'}</td><td>{item.branch_name}<small>{item.location_name}</small></td><td><Status type={item.status==='available'?'green':item.status==='sold'?'blue':'orange'}>{item.status}</Status></td><td><DualPrice value={Number((item.promotion_price??item.retail_price)||0)} rate={rate}/></td><td>{item.sold_at?new Date(item.sold_at).toLocaleString('uz-UZ'):'—'}</td><td><button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:11,display:'inline-flex',alignItems:'center',gap:4}} title="Detonger Bluetooth orqali chop etish" onClick={()=>setPrintUnit({ id: item.id, title: item.product_name, code: item.qr_code, date: new Date().toLocaleDateString('uz-UZ'), batch: item.batch_reference })}><Bluetooth size={12} color="var(--orange)"/><Printer size={12}/></button></td></tr>)}</tbody></table></div>
+    <div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>QR / seriya</th><th>Partiya</th><th>Filial / joy</th><th>Status</th><th>Narx</th><th>Sotilgan sana</th><th>Chop</th></tr></thead><tbody>{rows.map(item=><tr key={item.id}><td><b>{item.product_name}</b><small>{item.sku}</small></td><td><code>{item.qr_code}</code><small>{item.serial_number||'—'}</small></td><td>{item.batch_reference||'—'}</td><td>{item.branch_name}<small>{item.location_name}</small></td><td><Status type={item.status==='available'?'green':item.status==='sold'?'blue':'orange'}>{item.status}</Status></td><td><DualPrice value={Number((item.promotion_price??item.retail_price)||0)} rate={rate}/></td><td>{item.sold_at?new Date(item.sold_at).toLocaleString('uz-UZ'):'—'}</td><td><button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:11,display:'inline-flex',alignItems:'center',gap:4}} title="Termoprinter (Detonger / MHT-L80G) orqali chop etish" onClick={()=>setPrintUnit({ id: item.id, title: item.product_name, code: item.qr_code, cost_usd: item.cost_price_usd || item.unit_cost_usd || '', date: new Date().toLocaleDateString('uz-UZ'), batch: item.batch_reference })}><Bluetooth size={12} color="var(--orange)"/><Printer size={12}/></button></td></tr>)}</tbody></table></div>
     <DetongerPrintModal
       open={Boolean(printUnit)}
       onClose={()=>setPrintUnit(null)}
@@ -306,17 +306,31 @@ function ProductDetailModal({product,close,toast,rate,onEdit}){
   const downloadQR=async(unit)=>{
     if(!unit.qr_code){alert('Birlik QR kodi topilmadi');return}
     const QRCode=await import('qrcode');
-    const url=`${STOREFRONT}/qr/${encodeURIComponent(unit.qr_code)}`;
+    const rawCost = (unit.unit_cost_usd != null && Number(unit.unit_cost_usd) > 0)
+      ? Number(unit.unit_cost_usd)
+      : (detail?.cost_price_usd != null && Number(detail.cost_price_usd) > 0)
+        ? Number(detail.cost_price_usd)
+        : '';
+    const costNumStr = (rawCost !== '' && !isNaN(rawCost))
+      ? (rawCost % 1 === 0 ? String(rawCost) : rawCost.toFixed(2))
+      : '';
+    const costParam = costNumStr ? '?c=' + encodeURIComponent(costNumStr) : '';
+    const url=`${STOREFRONT}/qr/${encodeURIComponent(unit.qr_code)}${costParam}`;
     const canvas=await QRCode.toCanvas(url,{width:300,margin:2,color:{dark:'#000000',light:'#ffffff'}});
     const labeled=document.createElement('canvas');
-    labeled.width=300;labeled.height=340;
+    labeled.width=300;labeled.height=360;
     const ctx=labeled.getContext('2d');
-    ctx.fillStyle='#fff';ctx.fillRect(0,0,300,340);
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,300,360);
     ctx.drawImage(canvas,0,0);
-    ctx.fillStyle='#000';ctx.font='bold 11px sans-serif';ctx.textAlign='center';
+    ctx.fillStyle='#000';ctx.font='bold 14px monospace';ctx.textAlign='center';
     ctx.fillText(unit.qr_code||'',150,318);
+    if (costNumStr) {
+      ctx.font='bold 13px monospace';
+      ctx.fillStyle='#333';
+      ctx.fillText(costNumStr,150,336);
+    }
     ctx.font='10px sans-serif';ctx.fillStyle='#555';
-    ctx.fillText(detail?.name||'',150,333);
+    ctx.fillText(detail?.name||'',150,costNumStr?354:336);
     const link=document.createElement('a');
     link.download=(unit.qr_code||'qr')+'.png';
     link.href=labeled.toDataURL();link.click();

@@ -1,7 +1,8 @@
 import React,{useCallback,useEffect,useState}from'react';
-import{AlertTriangle,ChevronLeft,ChevronRight,Eye,Mail,Package,RefreshCw,Search,Send,Trash2,Truck,XCircle}from'lucide-react';
+import{AlertTriangle,ChevronLeft,ChevronRight,ExternalLink,Eye,Mail,Package,RefreshCw,Search,Send,Trash2,Truck,XCircle}from'lucide-react';
 import{DualPrice,Modal,Status,useExchangeRate}from'@texnobazar/ui';
 import{assignOrderCourier,deleteOnlineOrder,getManagerWorkspaceReferences,getOrderBranchStock,getReceiptDeliveryStatus,listActiveBranches,listAdminOnlineOrders,managerCancelOnlineOrder,queueOrderReceipt,subscribeOrders,transitionOnlineOrder}from'@texnobazar/data';
+const STOREFRONT = (import.meta.env?.VITE_STOREFRONT_URL || (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'http://localhost:5173' : 'https://texnobazar-storefront.netlify.app')).replace(/\/$/, '');
 const statuses=['new','confirmed','processing','ready','assigned','shipped','delivered','cancelled','returned'];
 const labels={new:'Yangi',confirmed:'Tasdiqlandi',processing:'Yig‘ilmoqda',ready:'Tayyor',assigned:'Kuryer biriktirilgan',shipped:'Yo‘lda',delivered:'Yetkazildi',cancelled:'Bekor qilindi',returned:'Qaytarildi'};
 const next={new:'confirmed',confirmed:'processing',processing:'ready'};
@@ -56,7 +57,53 @@ function OrderModal({order,branches,close,changed,onDelete,rate}){
     <div className="between"><div><b>{order.customer_name}</b><span>{order.customer_phone}</span></div><OrderStatus value={order.status}/></div>
     <p><b>Manzil:</b> {address(order.shipping_address)}</p>
     <p><b>Filial:</b> {order.branch_name||'Biriktirilmagan'}</p>
-    <div className="admin-order-lines">{(order.order_lines||[]).map(line=><div key={line.id}><span><b>{line.product_name}</b><small>{line.sku} \u00b7 {line.quantity} dona</small></span><strong><DualPrice value={Number(line.line_total)} rate={rate}/></strong></div>)}</div>
+    <div className="admin-order-lines">
+      {(order.order_lines || []).map(line => {
+        const storefrontUrl = line.slug ? `${STOREFRONT}/product/${line.slug}` : null;
+        return (
+          <div key={line.id} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '10px 0' }}>
+            {line.image ? (
+              <img
+                src={line.image}
+                alt={line.product_name || 'Mahsulot'}
+                style={{ width: 52, height: 52, borderRadius: 10, objectFit: 'cover', flexShrink: 0, border: '1px solid var(--line, #e2e8f0)' }}
+                onError={e => { e.currentTarget.style.display = 'none'; }}
+              />
+            ) : (
+              <div style={{ width: 52, height: 52, borderRadius: 10, background: 'var(--bg-subtle, #f1f5f9)', display: 'grid', placeItems: 'center', flexShrink: 0, border: '1px solid var(--line, #e2e8f0)', color: 'var(--muted, #64748b)' }}>
+                <Package size={22} />
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+              <b style={{ fontSize: 14, color: 'var(--ink, #0f172a)', wordBreak: 'break-word' }}>{line.product_name}</b>
+              <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted, #64748b)' }}>
+                <span>SKU: {line.sku || '—'}</span>
+                {line.variant_color && (
+                  <span style={{ background: '#fef3c7', color: '#b45309', padding: '1px 6px', borderRadius: 4, fontWeight: 600, fontSize: 11 }}>
+                    🎨 {line.variant_color}
+                  </span>
+                )}
+                <span>·</span>
+                <span>{Number(line.quantity)} dona × <DualPrice value={Number(line.unit_price || 0)} rate={rate} /></span>
+              </div>
+              {storefrontUrl ? (
+                <a
+                  href={storefrontUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 4, marginTop: 3, color: 'var(--orange, #ea580c)', fontSize: 12, fontWeight: 700, textDecoration: 'none', width: 'fit-content' }}
+                >
+                  <ExternalLink size={13} /> Mijoz ilovasida ko‘rish
+                </a>
+              ) : (
+                <small style={{ color: 'var(--muted, #94a3b8)', fontStyle: 'italic', fontSize: 11 }}>Havola mavjud emas</small>
+              )}
+            </div>
+            <strong style={{ flexShrink: 0 }}><DualPrice value={Number(line.line_total)} rate={rate} /></strong>
+          </div>
+        );
+      })}
+    </div>
     <div className="between admin-order-total"><span>Jami</span><b><DualPrice value={Number(order.total)} rate={rate}/></b></div>
     {next[order.status]&&<div className="admin-order-action">
       <label><span className="label">Fulfillment filiali {stockLoading&&'(qoldiq tekshirilmoqda...)'}</span>

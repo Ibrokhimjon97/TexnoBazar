@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Clock3, FileText, Layers, Printer, ReceiptText, Search, WalletCards, X } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock3, FileText, Layers, Printer, ReceiptText, Search, Trash2, WalletCards, X } from 'lucide-react';
 import { DualPrice, Empty, Modal, Status, useExchangeRate, ThermalReceiptPreview, printThermalReceipt } from '@texnobazar/ui';
 import {
   confirmPosSale,
+  deletePosPendingSale,
   getPosPendingSale,
   getSaleReceipt,
   getPendingSaleReceipt,
@@ -63,12 +64,17 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
   const [detail, setDetail] = useState(null);
   const [receipt, setReceipt] = useState(null);
 
+  const PAGE_SIZE = 30;
+  const [page, setPage] = useState(1);
+  const [deletingSale, setDeletingSale] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query.trim()), 300);
     return () => clearTimeout(id);
   }, [query]);
 
-  const load = async () => {
+  const load = async (p = page) => {
     if (!branchId) {
       setLoading(false);
       return;
@@ -81,7 +87,8 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
         branchId,
         status: status === 'all' ? null : status,
         query: debounced,
-        pageSize: 50
+        page: p,
+        pageSize: PAGE_SIZE
       });
       setResult(data || { items: [], summary: {} });
       onSummary?.(data?.summary);
@@ -93,8 +100,25 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
   };
 
   useEffect(() => {
-    load();
+    setPage(1);
+    load(1);
   }, [branchId, status, debounced]);
+
+  const handleDelete = async (restoreStock = true) => {
+    if (!deletingSale) return;
+    setDeleteBusy(true);
+    try {
+      const res = await deletePosPendingSale(deletingSale.id, restoreStock);
+      toast?.(res?.message || (restoreStock ? 'Kassa kirimi o‘chirildi va tovar omborga qaytarildi.' : 'Kassa kirimi butunlay o‘chirildi.'));
+      setDeletingSale(null);
+      if (detail?.id === deletingSale.id) setDetail(null);
+      await load(page);
+    } catch (e) {
+      toast?.(msg(e));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
 
   const open = async id => {
     setError('');
@@ -205,61 +229,136 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
       ) : error ? (
         <State error text={error} retry={load} />
       ) : result.items?.length ? (
-        <div className="cash-real-list">
-          {result.items.map(row => (
-            <button
-              type="button"
-              className="cash-real-card"
-              key={row.id}
-              onClick={() => open(row.id)}
-            >
-              <div className="between">
-                <b>{row.pending_no}</b>
-                <Status type={colors[row.status]}>{labels[row.status] || row.status}</Status>
-              </div>
-              <span>Sotuvchi <strong>{row.seller_name}</strong></span>
-              <span>{row.unit_count} dona · {row.location_name}</span>
-              <div className="cash-real-card-total">
-                <b><DualPrice value={Number(row.total || 0)} rate={rate} /></b>
-                <small><Clock3 /> {date(row.expires_at)}</small>
-              </div>
-              {row.status === 'confirmed' && (
+        <>
+          <div className="cash-real-list">
+            {result.items.map(row => (
+              <button
+                type="button"
+                className="cash-real-card"
+                key={row.id}
+                onClick={() => open(row.id)}
+              >
+                <div className="between">
+                  <b>{row.pending_no}</b>
+                  <Status type={colors[row.status]}>{labels[row.status] || row.status}</Status>
+                </div>
+                <span>Sotuvchi <strong>{row.seller_name}</strong></span>
+                <span>{row.unit_count} dona · {row.location_name}</span>
+                <div className="cash-real-card-total">
+                  <b><DualPrice value={Number(row.total || 0)} rate={rate} /></b>
+                  <small><Clock3 /> {date(row.expires_at)}</small>
+                </div>
                 <div
                   style={{
                     display: 'flex',
                     justifyContent: 'flex-end',
+                    alignItems: 'center',
+                    gap: 8,
                     marginTop: 8,
                     paddingTop: 8,
                     borderTop: '1px dashed var(--line)'
                   }}
                 >
+                  {row.status === 'confirmed' && (
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      className="btn btn-sm btn-outline"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        padding: '4px 10px',
+                        background: '#fff',
+                        color: 'var(--navy)'
+                      }}
+                      onClick={e => {
+                        e.stopPropagation();
+                        openReceipt(row.id);
+                      }}
+                    >
+                      <Printer size={13} /> Chekni chop etish
+                    </span>
+                  )}
                   <span
                     role="button"
                     tabIndex={0}
-                    className="btn btn-sm btn-outline"
+                    className="btn btn-sm"
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: 6,
+                      gap: 5,
                       fontSize: 11,
-                      fontWeight: 700,
+                      fontWeight: 600,
                       padding: '4px 10px',
-                      background: '#fff',
-                      color: 'var(--navy)'
+                      background: '#fff1f2',
+                      color: '#e11d48',
+                      border: '1px solid #fecdd3'
                     }}
                     onClick={e => {
                       e.stopPropagation();
-                      openReceipt(row.id);
+                      setDeletingSale(row);
                     }}
                   >
-                    <Printer size={13} /> Chekni chop etish
+                    <Trash2 size={13} /> O‘chirish
                   </span>
                 </div>
-              )}
-              <ChevronRight />
-            </button>
-          ))}
-        </div>
+                <ChevronRight />
+              </button>
+            ))}
+          </div>
+
+          {Math.ceil((result.total || 0) / PAGE_SIZE) > 1 && (
+            <div
+              className="inventory-search-pagination"
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                marginTop: 16,
+                padding: '12px 16px',
+                background: '#fff',
+                borderRadius: 12,
+                border: '1px solid var(--line)'
+              }}
+            >
+              <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 600 }}>
+                {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, result.total || 0)} / {result.total || 0} ta kassa kirimi
+              </span>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={page <= 1}
+                  onClick={() => {
+                    const p = page - 1;
+                    setPage(p);
+                    load(p);
+                  }}
+                >
+                  <ChevronLeft size={16} /> Oldingi
+                </button>
+                <span style={{ fontSize: 13, fontWeight: 700, padding: '0 8px' }}>
+                  {page} / {Math.ceil((result.total || 0) / PAGE_SIZE)}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  disabled={page >= Math.ceil((result.total || 0) / PAGE_SIZE)}
+                  onClick={() => {
+                    const p = page + 1;
+                    setPage(p);
+                    load(p);
+                  }}
+                >
+                  Keyingi <ChevronRight size={16} />
+                </button>
+              </div>
+            </div>
+          )}
+        </>
       ) : (
         <Empty title="So'rovlar topilmadi" text="Tanlangan holatda kassa so'rovi mavjud emas." />
       )}
@@ -269,9 +368,57 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
         confirm={confirmed}
         reject={rejected}
         onViewReceipt={openReceipt}
+        onDelete={setDeletingSale}
         rate={rate}
       />
       <Receipt receipt={receipt} close={() => setReceipt(null)} rate={rate} />
+
+
+      <Modal
+        open={Boolean(deletingSale)}
+        onClose={() => !deleteBusy && setDeletingSale(null)}
+        title="Kassa kirimini o‘chirish"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--navy)' }}>
+            Haqiqatan ham <b>{deletingSale?.pending_no}</b> kassa yozuvini o‘chirmoqchimisiz?
+          </p>
+          <div style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 13, color: '#166534' }}>
+            <b>1-usul:</b> Tovar omborga qaytariladi — oddiy o‘chirish. Tovar yana mavjud holatga o‘tadi.
+          </div>
+          <div style={{ padding: '10px 14px', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, fontSize: 13, color: '#be123c' }}>
+            <b>2-usul:</b> Tovar omborga qaytarilmaydi — test yozuvlarni tozalash uchun. Faqat yozuv o‘chiriladi.
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn"
+              disabled={deleteBusy}
+              onClick={() => setDeletingSale(null)}
+            >
+              Bekor qilish
+            </button>
+            <button
+              type="button"
+              className="btn"
+              style={{ background: '#ef4444', borderColor: '#ef4444', color: '#fff', fontWeight: 600 }}
+              disabled={deleteBusy}
+              onClick={() => handleDelete(false)}
+            >
+              {deleteBusy ? 'O‘chirilmoqda…' : 'Qaytarmasdan o‘chirish'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              style={{ background: '#16a34a', borderColor: '#16a34a', color: '#fff', fontWeight: 600 }}
+              disabled={deleteBusy}
+              onClick={() => handleDelete(true)}
+            >
+              {deleteBusy ? 'O‘chirilmoqda…' : 'Qaytarib o‘chirish'}
+            </button>
+          </div>
+        </div>
+      </Modal>
     </section>
   );
 }
@@ -286,7 +433,7 @@ function State({ text, error, retry }) {
   );
 }
 
-function CashDetail({ sale, close, confirm, reject, onViewReceipt, rate }) {
+function CashDetail({ sale, close, confirm, reject, onViewReceipt, onDelete, rate }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [reason, setReason] = useState('');
@@ -430,6 +577,31 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, rate }) {
               </button>
             </div>
           )}
+
+          <div style={{ marginTop: 18, paddingTop: 14, borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              className="btn btn-sm"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                background: '#fff1f2',
+                color: '#e11d48',
+                border: '1px solid #fecdd3',
+                padding: '8px 14px',
+                fontSize: 12,
+                fontWeight: 600
+              }}
+              disabled={busy}
+              onClick={() => {
+                close();
+                onDelete?.(sale);
+              }}
+            >
+              <Trash2 size={14} /> Kassa kirimini o‘chirish
+            </button>
+          </div>
         </div>
       )}
     </Modal>

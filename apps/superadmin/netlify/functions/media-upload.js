@@ -1,7 +1,7 @@
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createClient } from '@supabase/supabase-js';
 
-const ALLOWED = { 'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/avif':'avif' };
+const ALLOWED = { 'image/jpeg':'jpg','image/jpg':'jpg','image/png':'png','image/webp':'webp','image/avif':'avif' };
 const MAX = 10*1024*1024;
 const CORS = { 'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'Content-Type,Authorization','Access-Control-Allow-Methods':'PUT,OPTIONS','Content-Type':'application/json' };
 const KEY_PATTERN = /^products\/([0-9a-f]{8}-[0-9a-f-]{27})\/([0-9a-f-]{36})\.(jpg|png|webp|avif)$/i;
