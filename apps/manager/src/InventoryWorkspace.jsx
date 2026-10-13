@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{createPortal}from'react-dom';
 import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,CheckCircle2,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
-import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal}from'@texnobazar/ui';
+import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal,formatSecretCostCode}from'@texnobazar/ui';
 import QRCode from'qrcode';
 import RichTextEditor from'./RichTextEditor';
 import{CreateProductInline}from'./InventoryRegisterModal';
@@ -16,6 +16,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   const[selectedDate,setSelectedDate]=useState(null);
   const[calMonth,setCalMonth]=useState(()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1)});
   const[rate,setRate]=useState(null);
+  const[serverBatchDates,setServerBatchDates]=useState([]);
   const[exportingAll,setExportingAll]=useState(false);
   const[exportingId,setExportingId]=useState(null);
   const[restoreModalOpen,setRestoreModalOpen]=useState(false);
@@ -49,16 +50,29 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     }
   };
   useEffect(()=>{getLatestExchangeRate().then(r=>setRate(Number(r)||null)).catch(()=>{})},[]);
-  const load=async()=>{
+  const load=async(dateParam=selectedDate)=>{
     if(!branchId)return;
     setLoading(true);
     setError('');
     try{
       const locId = locationFilter === 'all' ? null : locationFilter;
-      const r = await listStockReceipts({branchId, locationId: locId, query, pageSize: 200});
+      const formattedDate = dateParam 
+        ? `${dateParam.getFullYear()}-${String(dateParam.getMonth() + 1).padStart(2, '0')}-${String(dateParam.getDate()).padStart(2, '0')}` 
+        : null;
+      const cleanQ = query ? query.trim() : null;
+      const r = await listStockReceipts({
+        branchId, 
+        locationId: locId, 
+        query: cleanQ, 
+        date: formattedDate,
+        pageSize: 1000
+      });
       const items = r.items || [];
       setRows(items);
       setTotal(Number(r.total) || 0);
+      if (Array.isArray(r.batch_dates)) {
+        setServerBatchDates(r.batch_dates);
+      }
       setAggregates({
         totalUnits: Number(r.total_units ?? items.reduce((s, x) => s + Number(x.unit_count || 0), 0)),
         totalCost: Number(r.total_cost ?? items.reduce((s, x) => s + Number(x.total_cost || 0), 0)),
@@ -72,7 +86,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       setLoading(false);
     }
   };
-  useEffect(()=>{const t=setTimeout(load,query?250:0);return()=>clearTimeout(t)},[branchId,query,locationFilter]);
+  useEffect(()=>{const t=setTimeout(()=>load(selectedDate),query?250:0);return()=>clearTimeout(t)},[branchId,query,locationFilter,selectedDate]);
   const open=async(id,isEdit=false)=>{try{setDetail(await getStockReceipt(id));setDetailEdit(Boolean(isEdit));}catch(e){setError(err(e))}};
   const deleteBatch=async(id,receiptNo,password=null)=>{
     const cleanPassword = typeof password === 'string' ? password.trim() : null;
@@ -109,7 +123,25 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       setDeletingId(null);
     }
   };
-  const batchDatesSet=useMemo(()=>{const set=new Set();rows.forEach(x=>{if(x.received_at){const d=new Date(x.received_at);set.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`)}});return set},[rows]);
+  const batchDatesSet=useMemo(()=>{
+    const set=new Set();
+    serverBatchDates.forEach(dateStr=>{
+      const parts=String(dateStr).split('-');
+      if(parts.length===3){
+        const y=parseInt(parts[0],10);
+        const m=parseInt(parts[1],10)-1;
+        const d=parseInt(parts[2],10);
+        set.add(`${y}-${m}-${d}`);
+      }
+    });
+    rows.forEach(x=>{
+      if(x.received_at){
+        const d=new Date(x.received_at);
+        set.add(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+      }
+    });
+    return set;
+  },[serverBatchDates,rows]);
   const batchCount=useMemo(()=>rows.filter(x=>!isInventoryReceipt(x.receipt_no)).length,[rows]);
   const invCount=useMemo(()=>rows.filter(x=>isInventoryReceipt(x.receipt_no)).length,[rows]);
   const totalCostAll=useMemo(()=>rows.reduce((s,x)=>s+Number(x.total_cost||0),0),[rows]);
@@ -121,7 +153,10 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       if(locationFilter!=='all'&&x.receiving_location_id!==locationFilter)return false;
       if(selectedDate){
         const d=new Date(x.received_at);
-        if(d.getFullYear()!==selectedDate.getFullYear()||d.getMonth()!==selectedDate.getMonth()||d.getDate()!==selectedDate.getDate())return false;
+        const cd=new Date(x.created_at||x.received_at);
+        const matchRec=d.getFullYear()===selectedDate.getFullYear()&&d.getMonth()===selectedDate.getMonth()&&d.getDate()===selectedDate.getDate();
+        const matchCre=cd.getFullYear()===selectedDate.getFullYear()&&cd.getMonth()===selectedDate.getMonth()&&cd.getDate()===selectedDate.getDate();
+        if(!matchRec&&!matchCre)return false;
       }
       return true;
     });
@@ -208,7 +243,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       <input
         value={query}
         onChange={e=>setQuery(e.target.value)}
-        placeholder="Tovar nomi, SKU, partiya raqami, ta'minotchi..."
+        placeholder="Tovar nomi, SKU, umumiy QR kod, partiya raqami, ta'minotchi..."
       />
     </div>
     <div className="batch-filter-pill" style={{display:'flex',alignItems:'center',gap:6,background:'#fff',padding:'5px 12px',borderRadius:12,border:'1px solid var(--line,#e2e8f0)',fontSize:13}}>
@@ -314,6 +349,11 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
                     </span>
                   )}
                 </div>
+                {it.qr_code && (
+                  <code style={{fontSize: 10, padding: '1px 5px', background: '#f8fafc', border: '1px solid #cbd5e1', borderRadius: 4, fontWeight: 700, color: '#334155'}} title="Partiya umumiy QR kodi">
+                    {it.qr_code}
+                  </code>
+                )}
                 <span style={{fontSize: 11, fontWeight: 700, color: '#0369a1', background: '#e0f2fe', padding: '1px 6px', borderRadius: 4, flexShrink: 0}}>
                   {it.quantity} dona
                 </span>
@@ -346,7 +386,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       </div>
     </article>;
   })}</div>}
-  <ReceiptDetail receipt={detail} locations={locations} toast={toast} initialEditing={detailEdit} close={()=>{setDetail(null);setDetailEdit(false);}} onUpdated={()=>{setDetail(null);setDetailEdit(false);load();}} onExportSingle={handleExportSingle}/>
+  <ReceiptDetail receipt={detail} locations={locations} toast={toast} initialEditing={detailEdit} close={()=>{setDetail(null);setDetailEdit(false);}} onUpdated={(updated)=>{if(updated){setDetail(updated);setDetailEdit(false);}else{setDetail(null);setDetailEdit(false);}load();}} onExportSingle={handleExportSingle}/>
   {passwordModal && (
     <Modal open={Boolean(passwordModal)} onClose={() => setPasswordModal(null)} title="Sotilgan tovarlar mavjud — Parol talab qilinadi">
       <form
@@ -615,8 +655,103 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
         </select>
       </div>
     </div>
-    {loading?<div className="ops-state">Tovarlar yuklanmoqda…</div>:error?<ErrorState message={error} retry={load}/>:rows.length===0?<Empty title="Tovar topilmadi" text="Partiya qabul qiling yoki filtrni o'zgartiring."/>:<><div className="table-wrap"><table className="table"><thead><tr><th><input type="checkbox" checked={allSelected} onChange={toggleAll}/></th><th>Mahsulot</th><th>Filial</th><th>Joylashuv</th><th>Turi</th><th>Jami</th><th>Mavjud</th><th>Sotish narxi</th><th>Tannarxi</th><th>Amal</th></tr></thead><tbody>{rows.map(item=><tr key={`${item.location_id}-${item.product_id}`} style={{cursor:'pointer',background:selected.includes(item.product_id)?'rgba(249,115,22,0.08)':'inherit'}} onClick={()=>setSelectedProduct(item)}><td onClick={e=>e.stopPropagation()}><input type="checkbox" checked={selected.includes(item.product_id)} onChange={()=>toggle(item.product_id)}/></td><td><div style={{display:'flex',alignItems:'center',gap:10}}>{item.image?<img src={item.image} alt="" style={{width:36,height:36,borderRadius:8,objectFit:'cover'}}/>:<span style={{width:36,height:36,borderRadius:8,background:'#f1f5f9',display:'grid',placeItems:'center'}}><Boxes size={16}/></span>}<div><b>{item.product_name}</b><br/><small style={{color:'var(--muted)'}}>{item.sku}</small></div></div></td><td>{item.branch_name}</td><td>{item.location_name}</td><td><Status type={item.location_type==='warehouse'?'blue':'green'}>{item.location_type}</Status></td><td><b>{Number(item.on_hand)}</b></td><td><b>{Number(item.available)}</b></td><td><DualPrice value={Number(item.on_hand)*Number(item.retail_price)} rate={rate}/></td><td><DualPrice value={Number(item.on_hand)*Number(item.cost_price||0)} rate={rate}/></td><td><div style={{display:'flex',gap:6}} onClick={e=>e.stopPropagation()}><button className="btn" style={{padding:'5px 8px'}} title="Tahrirlash" onClick={()=>setEditingProduct(item)}><Pencil size={13}/></button><button className="btn" style={{padding:'5px 8px'}} title="O‘chirish" onClick={()=>deleteProduct(item)}><Trash2 size={13}/></button></div></td></tr>)}</tbody></table></div>
-    {totalRows>pageSize&&<div className="pagination" style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginTop:14}}><span>{totalRows?`${(page-1)*pageSize+1}–${Math.min(page*pageSize,totalRows)} / ${totalRows} ta`:'0 ta'}</span><div style={{display:'flex',gap:6}}><button className="btn btn-sm" disabled={page===1} onClick={()=>setPage(x=>x-1)}>‹ Oldingi</button><button className="btn btn-sm active" style={{fontWeight:700}}>{page} / {Math.ceil(totalRows/pageSize)}</button><button className="btn btn-sm" disabled={page>=Math.ceil(totalRows/pageSize)} onClick={()=>setPage(x=>x+1)}>Keyingi ›</button></div></div>}</>}
+    {loading ? (
+      <div className="ops-state">Tovarlar yuklanmoqda…</div>
+    ) : error ? (
+      <ErrorState message={error} retry={load} />
+    ) : rows.length === 0 ? (
+      <Empty title="Tovar topilmadi" text="Partiya qabul qiling yoki filtrni o'zgartiring." />
+    ) : (
+      <>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th><input type="checkbox" checked={allSelected} onChange={toggleAll} /></th>
+                <th>Mahsulot</th>
+                <th>Filial</th>
+                <th>Joylashuv</th>
+                <th>Turi</th>
+                <th>Jami</th>
+                <th>Mavjud</th>
+                <th>Sotish narxi</th>
+                <th>Tannarxi</th>
+                <th>Amal</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map(item => (
+                <tr
+                  key={`${item.location_id}-${item.product_id}`}
+                  style={{ cursor: 'pointer', background: selected.includes(item.product_id) ? 'rgba(249,115,22,0.08)' : 'inherit' }}
+                  onClick={() => setSelectedProduct(item)}
+                >
+                  <td onClick={e => e.stopPropagation()}>
+                    <input type="checkbox" checked={selected.includes(item.product_id)} onChange={() => toggle(item.product_id)} />
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {item.image ? (
+                        <img src={item.image} alt="" style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover' }} />
+                      ) : (
+                        <span style={{ width: 36, height: 36, borderRadius: 8, background: '#f1f5f9', display: 'grid', placeItems: 'center' }}>
+                          <Boxes size={16} />
+                        </span>
+                      )}
+                      <div>
+                        <b>{item.product_name}</b><br />
+                        <small style={{ color: 'var(--muted)' }}>{item.sku}</small>
+                      </div>
+                    </div>
+                  </td>
+                  <td>{item.branch_name}</td>
+                  <td>{item.location_name}</td>
+                  <td>
+                    <Status type={item.location_type === 'warehouse' ? 'blue' : 'green'}>{item.location_type}</Status>
+                  </td>
+                  <td><b>{Number(item.on_hand)}</b></td>
+                  <td><b>{Number(item.available)}</b></td>
+                  <td>
+                    <DualPrice
+                      value={Number(item.retail_price || 0)}
+                      usdValue={item.retail_price_usd != null ? Number(item.retail_price_usd) : undefined}
+                      rate={rate}
+                    />
+                  </td>
+                  <td>
+                    <DualPrice
+                      value={Number(item.cost_price || 0)}
+                      usdValue={item.cost_price_usd != null ? Number(item.cost_price_usd) : undefined}
+                      rate={rate}
+                    />
+                  </td>
+                  <td>
+                    <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
+                      <button className="btn" style={{ padding: '5px 8px' }} title="Tahrirlash" onClick={() => setEditingProduct(item)}>
+                        <Pencil size={13} />
+                      </button>
+                      <button className="btn" style={{ padding: '5px 8px' }} title="O‘chirish" onClick={() => deleteProduct(item)}>
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {totalRows > pageSize && (
+          <div className="pagination" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14 }}>
+            <span>{totalRows ? `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, totalRows)} / ${totalRows} ta` : '0 ta'}</span>
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button className="btn btn-sm" disabled={page === 1} onClick={() => setPage(x => x - 1)}>‹ Oldingi</button>
+              <button className="btn btn-sm active" style={{ fontWeight: 700 }}>{page} / {Math.ceil(totalRows / pageSize)}</button>
+              <button className="btn btn-sm" disabled={page >= Math.ceil(totalRows / pageSize)} onClick={() => setPage(x => x + 1)}>Keyingi ›</button>
+            </div>
+          </div>
+        )}
+      </>
+    )}
   </div>
 
   {editingProduct&&<ProductEditor open={Boolean(editingProduct)} close={()=>setEditingProduct(null)} product={editingProduct} refs={refs} toast={toast} saved={load} RichTextEditor={RichTextEditor}/>}
@@ -644,14 +779,11 @@ function ProductDetailModal({product,close,branchId,rate,onEdit}){
   const statusLabels={available:'Sotuvga tayyor',reserved:'Band',sold:'Sotilgan',in_transit:"Yo'lda",returned:'Qaytarilgan',written_off:'Hisobdan chiqarilgan',in_repair:"Ta'mirda"};
   const downloadQR=async(unit)=>{
     const QRCode=await import('qrcode');
-    const rawCost = (unit.unit_cost_usd != null && Number(unit.unit_cost_usd) > 0)
-      ? Number(unit.unit_cost_usd)
-      : (detail?.cost_price_usd != null && Number(detail.cost_price_usd) > 0)
-        ? Number(detail.cost_price_usd)
-        : '';
-    const costNumStr = (rawCost !== '' && !isNaN(rawCost))
-      ? (rawCost % 1 === 0 ? String(rawCost) : rawCost.toFixed(2))
-      : '';
+    const costNumStr = formatSecretCostCode({
+      cost: detail?.cost_price || unit.unit_cost || '',
+      costUsd: unit.unit_cost_usd || detail?.cost_price_usd || '',
+      currency: detail?.currency || 'USD'
+    });
     const costParam = costNumStr ? '?c=' + encodeURIComponent(costNumStr) : '';
     const url=(import.meta.env.VITE_STOREFRONT_URL||'https://texnobazar-storefront.netlify.app')+'/qr/'+encodeURIComponent(unit.qr_code)+costParam;
     const qrCanvas=await QRCode.toCanvas(url,{width:220,margin:2,errorCorrectionLevel:'L'});
@@ -686,7 +818,7 @@ function ProductDetailModal({product,close,branchId,rate,onEdit}){
   const saveVideo=async()=>{try{const{updateProductTextFields}=await import('@texnobazar/data');await updateProductTextFields(product.product_id,{seoImageUrl:videoUrl});if(toast)toast('Video URL saqlandi')}catch(e){alert(e.message)}};
   const uploadImage=async(e)=>{const files=[...e.target.files];if(!files.length)return;setUploading(true);try{const{uploadProductMedia}=await import('@texnobazar/data');for(const file of files)await uploadProductMedia(product.product_id,file,detail?.name||'');await loadDetail();if(toast)toast('Rasm yuklandi')}catch(er){alert(er.message)}finally{setUploading(false);e.target.value=''}};
   if(loading)return <Modal open onClose={close} title="Yuklanmoqda..."><div className="ops-state">Yuklanmoqda…</div></Modal>;if(!detail)return null;
-  return <Modal open onClose={close} wide title={detail.name+' ('+units.length+' dona filialda)'}><div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,flexWrap:'wrap'}}><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))',gap:8,flex:1}}><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>SKU</small><b>{detail.sku}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Kategoriya</small><b>{detail.categories?.name||'-'}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Brend</small><b>{detail.brands?.name||'-'}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Sotish narxi</small><b><DualPrice value={Number(detail.retail_price)} rate={rate}/></b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Tannarx</small><b><DualPrice value={Number(detail.cost_price)} rate={rate}/></b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Filialda jami</small><b>{units.length} dona</b></span></div><button type="button" className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6,height:38}} onClick={()=>{close();onEdit?.(product);}}><Pencil size={14}/> Tovarni to‘liq tahrirlash</button></div>
+  return <Modal open onClose={close} wide title={detail.name+' ('+units.length+' dona filialda)'}><div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,flexWrap:'wrap'}}><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))',gap:8,flex:1}}><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>SKU</small><b>{detail.sku}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Kategoriya</small><b>{detail.categories?.name||'-'}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Brend</small><b>{detail.brands?.name||'-'}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Sotish narxi</small><b><DualPrice value={Number(detail.retail_price)} usdValue={detail.retail_price_usd != null ? Number(detail.retail_price_usd) : undefined} rate={rate}/></b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Tannarx</small><b><DualPrice value={Number(detail.cost_price)} usdValue={detail.cost_price_usd != null ? Number(detail.cost_price_usd) : undefined} rate={rate}/></b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Filialda jami</small><b>{units.length} dona</b></span></div><button type="button" className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6,height:38}} onClick={()=>{close();onEdit?.(product);}}><Pencil size={14}/> Tovarni to‘liq tahrirlash</button></div>
   <h4 style={{margin:0}}>Joylashuv bo’yicha</h4>
   <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
   <button className={filterLocation===''?'btn btn-primary':'btn'} style={{fontSize:11}} onClick={()=>setFilterLocation('')}>Barcha joy <b>{units.length}</b></button>
@@ -989,33 +1121,51 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
         notes:receipt.notes||'',
         receiving_location_id:receipt.receiving_location_id||'',
         currency:receipt.currency||'USD',
-        lines:(receipt.lines||[]).map(l=>({
-          id:l.id,
-          batch_id:l.id,
-          line_no:l.line_no,
-          product_id:l.product_id,
-          product_name:l.product_name,
-          sku:l.sku,
-          quantity:Number(l.quantity)||1,
-          unit_cost: isReceiptUsd
-            ? (l.unit_cost_usd != null ? String(l.unit_cost_usd) : (rate && Number(l.unit_cost) > 0 ? String(Math.round(Number(l.unit_cost)/rate)) : String(l.unit_cost||'')))
-            : (l.unit_cost !== undefined && l.unit_cost !== null ? String(l.unit_cost) : ''),
-          unit_cost_usd: l.unit_cost_usd != null ? String(l.unit_cost_usd) : '',
-          retail_price: isReceiptUsd
-            ? (l.retail_price_usd != null ? String(l.retail_price_usd) : (rate && Number(l.retail_price) > 0 ? String(Math.round(Number(l.retail_price)/rate)) : String(l.retail_price||'')))
-            : (l.retail_price !== undefined && l.retail_price !== null ? String(l.retail_price) : ''),
-          retail_price_usd: l.retail_price_usd != null ? String(l.retail_price_usd) : '',
-          wholesale_price: isReceiptUsd
-            ? (l.wholesale_price_usd != null ? String(l.wholesale_price_usd) : (rate && Number(l.wholesale_price) > 0 ? String(Math.round(Number(l.wholesale_price)/rate)) : String(l.wholesale_price||'')))
-            : (l.wholesale_price !== undefined && l.wholesale_price !== null ? String(l.wholesale_price) : ''),
-          wholesale_price_usd: l.wholesale_price_usd != null ? String(l.wholesale_price_usd) : '',
-          minimum_sale_price: isReceiptUsd
-            ? (l.minimum_sale_price_usd != null ? String(l.minimum_sale_price_usd) : (rate && Number(l.minimum_sale_price) > 0 ? String(Math.round(Number(l.minimum_sale_price)/rate)) : String(l.minimum_sale_price||'')))
-            : (l.minimum_sale_price !== undefined && l.minimum_sale_price !== null ? String(l.minimum_sale_price) : ''),
-          minimum_sale_price_usd: l.minimum_sale_price_usd != null ? String(l.minimum_sale_price_usd) : '',
-          variant_color:l.variant_color||'',
-          qr_count:l.qr_count
-        }))
+        lines:(receipt.lines||[]).map(l=>{
+          const rawUc = l.unit_cost !== undefined && l.unit_cost !== null && l.unit_cost !== '' ? Number(l.unit_cost) : null;
+          const rawUcUsd = l.unit_cost_usd !== undefined && l.unit_cost_usd !== null && l.unit_cost_usd !== '' ? Number(l.unit_cost_usd) : null;
+          const ucUsd = rawUcUsd != null ? rawUcUsd : (isReceiptUsd ? rawUc : (rate && rawUc ? Number((rawUc / rate).toFixed(2)) : null));
+          const ucUzs = !isReceiptUsd && rawUc != null ? rawUc : (ucUsd != null && rate ? Math.round(ucUsd * rate) : rawUc);
+
+          const rawRp = l.retail_price !== undefined && l.retail_price !== null && l.retail_price !== '' ? Number(l.retail_price) : null;
+          const rawRpUsd = l.retail_price_usd !== undefined && l.retail_price_usd !== null && l.retail_price_usd !== '' ? Number(l.retail_price_usd) : null;
+          const rpUsd = rawRpUsd != null ? rawRpUsd : (isReceiptUsd ? rawRp : (rate && rawRp ? Number((rawRp / rate).toFixed(2)) : null));
+          const rpUzs = !isReceiptUsd && rawRp != null ? rawRp : (rpUsd != null && rate ? Math.round(rpUsd * rate) : rawRp);
+
+          const rawWp = l.wholesale_price !== undefined && l.wholesale_price !== null && l.wholesale_price !== '' ? Number(l.wholesale_price) : null;
+          const rawWpUsd = l.wholesale_price_usd !== undefined && l.wholesale_price_usd !== null && l.wholesale_price_usd !== '' ? Number(l.wholesale_price_usd) : null;
+          const wpUsd = rawWpUsd != null ? rawWpUsd : (isReceiptUsd ? rawWp : (rate && rawWp ? Number((rawWp / rate).toFixed(2)) : null));
+          const wpUzs = !isReceiptUsd && rawWp != null ? rawWp : (wpUsd != null && rate ? Math.round(wpUsd * rate) : rawWp);
+
+          const rawMp = l.minimum_sale_price !== undefined && l.minimum_sale_price !== null && l.minimum_sale_price !== '' ? Number(l.minimum_sale_price) : null;
+          const rawMpUsd = l.minimum_sale_price_usd !== undefined && l.minimum_sale_price_usd !== null && l.minimum_sale_price_usd !== '' ? Number(l.minimum_sale_price_usd) : null;
+          const mpUsd = rawMpUsd != null ? rawMpUsd : (isReceiptUsd ? rawMp : (rate && rawMp ? Number((rawMp / rate).toFixed(2)) : null));
+          const mpUzs = !isReceiptUsd && rawMp != null ? rawMp : (mpUsd != null && rate ? Math.round(mpUsd * rate) : rawMp);
+
+          return {
+            id:l.id,
+            batch_id:l.id,
+            line_no:l.line_no,
+            product_id:l.product_id,
+            product_name:l.product_name,
+            sku:l.sku,
+            quantity:Number(l.quantity)||1,
+            unit_cost: isReceiptUsd ? (ucUsd != null ? String(ucUsd) : '') : (ucUzs != null ? String(ucUzs) : ''),
+            unit_cost_usd: ucUsd != null ? String(ucUsd) : '',
+            unit_cost_uzs: ucUzs != null ? String(ucUzs) : '',
+            retail_price: isReceiptUsd ? (rpUsd != null ? String(rpUsd) : '') : (rpUzs != null ? String(rpUzs) : ''),
+            retail_price_usd: rpUsd != null ? String(rpUsd) : '',
+            retail_price_uzs: rpUzs != null ? String(rpUzs) : '',
+            wholesale_price: isReceiptUsd ? (wpUsd != null ? String(wpUsd) : '') : (wpUzs != null ? String(wpUzs) : ''),
+            wholesale_price_usd: wpUsd != null ? String(wpUsd) : '',
+            wholesale_price_uzs: wpUzs != null ? String(wpUzs) : '',
+            minimum_sale_price: isReceiptUsd ? (mpUsd != null ? String(mpUsd) : '') : (mpUzs != null ? String(mpUzs) : ''),
+            minimum_sale_price_usd: mpUsd != null ? String(mpUsd) : '',
+            minimum_sale_price_uzs: mpUzs != null ? String(mpUzs) : '',
+            variant_color:l.variant_color||'',
+            qr_count:l.qr_count
+          };
+        })
       });
     }
   },[receipt?.id,initialEditing]);
@@ -1061,20 +1211,30 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
             (it.product_name === line.product_name && (it.variant_color || null) === (line.variant_color || null))
           );
           const canonicalQr = groupQrMap.get(key) || matchingItem?.qr_code || line.qr_code || '';
-          const lineCost = line.unit_cost_usd || matchingItem?.unit_cost_usd || matchingItem?.cost_usd || matchingItem?.price_label?.cost_usd || matchingItem?.cost_price_usd || '';
+          const lineCostUsd = line.unit_cost_usd || matchingItem?.unit_cost_usd || matchingItem?.cost_usd || matchingItem?.price_label?.cost_usd || matchingItem?.cost_price_usd || '';
+          const lineCost = line.unit_cost || matchingItem?.unit_cost || '';
+          const lineCurrency = receipt?.currency || matchingItem?.currency || 'USD';
+          const secretCost = formatSecretCostCode({
+            cost: lineCost,
+            costUsd: lineCostUsd,
+            currency: lineCurrency
+          });
           return {
             id: line.id,
             line_no: line.line_no,
             product_id: line.product_id,
             product_name: line.product_name,
-            title: matchingItem?.price_label?.title || line.product_name,
-            variant_color: line.variant_color || '',
-            color: line.variant_color || '',
+            title: line.product_name || matchingItem?.price_label?.title || 'Mahsulot',
+            variant_color: line.variant_color || matchingItem?.variant_color || matchingItem?.price_label?.color || '',
+            color: line.variant_color || matchingItem?.variant_color || matchingItem?.price_label?.color || '',
             quantity: Number(line.quantity) || 1,
             code: canonicalQr,
             qr_code: canonicalQr,
-            cost_usd: lineCost,
-            costUsd: lineCost,
+            cost_usd: secretCost || lineCostUsd,
+            costUsd: secretCost || lineCostUsd,
+            cost: lineCost,
+            currency: lineCurrency,
+            secret_cost: secretCost,
             date: receipt?.received_at ? new Date(receipt.received_at).toLocaleDateString('uz-UZ') : new Date().toLocaleDateString('uz-UZ'),
           };
         });
@@ -1092,7 +1252,14 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
               const lk = it.line_no || '0';
               return `${lk}___${it.product_name || ''}___${c}` === key;
             });
-            const itemCost = item.unit_cost_usd || item.cost_usd || item.price_label?.cost_usd || item.cost_price_usd || '';
+            const itemCostUsd = item.unit_cost_usd || item.cost_usd || item.price_label?.cost_usd || item.cost_price_usd || '';
+            const itemCost = item.unit_cost || item.cost || '';
+            const itemCurrency = item.currency || receipt?.currency || 'USD';
+            const secretCost = formatSecretCostCode({
+              cost: itemCost,
+              costUsd: itemCostUsd,
+              currency: itemCurrency
+            });
             distinctLabels.push({
               id: item.id,
               line_no: item.line_no,
@@ -1104,8 +1271,11 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
               quantity: sameGroupItems.length || 1,
               code: canonicalQr,
               qr_code: canonicalQr,
-              cost_usd: itemCost,
-              costUsd: itemCost,
+              cost_usd: secretCost || itemCostUsd,
+              costUsd: secretCost || itemCostUsd,
+              cost: itemCost,
+              currency: itemCurrency,
+              secret_cost: secretCost,
               date: receipt?.received_at ? new Date(receipt.received_at).toLocaleDateString('uz-UZ') : new Date().toLocaleDateString('uz-UZ'),
             });
           }
@@ -1113,16 +1283,18 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
       }
 
       const generated = await Promise.all(distinctLabels.map(async item => {
-        const rawCost = Number(item.cost_usd);
-        const costStr = (item.cost_usd != null && item.cost_usd !== '' && !isNaN(rawCost) && rawCost > 0)
-          ? (rawCost % 1 === 0 ? String(rawCost) : rawCost.toFixed(2))
-          : '';
+        const costStr = item.secret_cost || formatSecretCostCode({
+          cost: item.cost,
+          costUsd: item.cost_usd,
+          currency: item.currency || receipt?.currency || 'USD'
+        });
         const costParam = costStr ? '?c=' + encodeURIComponent(costStr) : '';
         const url = (import.meta.env.VITE_STOREFRONT_URL || 'https://texnobazar-storefront.netlify.app') + '/qr/' + encodeURIComponent(item.qr_code) + costParam;
         return {
           ...item,
           cost_usd: costStr,
           costUsd: costStr,
+          secret_cost: costStr,
           qrImage: await QRCode.toDataURL(url, { width: 480, margin: 2, errorCorrectionLevel: 'L' })
         };
       }));
@@ -1422,10 +1594,10 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
     setEditingLine(true);
     const isUsd = (receipt?.currency || 'USD') === 'USD';
     setLinePrices({
-      unit_cost: isUsd && line.unit_cost_usd != null ? String(line.unit_cost_usd) : (rate ? String(Math.round(Number(line.unit_cost||0)/rate)) : String(line.unit_cost||0)),
-      retail_price: isUsd && prod.retail_price_usd != null ? String(prod.retail_price_usd) : (rate ? String(Math.round(Number(prod.retail_price||0)/rate)) : String(prod.retail_price||0)),
-      wholesale_price: isUsd && prod.wholesale_price_usd != null ? String(prod.wholesale_price_usd) : (rate ? String(Math.round(Number(prod.wholesale_price||0)/rate)) : String(prod.wholesale_price||0)),
-      minimum_sale_price: isUsd && prod.minimum_sale_price_usd != null ? String(prod.minimum_sale_price_usd) : (rate ? String(Math.round(Number(prod.minimum_sale_price||0)/rate)) : String(prod.minimum_sale_price||0))
+      unit_cost: isUsd ? (line.unit_cost_usd != null && line.unit_cost_usd !== '' ? String(line.unit_cost_usd) : (rate && line.unit_cost ? String(Number((Number(line.unit_cost)/rate).toFixed(2))) : String(line.unit_cost||0))) : String(line.unit_cost || (line.unit_cost_usd && rate ? Math.round(Number(line.unit_cost_usd)*rate) : 0)),
+      retail_price: isUsd ? (prod.retail_price_usd != null && prod.retail_price_usd !== '' ? String(prod.retail_price_usd) : (rate && prod.retail_price ? String(Number((Number(prod.retail_price)/rate).toFixed(2))) : String(prod.retail_price||0))) : String(prod.retail_price || (prod.retail_price_usd && rate ? Math.round(Number(prod.retail_price_usd)*rate) : 0)),
+      wholesale_price: isUsd ? (prod.wholesale_price_usd != null && prod.wholesale_price_usd !== '' ? String(prod.wholesale_price_usd) : (rate && prod.wholesale_price ? String(Number((Number(prod.wholesale_price)/rate).toFixed(2))) : '')) : String(prod.wholesale_price || (prod.wholesale_price_usd && rate ? Math.round(Number(prod.wholesale_price_usd)*rate) : '')),
+      minimum_sale_price: isUsd ? (prod.minimum_sale_price_usd != null && prod.minimum_sale_price_usd !== '' ? String(prod.minimum_sale_price_usd) : (rate && prod.minimum_sale_price ? String(Number((Number(prod.minimum_sale_price)/rate).toFixed(2))) : '0')) : String(prod.minimum_sale_price || (prod.minimum_sale_price_usd && rate ? Math.round(Number(prod.minimum_sale_price_usd)*rate) : 0))
     });
   };
 
@@ -1461,18 +1633,6 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
         p_minimum_sale_price_usd:mpUsd
       });
       if(e)throw e;
-      if(productId){
-        await client.from('products').update({
-          retail_price: rp,
-          wholesale_price: wp||null,
-          minimum_sale_price: mp,
-          cost_price: uc,
-          cost_price_usd: ucUsd,
-          retail_price_usd: rpUsd,
-          wholesale_price_usd: wpUsd,
-          minimum_sale_price_usd: mpUsd
-        }).eq('id', productId);
-      }
       setLineProduct(prev=>({...prev,retail_price:rp,wholesale_price:wp,minimum_sale_price:mp,cost_price:uc,cost_price_usd:ucUsd,retail_price_usd:rpUsd,wholesale_price_usd:wpUsd,minimum_sale_price_usd:mpUsd}));
       setEditingLine(false);
       onUpdated?.();
@@ -1481,16 +1641,11 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
 
   const downloadLineQR=async(unit)=>{
     const QRCode=await import('qrcode');
-    const rawCost = (unit.unit_cost_usd != null && Number(unit.unit_cost_usd) > 0)
-      ? Number(unit.unit_cost_usd)
-      : (lineProduct?.unit_cost_usd != null && Number(lineProduct.unit_cost_usd) > 0)
-        ? Number(lineProduct.unit_cost_usd)
-        : (lineProduct?.cost_price_usd != null && Number(lineProduct.cost_price_usd) > 0)
-          ? Number(lineProduct.cost_price_usd)
-          : '';
-    const costNumStr = (rawCost !== '' && !isNaN(rawCost))
-      ? (rawCost % 1 === 0 ? String(rawCost) : rawCost.toFixed(2))
-      : '';
+    const costNumStr = formatSecretCostCode({
+      cost: unit.unit_cost || lineProduct?.cost_price || '',
+      costUsd: unit.unit_cost_usd || lineProduct?.unit_cost_usd || lineProduct?.cost_price_usd || '',
+      currency: receipt?.currency || 'USD'
+    });
     const costParam = costNumStr ? '?c=' + encodeURIComponent(costNumStr) : '';
     const canvas=await QRCode.toCanvas((import.meta.env.VITE_STOREFRONT_URL||'https://texnobazar-storefront.netlify.app')+'/qr/'+encodeURIComponent(unit.qr_code)+costParam,{width:300,margin:2,errorCorrectionLevel:'L'});
     const labeled=document.createElement('canvas');labeled.width=300;labeled.height=370;
@@ -1508,19 +1663,113 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
     const link=document.createElement('a');link.download=(unit.qr_code||'qr')+'.png';link.href=labeled.toDataURL();link.click();
   };
 
+  const handleCurrencyChange = (newCurrency) => {
+    const prevCurrency = editForm.currency || 'USD';
+    if (newCurrency === prevCurrency) return;
+
+    setEditForm(prev => {
+      const nextLines = (prev.lines || []).map(line => {
+        const updated = { ...line };
+        if (newCurrency === 'UZS') {
+          // USD dan UZS ga o'tish: USD qiymatlarini saqlab, UZS ga ko'paytiramiz
+          if (line.unit_cost !== '' && line.unit_cost != null) {
+            const usdVal = Number(line.unit_cost_usd || line.unit_cost);
+            updated.unit_cost_usd = String(usdVal);
+            updated.unit_cost = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
+            updated.unit_cost_uzs = updated.unit_cost;
+          }
+          if (line.retail_price !== '' && line.retail_price != null) {
+            const usdVal = Number(line.retail_price_usd || line.retail_price);
+            updated.retail_price_usd = String(usdVal);
+            updated.retail_price = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
+            updated.retail_price_uzs = updated.retail_price;
+          }
+          if (line.wholesale_price !== '' && line.wholesale_price != null) {
+            const usdVal = Number(line.wholesale_price_usd || line.wholesale_price);
+            updated.wholesale_price_usd = String(usdVal);
+            updated.wholesale_price = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
+            updated.wholesale_price_uzs = updated.wholesale_price;
+          }
+          if (line.minimum_sale_price !== '' && line.minimum_sale_price != null) {
+            const usdVal = Number(line.minimum_sale_price_usd || line.minimum_sale_price);
+            updated.minimum_sale_price_usd = String(usdVal);
+            updated.minimum_sale_price = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
+            updated.minimum_sale_price_uzs = updated.minimum_sale_price;
+          }
+        } else if (newCurrency === 'USD') {
+          // UZS dan USD ga o'tish: avvalgi USD qiymatini tiklaymiz, yo'q bo'lsa rate ga bo'lamiz
+          if (line.unit_cost !== '' && line.unit_cost != null) {
+            updated.unit_cost_uzs = line.unit_cost;
+            const restoredUsd = line.unit_cost_usd !== '' && line.unit_cost_usd != null && Number(line.unit_cost_usd) > 0
+              ? String(line.unit_cost_usd)
+              : (rate && Number(line.unit_cost) > 0 ? String(Number((Number(line.unit_cost) / rate).toFixed(2))) : line.unit_cost);
+            updated.unit_cost = restoredUsd;
+            updated.unit_cost_usd = restoredUsd;
+          }
+          if (line.retail_price !== '' && line.retail_price != null) {
+            updated.retail_price_uzs = line.retail_price;
+            const restoredUsd = line.retail_price_usd !== '' && line.retail_price_usd != null && Number(line.retail_price_usd) > 0
+              ? String(line.retail_price_usd)
+              : (rate && Number(line.retail_price) > 0 ? String(Number((Number(line.retail_price) / rate).toFixed(2))) : line.retail_price);
+            updated.retail_price = restoredUsd;
+            updated.retail_price_usd = restoredUsd;
+          }
+          if (line.wholesale_price !== '' && line.wholesale_price != null) {
+            updated.wholesale_price_uzs = line.wholesale_price;
+            const restoredUsd = line.wholesale_price_usd !== '' && line.wholesale_price_usd != null && Number(line.wholesale_price_usd) > 0
+              ? String(line.wholesale_price_usd)
+              : (rate && Number(line.wholesale_price) > 0 ? String(Number((Number(line.wholesale_price) / rate).toFixed(2))) : line.wholesale_price);
+            updated.wholesale_price = restoredUsd;
+            updated.wholesale_price_usd = restoredUsd;
+          }
+          if (line.minimum_sale_price !== '' && line.minimum_sale_price != null) {
+            updated.minimum_sale_price_uzs = line.minimum_sale_price;
+            const restoredUsd = line.minimum_sale_price_usd !== '' && line.minimum_sale_price_usd != null && Number(line.minimum_sale_price_usd) > 0
+              ? String(line.minimum_sale_price_usd)
+              : (rate && Number(line.minimum_sale_price) > 0 ? String(Number((Number(line.minimum_sale_price) / rate).toFixed(2))) : line.minimum_sale_price);
+            updated.minimum_sale_price = restoredUsd;
+            updated.minimum_sale_price_usd = restoredUsd;
+          }
+        }
+        return updated;
+      });
+      return { ...prev, currency: newCurrency, lines: nextLines };
+    });
+  };
+
   const updateLineField=(idx,field,val)=>{
     setEditForm(prev=>{
       const lines=[...(prev.lines||[])];
       const cur = { ...lines[idx], [field]: val };
-      if (editForm.currency === 'USD') {
+      const isUsd = (prev.currency || 'USD') === 'USD';
+      const num = Number(val);
+      if (isUsd) {
         if (field === 'unit_cost') {
           cur.unit_cost_usd = val;
+          cur.unit_cost_uzs = rate && num > 0 ? String(Math.round(num * rate)) : '';
         } else if (field === 'retail_price') {
           cur.retail_price_usd = val;
+          cur.retail_price_uzs = rate && num > 0 ? String(Math.round(num * rate)) : '';
         } else if (field === 'wholesale_price') {
           cur.wholesale_price_usd = val;
+          cur.wholesale_price_uzs = rate && num > 0 ? String(Math.round(num * rate)) : '';
         } else if (field === 'minimum_sale_price') {
           cur.minimum_sale_price_usd = val;
+          cur.minimum_sale_price_uzs = rate && num > 0 ? String(Math.round(num * rate)) : '';
+        }
+      } else {
+        if (field === 'unit_cost') {
+          cur.unit_cost_uzs = val;
+          cur.unit_cost_usd = rate && num > 0 ? String(Number((num / rate).toFixed(2))) : '';
+        } else if (field === 'retail_price') {
+          cur.retail_price_uzs = val;
+          cur.retail_price_usd = rate && num > 0 ? String(Number((num / rate).toFixed(2))) : '';
+        } else if (field === 'wholesale_price') {
+          cur.wholesale_price_uzs = val;
+          cur.wholesale_price_usd = rate && num > 0 ? String(Number((num / rate).toFixed(2))) : '';
+        } else if (field === 'minimum_sale_price') {
+          cur.minimum_sale_price_uzs = val;
+          cur.minimum_sale_price_usd = rate && num > 0 ? String(Number((num / rate).toFixed(2))) : '';
         }
       }
       lines[idx] = cur;
@@ -1545,10 +1794,22 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
           const wp = l.wholesale_price===''?null:Number(l.wholesale_price);
           const mp = l.minimum_sale_price===''?null:Number(l.minimum_sale_price);
 
-          const ucUsd = l.unit_cost_usd !== undefined && l.unit_cost_usd !== '' ? Number(l.unit_cost_usd) : (isUsd ? uc : (rate && uc ? Number((uc / rate).toFixed(2)) : null));
-          const rpUsd = l.retail_price_usd !== undefined && l.retail_price_usd !== '' ? Number(l.retail_price_usd) : (isUsd ? rp : (rate && rp ? Number((rp / rate).toFixed(2)) : null));
-          const wpUsd = l.wholesale_price_usd !== undefined && l.wholesale_price_usd !== '' ? Number(l.wholesale_price_usd) : (isUsd ? wp : (rate && wp ? Number((wp / rate).toFixed(2)) : null));
-          const mpUsd = l.minimum_sale_price_usd !== undefined && l.minimum_sale_price_usd !== '' ? Number(l.minimum_sale_price_usd) : (isUsd ? mp : (rate && mp ? Number((mp / rate).toFixed(2)) : null));
+          let ucUsd = l.unit_cost_usd !== undefined && l.unit_cost_usd !== '' && l.unit_cost_usd !== null ? Number(l.unit_cost_usd) : null;
+          let rpUsd = l.retail_price_usd !== undefined && l.retail_price_usd !== '' && l.retail_price_usd !== null ? Number(l.retail_price_usd) : null;
+          let wpUsd = l.wholesale_price_usd !== undefined && l.wholesale_price_usd !== '' && l.wholesale_price_usd !== null ? Number(l.wholesale_price_usd) : null;
+          let mpUsd = l.minimum_sale_price_usd !== undefined && l.minimum_sale_price_usd !== '' && l.minimum_sale_price_usd !== null ? Number(l.minimum_sale_price_usd) : null;
+
+          if (isUsd) {
+            if (uc != null) ucUsd = uc;
+            if (rp != null) rpUsd = rp;
+            if (wp != null) wpUsd = wp;
+            if (mp != null) mpUsd = mp;
+          } else {
+            if (ucUsd == null && uc != null && rate) ucUsd = Number((uc / rate).toFixed(2));
+            if (rpUsd == null && rp != null && rate) rpUsd = Number((rp / rate).toFixed(2));
+            if (wpUsd == null && wp != null && rate) wpUsd = Number((wp / rate).toFixed(2));
+            if (mpUsd == null && mp != null && rate) mpUsd = Number((mp / rate).toFixed(2));
+          }
 
           return {
             id:l.id||l.batch_id,
@@ -1566,10 +1827,10 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
           };
         })
       };
-      await updateStockReceipt(receipt.id,payload);
+      const updatedReceipt = await updateStockReceipt(receipt.id,payload);
       setEditing(false);
       toast?.('Partiya va tovarlar joylashuvi muvaffaqiyatli saqlandi!');
-      onUpdated?.();
+      onUpdated?.(updatedReceipt);
     }catch(e){setError(err(e))}finally{setSaving(false)}
   };
 
@@ -1640,7 +1901,7 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
               </label>
               <label>
                 <span style={{fontSize:12,fontWeight:600,color:'#475569',display:'block',marginBottom:4}}>Valyuta</span>
-                <select className="select" style={{width:'100%'}} value={editForm.currency} onChange={e=>setEditForm({...editForm,currency:e.target.value})}>
+                <select className="select" style={{width:'100%'}} value={editForm.currency} onChange={e=>handleCurrencyChange(e.target.value)}>
                   <option value="USD">USD</option>
                   <option value="UZS">UZS</option>
                   <option value="EUR">EUR</option>
@@ -1744,10 +2005,10 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
                   </div>}
                   {editingLine?(
                     <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:8,marginBottom:10,fontSize:12}}>
-                      <label><span style={{fontSize:11,color:'var(--muted)'}}>Tannarx (USD)</span><input className="input" type="number" min="0" step="1" value={linePrices.unit_cost} onChange={e=>setLinePrices({...linePrices,unit_cost:e.target.value})}/></label>
-                      <label><span style={{fontSize:11,color:'var(--muted)'}}>Sotish narxi (USD)</span><input className="input" type="number" min="0" step="1" value={linePrices.retail_price} onChange={e=>setLinePrices({...linePrices,retail_price:e.target.value})}/></label>
-                      <label><span style={{fontSize:11,color:'var(--muted)'}}>Ulgurji (USD)</span><input className="input" type="number" min="0" step="1" value={linePrices.wholesale_price} onChange={e=>setLinePrices({...linePrices,wholesale_price:e.target.value})}/></label>
-                      <label><span style={{fontSize:11,color:'var(--muted)'}}>Min narx (USD)</span><input className="input" type="number" min="0" step="1" value={linePrices.minimum_sale_price} onChange={e=>setLinePrices({...linePrices,minimum_sale_price:e.target.value})}/></label>
+                      <label><span style={{fontSize:11,color:'var(--muted)'}}>Tannarx ({receipt?.currency || 'USD'})</span><input className="input" type="number" min="0" step="any" value={linePrices.unit_cost} onChange={e=>setLinePrices({...linePrices,unit_cost:e.target.value})}/></label>
+                      <label><span style={{fontSize:11,color:'var(--muted)'}}>Sotish narxi ({receipt?.currency || 'USD'})</span><input className="input" type="number" min="0" step="any" value={linePrices.retail_price} onChange={e=>setLinePrices({...linePrices,retail_price:e.target.value})}/></label>
+                      <label><span style={{fontSize:11,color:'var(--muted)'}}>Ulgurji ({receipt?.currency || 'USD'})</span><input className="input" type="number" min="0" step="any" value={linePrices.wholesale_price} onChange={e=>setLinePrices({...linePrices,wholesale_price:e.target.value})}/></label>
+                      <label><span style={{fontSize:11,color:'var(--muted)'}}>Min narx ({receipt?.currency || 'USD'})</span><input className="input" type="number" min="0" step="any" value={linePrices.minimum_sale_price} onChange={e=>setLinePrices({...linePrices,minimum_sale_price:e.target.value})}/></label>
                       <div style={{gridColumn:'1/-1',display:'flex',gap:8}}>
                         <button className="btn btn-primary" style={{fontSize:12}} onClick={()=>saveLinePrices2(x.id,lineProduct.id)} disabled={savingLine}>{savingLine?'Saqlanmoqda…':'Saqlash'}</button>
                         <button className="btn" style={{fontSize:12}} onClick={()=>setEditingLine(false)}>Bekor</button>
@@ -1824,18 +2085,28 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
                                 gap: 6,
                                 boxShadow: '0 2px 6px rgba(249,115,22,0.25)'
                               }}
-                              onClick={() => openBluetoothPrint({
-                                id: x.id,
-                                product_name: lineProduct?.name || x.product_name || 'Mahsulot',
-                                title: lineProduct?.name || x.product_name || 'Mahsulot',
-                                variant_color: lineProduct?.variant_color || x.variant_color || '',
-                                color: lineProduct?.variant_color || x.variant_color || '',
-                                qr_code: canonicalQr,
-                                code: canonicalQr,
-                                cost_usd: x.unit_cost_usd || lineProduct?.unit_cost_usd || lineProduct?.cost_price_usd || '',
-                                quantity: Number(x.quantity) || 1,
-                                date: receipt?.received_at ? new Date(receipt.received_at).toLocaleDateString('uz-UZ') : new Date().toLocaleDateString('uz-UZ')
-                              })}
+                              onClick={() => {
+                                const secretCode = formatSecretCostCode({
+                                  cost: x.unit_cost || lineProduct?.cost_price || '',
+                                  costUsd: x.unit_cost_usd || lineProduct?.unit_cost_usd || lineProduct?.cost_price_usd || '',
+                                  currency: receipt?.currency || 'USD'
+                                });
+                                openBluetoothPrint({
+                                  id: x.id,
+                                  product_name: lineProduct?.name || x.product_name || 'Mahsulot',
+                                  title: lineProduct?.name || x.product_name || 'Mahsulot',
+                                  variant_color: lineProduct?.variant_color || x.variant_color || '',
+                                  color: lineProduct?.variant_color || x.variant_color || '',
+                                  qr_code: canonicalQr,
+                                  code: canonicalQr,
+                                  cost_usd: secretCode,
+                                  costUsd: secretCode,
+                                  cost: x.unit_cost || lineProduct?.cost_price || '',
+                                  currency: receipt?.currency || 'USD',
+                                  quantity: Number(x.quantity) || 1,
+                                  date: receipt?.received_at ? new Date(receipt.received_at).toLocaleDateString('uz-UZ') : new Date().toLocaleDateString('uz-UZ')
+                                });
+                              }}
                             >
                               <Bluetooth size={14} />
                               <Printer size={14} />
@@ -1976,7 +2247,11 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
             ? new Date(receipt.received_at).toLocaleDateString('uz-UZ') 
             : new Date().toLocaleDateString('uz-UZ');
           const rawCost = x.cost_usd || x.unit_cost_usd || x.cost_price_usd || matchedLine?.unit_cost_usd || '';
-          const costStr = rawCost ? (Number(rawCost) % 1 === 0 ? String(Number(rawCost)) : Number(rawCost).toFixed(2)) : '';
+          const costStr = formatSecretCostCode({
+            cost: x.cost || matchedLine?.unit_cost || '',
+            costUsd: rawCost,
+            currency: x.currency || receipt?.currency || 'USD'
+          });
 
           return (
             <article className="qr-print-label" key={x.id || idx}>
@@ -2073,7 +2348,10 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     const n=new Date();
     const prefix = isInventory ? 'INV-' : 'PT-';
     const rno=prefix+n.toISOString().slice(0,10).replace(/-/g,'')+'-'+String(n.getHours()).padStart(2,'0')+String(n.getMinutes()).padStart(2,'0')+String(n.getSeconds()).padStart(2,'0');
-    return{receipt_no:rno,supplier_id:'',receiving_location_id:'',invoice_number:'',currency:'USD',payment_status:'paid',received_at:n.toISOString().slice(0,10),notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'',paid_amount:''};
+    const savedLoc = isInventory && typeof window !== 'undefined'
+      ? (localStorage.getItem('tb_last_inventory_loc_' + (branchId || '')) || localStorage.getItem('tb_last_inventory_loc') || '')
+      : '';
+    return{receipt_no:rno,supplier_id:'',receiving_location_id:savedLoc,invoice_number:'',currency:'USD',payment_status:'paid',received_at:n.toISOString().slice(0,10),notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'',paid_amount:''};
   });
   const[lines,setLines]=useState([{
     product_id:'',
@@ -2122,10 +2400,40 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         
         let initialSupplierId = isInventory ? '' : (r.suppliers[0]?.id || '');
 
+        let initialLocationId = '';
+        if (isInventory) {
+          const locKey = 'tb_last_inventory_loc_' + branchId;
+          const savedLoc = (typeof window !== 'undefined' && (localStorage.getItem(locKey) || localStorage.getItem('tb_last_inventory_loc'))) || '';
+          if (savedLoc && r.locations.some(x => x.id === savedLoc)) {
+            initialLocationId = savedLoc;
+          } else {
+            try {
+              const { data: lastInv } = await getBrowserClient()
+                .from('stock_receipts')
+                .select('receiving_location_id')
+                .eq('branch_id', branchId)
+                .like('receipt_no', 'INV-%')
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle();
+              if (lastInv?.receiving_location_id && r.locations.some(x => x.id === lastInv.receiving_location_id)) {
+                initialLocationId = lastInv.receiving_location_id;
+                try {
+                  localStorage.setItem(locKey, initialLocationId);
+                  localStorage.setItem('tb_last_inventory_loc', initialLocationId);
+                } catch {}
+              }
+            } catch {}
+          }
+        }
+        if (!initialLocationId) {
+          initialLocationId = r.locations.find(x => x.type === 'warehouse')?.id || r.locations[0]?.id || '';
+        }
+
         setForm(f=>({
           ...f,
           supplier_id:f.supplier_id||initialSupplierId,
-          receiving_location_id:f.receiving_location_id||r.locations.find(x=>x.type==='warehouse')?.id||r.locations[0]?.id||''
+          receiving_location_id: isInventory ? initialLocationId : (f.receiving_location_id || initialLocationId)
         }));
       }).catch(e=>setError(err(e)));
     }
@@ -2250,6 +2558,59 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     });
   };
 
+  const handleCreateCurrencyChange = (newCurrency) => {
+    const prevCurrency = form.currency || 'USD';
+    if (newCurrency === prevCurrency) return;
+    setForm(f => ({ ...f, currency: newCurrency }));
+    setLines(prevLines => prevLines.map(line => {
+      const updated = { ...line };
+      if (newCurrency === 'UZS') {
+        if (line.unit_cost_usd !== '' && line.unit_cost_usd != null) {
+          const usdVal = Number(line.unit_cost_usd);
+          updated.unit_cost = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
+        }
+        if (line.retail_price_usd !== '' && line.retail_price_usd != null) {
+          const usdVal = Number(line.retail_price_usd);
+          updated.retail_price = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
+        }
+        if (line.wholesale_price_usd !== '' && line.wholesale_price_usd != null) {
+          const usdVal = Number(line.wholesale_price_usd);
+          updated.wholesale_price = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
+        }
+        if (line.minimum_sale_price_usd !== '' && line.minimum_sale_price_usd != null) {
+          const usdVal = Number(line.minimum_sale_price_usd);
+          updated.minimum_sale_price = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
+        }
+      } else if (newCurrency === 'USD') {
+        if (line.unit_cost !== '' && line.unit_cost != null) {
+          const rawUzs = Number(line.unit_cost);
+          updated.unit_cost_usd = line.unit_cost_usd !== '' && line.unit_cost_usd != null && Number(line.unit_cost_usd) > 0
+            ? String(line.unit_cost_usd)
+            : (rate && rawUzs > 0 ? String(Number((rawUzs / rate).toFixed(2))) : line.unit_cost);
+        }
+        if (line.retail_price !== '' && line.retail_price != null) {
+          const rawUzs = Number(line.retail_price);
+          updated.retail_price_usd = line.retail_price_usd !== '' && line.retail_price_usd != null && Number(line.retail_price_usd) > 0
+            ? String(line.retail_price_usd)
+            : (rate && rawUzs > 0 ? String(Number((rawUzs / rate).toFixed(2))) : line.retail_price);
+        }
+        if (line.wholesale_price !== '' && line.wholesale_price != null) {
+          const rawUzs = Number(line.wholesale_price);
+          updated.wholesale_price_usd = line.wholesale_price_usd !== '' && line.wholesale_price_usd != null && Number(line.wholesale_price_usd) > 0
+            ? String(line.wholesale_price_usd)
+            : (rate && rawUzs > 0 ? String(Number((rawUzs / rate).toFixed(2))) : line.wholesale_price);
+        }
+        if (line.minimum_sale_price !== '' && line.minimum_sale_price != null) {
+          const rawUzs = Number(line.minimum_sale_price);
+          updated.minimum_sale_price_usd = line.minimum_sale_price_usd !== '' && line.minimum_sale_price_usd != null && Number(line.minimum_sale_price_usd) > 0
+            ? String(line.minimum_sale_price_usd)
+            : (rate && rawUzs > 0 ? String(Number((rawUzs / rate).toFixed(2))) : line.minimum_sale_price);
+        }
+      }
+      return updated;
+    }));
+  };
+
   const submit=async e=>{
     e.preventDefault();
     let supplierId = isInventory ? (form.supplier_id || null) : form.supplier_id;
@@ -2292,21 +2653,46 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         const baseWholesale = Number(line.wholesale_price) || Number(product?.wholesale_price) || 0;
         const baseMin = Number(line.minimum_sale_price) || Number(product?.minimum_sale_price) || 0;
 
-        const baseCostUsd = line.unit_cost_usd !== undefined && line.unit_cost_usd !== '' 
+        let baseCostUsd = line.unit_cost_usd !== undefined && line.unit_cost_usd !== '' && line.unit_cost_usd !== null 
           ? Number(line.unit_cost_usd) 
-          : (isReceiptUsd && baseCost > 0 ? (rate ? Number((baseCost / rate).toFixed(2)) : baseCost) : (product?.cost_price_usd ? Number(product.cost_price_usd) : null));
+          : (isReceiptUsd
+              ? (baseCost > 0 && baseCost < 20000 ? baseCost : (product?.cost_price_usd ? Number(product.cost_price_usd) : (rate && baseCost > 0 ? Number((baseCost / rate).toFixed(2)) : null)))
+              : (product?.cost_price_usd ? Number(product.cost_price_usd) : (rate && baseCost > 0 ? Number((baseCost / rate).toFixed(2)) : null)));
         
-        const baseRetailUsd = line.retail_price_usd !== undefined && line.retail_price_usd !== ''
+        let baseRetailUsd = line.retail_price_usd !== undefined && line.retail_price_usd !== '' && line.retail_price_usd !== null
           ? Number(line.retail_price_usd)
-          : (isReceiptUsd && baseRetail > 0 ? (rate ? Number((baseRetail / rate).toFixed(2)) : baseRetail) : (product?.retail_price_usd ? Number(product.retail_price_usd) : null));
+          : (isReceiptUsd
+              ? (baseRetail > 0 && baseRetail < 20000 ? baseRetail : (product?.retail_price_usd ? Number(product.retail_price_usd) : (rate && baseRetail > 0 ? Number((baseRetail / rate).toFixed(2)) : null)))
+              : (product?.retail_price_usd ? Number(product.retail_price_usd) : (rate && baseRetail > 0 ? Number((baseRetail / rate).toFixed(2)) : null)));
 
-        const baseWholesaleUsd = line.wholesale_price_usd !== undefined && line.wholesale_price_usd !== ''
+        let baseWholesaleUsd = line.wholesale_price_usd !== undefined && line.wholesale_price_usd !== '' && line.wholesale_price_usd !== null
           ? Number(line.wholesale_price_usd)
-          : (isReceiptUsd && baseWholesale > 0 ? (rate ? Number((baseWholesale / rate).toFixed(2)) : baseWholesale) : (product?.wholesale_price_usd ? Number(product.wholesale_price_usd) : null));
+          : (isReceiptUsd
+              ? (baseWholesale > 0 && baseWholesale < 20000 ? baseWholesale : (product?.wholesale_price_usd ? Number(product.wholesale_price_usd) : (rate && baseWholesale > 0 ? Number((baseWholesale / rate).toFixed(2)) : null)))
+              : (product?.wholesale_price_usd ? Number(product.wholesale_price_usd) : (rate && baseWholesale > 0 ? Number((baseWholesale / rate).toFixed(2)) : null)));
 
-        const baseMinUsd = line.minimum_sale_price_usd !== undefined && line.minimum_sale_price_usd !== ''
+        let baseMinUsd = line.minimum_sale_price_usd !== undefined && line.minimum_sale_price_usd !== '' && line.minimum_sale_price_usd !== null
           ? Number(line.minimum_sale_price_usd)
-          : (isReceiptUsd && baseMin > 0 ? (rate ? Number((baseMin / rate).toFixed(2)) : baseMin) : (product?.minimum_sale_price_usd ? Number(product.minimum_sale_price_usd) : null));
+          : (isReceiptUsd
+              ? (baseMin > 0 && baseMin < 20000 ? baseMin : (product?.minimum_sale_price_usd ? Number(product.minimum_sale_price_usd) : (rate && baseMin > 0 ? Number((baseMin / rate).toFixed(2)) : null)))
+              : (product?.minimum_sale_price_usd ? Number(product.minimum_sale_price_usd) : (rate && baseMin > 0 ? Number((baseMin / rate).toFixed(2)) : null)));
+
+        let finalCost = baseCost;
+        if (isReceiptUsd && baseCost > 0 && baseCost < 20000 && rate) {
+          finalCost = Math.round(baseCost * rate);
+        }
+        let finalRetail = baseRetail;
+        if (isReceiptUsd && baseRetail > 0 && baseRetail < 20000 && rate) {
+          finalRetail = Math.round(baseRetail * rate);
+        }
+        let finalWholesale = baseWholesale;
+        if (isReceiptUsd && baseWholesale > 0 && baseWholesale < 20000 && rate) {
+          finalWholesale = Math.round(baseWholesale * rate);
+        }
+        let finalMin = baseMin;
+        if (isReceiptUsd && baseMin > 0 && baseMin < 20000 && rate) {
+          finalMin = Math.round(baseMin * rate);
+        }
 
         let variantId = line.variant_id || null;
         const colorName = (line.color_name || '').trim();
@@ -2369,6 +2755,13 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
           serial_numbers: serials,
           ...priceOverride
         });
+      }
+
+      if (isInventory && form.receiving_location_id) {
+        try {
+          localStorage.setItem('tb_last_inventory_loc_' + branchId, form.receiving_location_id);
+          localStorage.setItem('tb_last_inventory_loc', form.receiving_location_id);
+        } catch {}
       }
 
       await createStockReceipt({
@@ -2507,8 +2900,26 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
 
         <label>
           <span>Qabul joylashuvi *</span>
-          <select className="select" value={form.receiving_location_id} onChange={e=>setForm({...form,receiving_location_id:e.target.value})} required>
-            {refs.locations.map(x=><option key={x.id} value={x.id}>{x.name} {x.type==='warehouse'?'(Ombor)':'(Do‘kon)'}</option>)}
+          <select
+            className="select"
+            value={form.receiving_location_id}
+            onChange={e => {
+              const locId = e.target.value;
+              setForm(f => ({ ...f, receiving_location_id: locId }));
+              if (isInventory && locId) {
+                try {
+                  localStorage.setItem('tb_last_inventory_loc_' + branchId, locId);
+                  localStorage.setItem('tb_last_inventory_loc', locId);
+                } catch {}
+              }
+            }}
+            required
+          >
+            {refs.locations.map(x => (
+              <option key={x.id} value={x.id}>
+                {x.name} {x.type === 'warehouse' ? '(Ombor)' : '(Do‘kon)'}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -2521,7 +2932,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
 
         <label>
           <span>Valyuta</span>
-          <select className="select" value={form.currency} onChange={e=>setForm({...form,currency:e.target.value})}>
+          <select className="select" value={form.currency} onChange={e=>handleCreateCurrencyChange(e.target.value)}>
             <option>USD</option>
             <option>UZS</option>
             <option>EUR</option>
@@ -2627,7 +3038,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
       </button>
     </form>
 
-    {showCreateProduct&&<div className="receipt-create-overlay"><div className="receipt-create-form card"><CreateProductInline categories={refs.categories||[]} brands={refs.brands||[]} categoryId="" onCreated={onProductCreatedFromForm} onCancel={()=>{setShowCreateProduct(false);setCreateForLineIdx(null)}} rate={rate}/></div></div>}
+    {showCreateProduct&&<div className="receipt-create-overlay"><div className="receipt-create-form card"><CreateProductInline categories={refs.categories||[]} brands={refs.brands||[]} categoryId="" onCreated={onProductCreatedFromForm} onCancel={()=>{setShowCreateProduct(false);setCreateForLineIdx(null)}} rate={rate} onCategoryCreated={cat => setRefs(prev => ({ ...prev, categories: [...(prev.categories || []).filter(c => c.id !== cat.id), cat] }))} onBrandCreated={b => setRefs(prev => ({ ...prev, brands: [...(prev.brands || []).filter(x => x.id !== b.id), b] }))}/></div></div>}
   </Modal>;
 }
 
@@ -3055,13 +3466,13 @@ export function InventoryScanner({open,close,branchId,toast}){
         <span><small>QR kod</small><b>{unit.qr_code}</b></span>
         <span><small>Mavjud qoldiq</small><b>{availableCount} dona {unit.total_count ? `(jami ${unit.total_count} ta)` : ''}</b></span>
         <span><small>Zavod seriyasi</small><b>{unit.serial_number||'—'}</b></span>
-        <span><small>Partiya</small><b>{unit.batch.receipt_no||'—'}</b></span>
-        <span><small>Ta’minotchi</small><b>{unit.batch.supplier_name||'—'}</b></span>
-        <span><small>Tannarx</small><button type="button" className="masked-value" onClick={()=>setShowCost(v=>!v)} title={showCost?'Yashirish':'Ko‘rsatish'}>{showCost?<><b><DualPrice value={Number(unit.batch.unit_cost)} rate={rate}/></b><EyeOff size={13}/></>:<><b>******</b><Eye size={13}/></>}</button></span>
-        <span><small>Sotish narxi</small><b><DualPrice value={Number(unit.batch.retail_price||unit.product.retail_price)} rate={rate}/></b></span>
-        {unit.product.slug&&<span><small>Sayt sahifasi</small><a className="passport-link" href={`${storefrontBase}/product/${unit.product.slug}`} target="_blank" rel="noopener"><ExternalLink size={12}/>{unit.product.is_published?'Saytda ko‘rish':'Ko‘rish (nashr qilinmagan)'}</a></span>}
-        {unit.latest_batch_prices&&<span><small>Eng yangi partiya narxi</small><b><DualPrice value={Number(unit.latest_batch_prices.retail_price)} rate={rate}/></b></span>}
-        <span><small>Hozirgi joyi</small><b>{unit.location.name}</b></span>
+        <span><small>Partiya</small><b>{unit.batch?.receipt_no||'—'}</b></span>
+        <span><small>Ta’minotchi</small><b>{unit.batch?.supplier_name||'—'}</b></span>
+        <span><small>Tannarx</small><button type="button" className="masked-value" onClick={()=>setShowCost(v=>!v)} title={showCost?'Yashirish':'Ko‘rsatish'}>{showCost?<><b><DualPrice value={Number(unit.batch?.unit_cost||unit.product?.cost_price||0)} rate={rate}/></b><EyeOff size={13}/></>:<><b>******</b><Eye size={13}/></>}</button></span>
+        <span><small>Sotish narxi</small><b><DualPrice value={Number(unit.batch?.retail_price||unit.product?.retail_price||0)} rate={rate}/></b></span>
+        {unit.product?.slug&&<span><small>Sayt sahifasi</small><a className="passport-link" href={`${storefrontBase}/product/${unit.product.slug}`} target="_blank" rel="noopener"><ExternalLink size={12}/>{unit.product.is_published?'Saytda ko‘rish':'Ko‘rish (nashr qilinmagan)'}</a></span>}
+        {unit.latest_batch_prices&&<span><small>Eng yangi partiya narxi</small><b><DualPrice value={Number(unit.latest_batch_prices.retail_price||0)} rate={rate}/></b></span>}
+        <span><small>Hozirgi joyi</small><b>{unit.location?.name||'—'}</b></span>
       </div>
 
       <section>
@@ -3070,13 +3481,13 @@ export function InventoryScanner({open,close,branchId,toast}){
           <select className="select" value={target} onChange={e=>setTarget(e.target.value)}>
             {refs.locations.map(x=><option key={x.id} value={x.id}>{x.name} {x.type==='warehouse'?'(Ombor)':'(Do‘kon)'}</option>)}
           </select>
-          <button className="btn btn-primary" onClick={place} disabled={placing||busy||target===unit.location.id}>
+          <button className="btn btn-primary" onClick={place} disabled={placing||busy||!unit.location||target===unit.location?.id}>
             {placing?<><span className="btn-spinner"/>Joylashtirilmoqda…</>:<><MapPin/>Joylashtirish</>}
           </button>
         </div>
       </section>
 
-      <section><h3>Harakatlar tarixi</h3><div className="movement-list">{unit.movements.map(m=><div key={m.id}><i/><span><b>{movementLabel(m.type)}</b><small>{new Date(m.occurred_at).toLocaleString('uz-UZ')} · {m.actor_name||'Tizim'}</small><em>{m.from_location?`${m.from_location} → `:''}{m.to_location||''}</em></span></div>)}</div></section>
+      <section><h3>Harakatlar tarixi</h3><div className="movement-list">{(unit.movements||[]).length>0?(unit.movements||[]).map(m=><div key={m.id}><i/><span><b>{movementLabel(m.type)}</b><small>{new Date(m.occurred_at).toLocaleString('uz-UZ')} · {m.actor_name||'Tizim'}</small><em>{m.from_location?`${m.from_location} → `:''}{m.to_location||''}</em></span></div>):<small style={{color:'#64748b',padding:'8px 0',display:'block'}}>Harakatlar tarixi mavjud emas</small>}</div></section>
     </div>}
     {unit&&<DetongerPrintModal
       open={scannerBtPrint}

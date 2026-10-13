@@ -88,6 +88,10 @@ const adaptProduct = raw => {
   return {
     ...raw,
     id: String(raw.id),
+    productId: String(raw.product_id || raw.productId || String(raw.id).split('_')[0]),
+    batchId: raw.batch_id || raw.batchId || null,
+    receiptNo: raw.receipt_no || raw.receiptNo || null,
+    priceTiers: safeArray(raw.price_tiers || raw.priceTiers),
     name: String(raw.name || 'Nomsiz mahsulot'),
     slug: String(raw.slug || raw.id),
     description: String(raw.description || ''),
@@ -101,7 +105,7 @@ const adaptProduct = raw => {
     seoImage: String(raw.seo_image_url || primaryImg),
     videoUrl: String(raw.video_url || ''),
     brandName: String(raw.brand_name || raw.brands?.name || raw.brand?.name || ''),
-    price: numberOf(raw.promotion_price || raw.retail_price),
+    price: numberOf(raw.promotion_price || raw.effective_price || raw.retail_price),
     oldPrice: numberOf(raw.compare_at_price || (raw.promotion_price ? raw.retail_price : 0)),
     stock: Math.max(0, Math.trunc(numberOf(raw.available_stock))),
     attributes: safeArray(raw.attributes).map(item => ({ code: String(item.code || item.name || ''), name: String(item.name || item.code || ''), value: plainValue(item.value) })),
@@ -126,15 +130,24 @@ const adaptProduct = raw => {
 };
 const parseRoute = () => {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  const searchParams = new URLSearchParams(window.location.search);
+  const cardId = searchParams.get('id') || null;
   if (path.startsWith('/qr/')) return { view: 'qr', code: decodeURIComponent(path.slice(4)) };
-  if (path.startsWith('/product/')) return { view: 'product', slug: decodeURIComponent(path.slice(9)) };
+  if (path.startsWith('/product/')) return { view: 'product', slug: decodeURIComponent(path.slice(9)), cardId };
   if (path.startsWith('/category/')) return { view: 'category', slug: decodeURIComponent(path.slice(10)) };
   if (path.startsWith('/page/')) return { view: 'page', slug: decodeURIComponent(path.slice(6)) };
   if (path.startsWith('/block/')) return { view: 'block', blockId: decodeURIComponent(path.slice(7)) };
   if (['/catalog', '/cart', '/checkout', '/profile', '/favorites'].includes(path)) return { view: path.slice(1) };
   return { view: 'home' };
 };
-const routePath = (view, product) => view === 'home' ? '/' : ['product','category','page'].includes(view) ? `/${view}/${encodeURIComponent(product?.slug || '')}` : view === 'block' ? `/block/${encodeURIComponent(product?.blockId || '')}` : `/${view}`;
+const routePath = (view, product) => {
+  if (view === 'home') return '/';
+  if (view === 'product') {
+    const slug = encodeURIComponent(product?.slug || '');
+    return product?.id && String(product.id).includes('_') ? `/product/${slug}?id=${encodeURIComponent(product.id)}` : `/product/${slug}`;
+  }
+  return ['category','page'].includes(view) ? `/${view}/${encodeURIComponent(product?.slug || '')}` : view === 'block' ? `/block/${encodeURIComponent(product?.blockId || '')}` : `/${view}`;
+};
 
 export default function App() {
   const initialRoute = useRef(parseRoute());
@@ -391,7 +404,7 @@ export default function App() {
     }).filter(Boolean);
     if (changed.length) {
       setCart(next);
-      if (session) Promise.all(changed.map(entry => setCustomerCartItem(entry.id, entry.qty, entry.variantId))).catch(error => setToast(errorText(error)));
+      if (session) Promise.all(changed.map(entry => setCustomerCartItem(String(entry.id).split('_')[0], entry.qty, entry.variantId))).catch(error => setToast(errorText(error)));
     }
     // Reconcile only products actually present in the hydrated cache.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -401,12 +414,14 @@ export default function App() {
   useEffect(() => { if (!session) { anonymousFavorites.current = favorites; storageWrite(ANON_FAV_KEY, favorites); } }, [favorites]);
 
   const cartItems = useMemo(() => cart.map(item => {
-    const product = productsById.get(item.id);
+    const product = productsById.get(item.id) || productsById.get(String(item.id).split('_')[0]);
     if (!product) return { id: item.id, variantId: item.variantId, qty: item.qty };
     const variant = item.variantId ? product.variants?.find(v => v.id === item.variantId) : null;
     return {
       ...product,
       id: item.id,
+      productId: product.productId || String(item.id).split('_')[0],
+      batchId: product.batchId || null,
       variantId: item.variantId || null,
       qty: item.qty,
       price: variant ? variant.price || product.price : product.price,
@@ -415,7 +430,7 @@ export default function App() {
       image: variant?.image || product.image,
     };
   }).filter(item => item.name), [cart, productsById]);
-  const selected = route.view === 'product' ? catalog.find(product => product.slug === route.slug) : null;
+  const selected = route.view === 'product' ? ((route.cardId ? catalog.find(product => product.id === route.cardId) : null) || catalog.find(product => product.slug === route.slug)) : null;
   useEffect(() => {
     if (route.view !== 'product' || selected?.hasDetail || !route.slug) return;
     let active = true;setDetailState({ loading: true, error: '' });
@@ -459,7 +474,7 @@ export default function App() {
   }, [cms.settings, route, selected, selectedCategory, selectedPage]);
 
   const go = useCallback((view, product, options = {}) => {
-    const next = ['product','category','page'].includes(view) ? { view, slug: product.slug } : view === 'block' ? { view, blockId: product?.blockId } : { view };
+    const next = ['product','category','page'].includes(view) ? { view, slug: product.slug, cardId: product?.id || null } : view === 'block' ? { view, blockId: product?.blockId } : { view };
     const path = routePath(view, product);
     if (options.replace) history.replaceState({}, '', path); else history.pushState({}, '', path);
     setRoute(next); setMenu(false); window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -488,7 +503,7 @@ export default function App() {
       return quantity ? [...filtered, { id: product.id, variantId: variantId || null, qty: quantity }] : filtered;
     });
     try {
-      if (session) await setCustomerCartItem(product.id, quantity, variantId || null);
+      if (session) await setCustomerCartItem(product.productId || String(product.id).split('_')[0], quantity, variantId || null);
       if (message) setToast(message);
     } catch (error) { setToast(errorText(error)); refreshAccount(); }
   };
@@ -1203,6 +1218,10 @@ function QrResolver({ code, go, add, setToast }) {
         }
 
         const adapted = adaptProduct(rawProduct);
+        if (rpcData?.retail_price) {
+          adapted.price = numberOf(rpcData.retail_price);
+          if (rpcData.batch_id) adapted.batchId = rpcData.batch_id;
+        }
         setState({ loading: false, error: '', product: adapted });
         if (variantId) {
           setSelectedVariantId(String(variantId));
@@ -1410,15 +1429,32 @@ function ProductReviews({ productId, session, setToast, setAuthOpen }) {
 
 function Product({ product, go, add, toggleFavorite, loved, related, favorites, session, setToast, setAuthOpen }) {
   const variants = product.variants || [];
+  const priceTiers = product.priceTiers || [];
   const [variantId, setVariantId] = useState(variants[0]?.id || null);
-  useEffect(() => setVariantId(variants[0]?.id || null), [product.id]);
+  const [selectedTierId, setSelectedTierId] = useState(() => {
+    if (product.id && product.id.includes('_')) return product.id;
+    return priceTiers[0]?.id || null;
+  });
+  useEffect(() => {
+    setVariantId(variants[0]?.id || null);
+    setSelectedTierId(product.id && product.id.includes('_') ? product.id : (priceTiers[0]?.id || null));
+  }, [product.id, priceTiers.length]);
   const activeVariant = variantId ? variants.find(v => v.id === variantId) : null;
-  const displayPrice = activeVariant?.price || product.price;
+  const activeTier = selectedTierId ? priceTiers.find(t => t.id === selectedTierId) : (priceTiers[0] || null);
+  const displayPrice = activeVariant?.price || activeTier?.price || product.price;
   const displayOldPrice = activeVariant?.compareAtPrice || product.oldPrice;
-  const displayStock = activeVariant ? activeVariant.stock : product.stock;
+  const displayStock = activeVariant ? activeVariant.stock : (activeTier ? activeTier.stock : product.stock);
   const displayMedia = activeVariant?.media?.length ? activeVariant.media : (activeVariant?.image ? [{ url: activeVariant.image }] : product.media);
   const mediaProduct = { ...product, media: displayMedia, image: activeVariant?.image || product.image, selectedVariantId: variantId };
-  const cartProduct = { ...product, selectedVariantId: variantId };
+  const cartProduct = {
+    ...product,
+    id: activeTier?.id || product.id,
+    productId: product.productId || String(product.id).split('_')[0],
+    batchId: activeTier?.batch_id || product.batchId || null,
+    price: displayPrice,
+    stock: displayStock,
+    selectedVariantId: variantId
+  };
   const ytVideo = getYouTubeEmbedUrl(product.videoUrl || product.video_url || product.seoImage);
 
   return <section className="container product-page">
@@ -1475,6 +1511,38 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
                   {v.id === variantId && <Check size={13} />}
                 </button>
               ))}
+            </div>
+          </div>
+        )}
+        {priceTiers.length > 1 && (
+          <div className="product-price-tiers" style={{ marginTop: 12, marginBottom: 12 }}>
+            <span className="label" style={{ fontSize: 13, fontWeight: 600, display: 'block', marginBottom: 6 }}>
+              Mavjud partiyalar narxi:
+            </span>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              {priceTiers.map(tier => {
+                const isSelected = (activeTier?.id || priceTiers[0]?.id) === tier.id || displayPrice === tier.price;
+                return (
+                  <button
+                    key={tier.id || tier.price}
+                    type="button"
+                    onClick={() => setSelectedTierId(tier.id)}
+                    style={{
+                      padding: '8px 14px',
+                      borderRadius: 10,
+                      border: isSelected ? '2px solid var(--orange, #f97316)' : '1px solid #e2e8f0',
+                      background: isSelected ? '#fff7ed' : '#f8fafc',
+                      cursor: 'pointer',
+                      fontSize: 13,
+                      fontWeight: isSelected ? 700 : 500,
+                      color: isSelected ? '#c2410c' : '#334155',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {money(tier.price)} <span style={{ fontSize: 11, color: '#64748b' }}>({tier.stock} dona)</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1613,7 +1681,7 @@ function Checkout({ cartItems, go, session, account, clearCart, setToast, custom
     if (!cartItems.length) return setToast('Savatcha bo‘sh.');
     if (cartItems.some(item => item.qty < 1 || item.qty > item.stock)) return setToast('Savatchadagi miqdor ombor qoldig‘iga mos emas.');
     if (!methods.some(item => item.code === payment)) return setToast('Faol to‘lov usulini tanlang.');
-    const payload = { customer: { name: form.name.trim(), phone, email: form.email.trim() || undefined }, shippingAddress: { address: form.address.trim() }, lines: cartItems.map(item => ({ product_id: item.id, variant_id: item.variantId || null, quantity: item.qty })), paymentMethodCode: payment, notes: form.notes.trim() || null };
+    const payload = { customer: { name: form.name.trim(), phone, email: form.email.trim() || undefined }, shippingAddress: { address: form.address.trim() }, lines: cartItems.map(item => ({ product_id: item.productId || item.product_id || String(item.id).split('_')[0], variant_id: item.variantId || null, batch_id: item.batchId || null, quantity: item.qty })), paymentMethodCode: payment, notes: form.notes.trim() || null };
     const fingerprint = JSON.stringify(payload);
     if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: createKey(), token: createCheckoutToken() };
     setSubmitting(true);
