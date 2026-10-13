@@ -78,44 +78,52 @@ const getYouTubeEmbedUrl = url => {
   if (str.includes('youtube.com/embed/')) return str;
   return null;
 };
-const adaptProduct = raw => ({
-  ...raw,
-  id: String(raw.id),
-  name: String(raw.name || 'Nomsiz mahsulot'),
-  slug: String(raw.slug || raw.id),
-  description: String(raw.description || ''),
-  descriptionBlocks: safeArray(raw.description_blocks),
-  media: safeArray(raw.media),
-  hasDetail: Object.prototype.hasOwnProperty.call(raw, 'description_blocks') && Object.prototype.hasOwnProperty.call(raw, 'media'),
-  sku: String(raw.sku || ''),
-  image: raw.primary_media_url || '',
-  seoTitle: String(raw.seo_title || ''),
-  seoDescription: String(raw.seo_description || ''),
-  seoImage: String(raw.seo_image_url || raw.primary_media_url || ''),
-  videoUrl: String(raw.video_url || ''),
-  brandName: String(raw.brand_name || raw.brands?.name || raw.brand?.name || ''),
-  price: numberOf(raw.promotion_price || raw.retail_price),
-  oldPrice: numberOf(raw.compare_at_price || (raw.promotion_price ? raw.retail_price : 0)),
-  stock: Math.max(0, Math.trunc(numberOf(raw.available_stock))),
-  attributes: safeArray(raw.attributes).map(item => ({ code: String(item.code || item.name || ''), name: String(item.name || item.code || ''), value: plainValue(item.value) })),
-  categoryId: raw.category_id ? String(raw.category_id) : '',
-  brandId: raw.brand_id ? String(raw.brand_id) : '',
-  avgRating: numberOf(raw.avg_rating),
-  reviewCount: Math.max(0, Math.trunc(numberOf(raw.review_count))),
-  // Rang variantlari: har biri o'z narxi, zaxirasi va (ixtiyoriy) rasmiga ega bo'lishi mumkin.
-  variants: safeArray(raw.variants).map(v => ({
-    id: String(v.id),
-    colorName: String(v.color_name || ''),
-    colorHex: v.color_hex || null,
-    price: numberOf(v.price),
-    retailPrice: numberOf(v.retail_price || v.price),
-    compareAtPrice: numberOf(v.compare_at_price),
-    costPrice: numberOf(v.cost_price),
-    stock: Math.max(0, Math.trunc(numberOf(v.stock))),
-    image: v.image || v.media?.[0]?.url || null,
-    media: safeArray(v.media),
-  })),
-});
+const adaptProduct = raw => {
+  const primaryImg = raw.primary_media_url || raw.seo_image_url || raw.media?.[0]?.url || raw.image || '';
+  const mediaList = safeArray(raw.media).length > 0
+    ? safeArray(raw.media)
+    : primaryImg
+      ? [{ id: raw.id, url: primaryImg, alt: raw.name }]
+      : [];
+  return {
+    ...raw,
+    id: String(raw.id),
+    name: String(raw.name || 'Nomsiz mahsulot'),
+    slug: String(raw.slug || raw.id),
+    description: String(raw.description || ''),
+    descriptionBlocks: safeArray(raw.description_blocks),
+    media: mediaList,
+    hasDetail: Object.prototype.hasOwnProperty.call(raw, 'description_blocks') && Object.prototype.hasOwnProperty.call(raw, 'media'),
+    sku: String(raw.sku || ''),
+    image: primaryImg,
+    seoTitle: String(raw.seo_title || ''),
+    seoDescription: String(raw.seo_description || ''),
+    seoImage: String(raw.seo_image_url || primaryImg),
+    videoUrl: String(raw.video_url || ''),
+    brandName: String(raw.brand_name || raw.brands?.name || raw.brand?.name || ''),
+    price: numberOf(raw.promotion_price || raw.retail_price),
+    oldPrice: numberOf(raw.compare_at_price || (raw.promotion_price ? raw.retail_price : 0)),
+    stock: Math.max(0, Math.trunc(numberOf(raw.available_stock))),
+    attributes: safeArray(raw.attributes).map(item => ({ code: String(item.code || item.name || ''), name: String(item.name || item.code || ''), value: plainValue(item.value) })),
+    categoryId: raw.category_id ? String(raw.category_id) : '',
+    brandId: raw.brand_id ? String(raw.brand_id) : '',
+    avgRating: numberOf(raw.avg_rating),
+    reviewCount: Math.max(0, Math.trunc(numberOf(raw.review_count))),
+    // Rang variantlari: har biri o'z narxi, zaxirasi va (ixtiyoriy) rasmiga ega bo'lishi mumkin.
+    variants: safeArray(raw.variants).map(v => ({
+      id: String(v.id),
+      colorName: String(v.color_name || ''),
+      colorHex: v.color_hex || null,
+      price: numberOf(v.price),
+      retailPrice: numberOf(v.retail_price || v.price),
+      compareAtPrice: numberOf(v.compare_at_price),
+      costPrice: numberOf(v.cost_price),
+      stock: Math.max(0, Math.trunc(numberOf(v.stock))),
+      image: v.image || v.media?.[0]?.url || null,
+      media: safeArray(v.media),
+    })),
+  };
+};
 const parseRoute = () => {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
   if (path.startsWith('/qr/')) return { view: 'qr', code: decodeURIComponent(path.slice(4)) };
@@ -1025,10 +1033,11 @@ function HomeBlockPage({blockId,blocks,catalog,references,go,add,toggleFavorite,
   </section>;
 }
 function BannerMedia({banner,alt='',className='',eager=false}){const[mobileEnabled,setMobileEnabled]=useState(Boolean(banner?.mobile_image_url)),[failed,setFailed]=useState(false),desktop=plainValue(banner?.image_url),mobile=plainValue(banner?.mobile_image_url);useEffect(()=>{setMobileEnabled(Boolean(mobile));setFailed(false)},[desktop,mobile]);const fit=value=>['cover','contain','fill'].includes(value)?value:'cover',position=value=>Math.min(100,Math.max(0,numberOf(value??50))),style={'--banner-fit':fit(banner?.image_fit),'--banner-x':`${position(banner?.image_position_x)}%`,'--banner-y':`${position(banner?.image_position_y)}%`,'--banner-mobile-fit':fit(banner?.mobile_image_fit),'--banner-mobile-x':`${position(banner?.mobile_image_position_x)}%`,'--banner-mobile-y':`${position(banner?.mobile_image_position_y)}%`};if(!desktop||failed)return <span className={`media-placeholder responsive-banner-media ${className}`} role="img" aria-label={alt||'Banner rasmi mavjud emas'}><Grid2X2/><span>Rasm tayyorlanmoqda</span></span>;return <picture className={`responsive-banner-media ${className}`} style={style}>{mobileEnabled&&mobile&&<source media="(max-width: 640px)" srcSet={mobile}/>}<img src={desktop} alt={alt} loading={eager?'eager':'lazy'} fetchpriority={eager?'high':'auto'} decoding="async" onError={()=>mobileEnabled?setMobileEnabled(false):setFailed(true)}/></picture>}
-function ImageWithFallback({src,alt='',className=''}){const[failed,setFailed]=useState(false);useEffect(()=>setFailed(false),[src]);return src&&!failed?<img className={className} src={src} alt={alt} loading="lazy" decoding="async" onError={()=>setFailed(true)}/>:<div className={`media-placeholder ${className}`} role="img" aria-label={alt||'Mahsulot rasmi mavjud emas'}><Grid2X2/><span>Mahsulot rasmi mavjud emas</span></div>}
+function ImageWithFallback({src,alt='',className='',style={}}){const[failed,setFailed]=useState(false);useEffect(()=>setFailed(false),[src]);return src&&!failed?<img className={className} style={style} src={src} alt={alt} loading="lazy" decoding="async" onError={()=>setFailed(true)}/>:<div className={`media-placeholder ${className}`} style={style} role="img" aria-label={alt||'Mahsulot rasmi mavjud emas'}><Grid2X2/><span>Mahsulot rasmi mavjud emas</span></div>}
 function ProductMedia({ product, className = '' }) {
   const mediaImages = product.media?.map(m => m.public_url || m.url || m.image).filter(Boolean) || [];
-  const images = mediaImages.length > 0 ? mediaImages : product.image ? [product.image] : [];
+  const primaryFallback = product.image || product.seoImage || product.seo_image_url || '';
+  const images = mediaImages.length > 0 ? mediaImages : primaryFallback ? [primaryFallback] : [];
   const[active,setActive]=useState(0);
   const[zoom,setZoom]=useState(false);
   const current = images[active] || '';
@@ -1228,7 +1237,7 @@ function QrResolver({ code, go, add, setToast }) {
   };
 
   const activeVariant = state.product?.variants?.find(v => String(v.id) === String(selectedVariantId)) || state.product?.variants?.[0];
-  const displayImage = activeVariant?.image || state.product?.image || '/placeholder.png';
+  const displayImage = activeVariant?.image || state.product?.image || state.product?.seoImage || state.product?.primary_media_url || state.product?.seo_image_url || '';
   const displayPrice = activeVariant?.price || state.product?.price || 0;
 
   return (
@@ -1264,7 +1273,7 @@ function QrResolver({ code, go, add, setToast }) {
             {/* Image & Main Info */}
             <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 16 }}>
               <div style={{ width: 105, height: 105, borderRadius: 14, overflow: 'hidden', background: '#f1f5f9', flexShrink: 0, border: '1px solid var(--border)', display: 'grid', placeItems: 'center' }}>
-                <img src={displayImage} alt={state.product.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
+                <ImageWithFallback src={displayImage} alt={state.product.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {state.product.brandName && (

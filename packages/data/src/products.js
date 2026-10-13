@@ -117,18 +117,50 @@ export async function uploadProductMedia(productId, file, altText = '', variantI
       const { data: storageData, error: sErr } = await client.storage.from('logos').upload(path, compressed, { upsert: true });
       if (!sErr && storageData) {
         const { data: { publicUrl } } = client.storage.from('logos').getPublicUrl(path);
+        let attached = false;
         try {
-          await client.rpc('attach_product_media', {
-            p_actor_id: (await client.auth.getUser())?.data?.user?.id || null,
+          const user = (await client.auth.getUser())?.data?.user;
+          const { error: rpcErr } = await client.rpc('attach_product_media', {
+            p_actor_id: user?.id || null,
             p_product_id: productId,
-            p_storage_path: path,
+            p_r2_key: path,
             p_public_url: publicUrl,
-            p_file_size: compressed.size,
+            p_file_size: Math.max(1, compressed.size || 1024),
+            p_bytes: Math.max(1, compressed.size || 1024),
             p_mime_type: contentType,
             p_alt_text: altText || null,
             p_variant_id: variantId || null,
           });
-        } catch {}
+          if (!rpcErr) attached = true;
+          else console.warn('attach_product_media RPC error:', rpcErr);
+        } catch (rpcErr) {
+          console.warn('attach_product_media RPC call failed:', rpcErr);
+        }
+
+        if (!attached) {
+          try {
+            await client.from('product_media').insert({
+              product_id: productId,
+              variant_id: variantId || null,
+              r2_key: path,
+              public_url: publicUrl,
+              mime_type: contentType,
+              bytes: Math.max(1, compressed.size || 1024),
+              alt_text: altText || null,
+              is_primary: true,
+              sort_order: 0,
+            });
+          } catch (insertErr) {
+            console.warn('Direct product_media insert failed:', insertErr);
+          }
+        }
+
+        try {
+          await client.from('products').update({ seo_image_url: publicUrl }).eq('id', productId);
+        } catch (seoErr) {
+          console.warn('Failed to update product seo_image_url:', seoErr);
+        }
+
         return { url: publicUrl, publicUrl, key: path };
       }
     } catch (fallbackErr) {
