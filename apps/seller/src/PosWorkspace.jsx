@@ -1,5 +1,5 @@
 import React,{useEffect,useMemo,useState}from'react';
-import{AlertTriangle,ArrowLeftRight,BarChart3,Boxes,ChevronLeft,ChevronRight,Clock,CreditCard,ExternalLink,FileText,Home,Layers,Mail,MapPin,Package,Plus,Printer,QrCode,ReceiptText,Search,Send,ShoppingCart,Store,Trash2,User,Warehouse,X}from'lucide-react';
+import{AlertTriangle,ArrowLeftRight,BarChart3,Boxes,ChevronLeft,ChevronRight,Clock,CreditCard,ExternalLink,Eye,EyeOff,FileText,Home,Layers,Mail,MapPin,Package,Plus,Printer,QrCode,ReceiptText,Search,Send,ShoppingCart,Store,Trash2,User,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,QrScanButton,Status,formatDualMoney,useExchangeRate,printThermalReceipt,ThermalReceiptPreview}from'@texnobazar/ui';
 import{createPosPendingSale,getPosBatchUnits,getPosPendingSale,getPosProductAvailability,getPosReferences,getPosUnitContext,getReceiptDeliveryStatus,getSaleReceipt,listMyPosPendingSalesByDate,listMyPosSales,listPosUnits,queueSaleReceipt,relocatePosUnits}from'@texnobazar/data';
 import ProfileWorkspace from'./ProfileWorkspace';
@@ -139,7 +139,7 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
     <div className="pos-real-title"><div><h2>Skaner va qidiruv</h2><small>Sotish yoki joyini o‘zgartirish uchun mahsulotni skanerlang</small></div>{relocateCount>0&&<button type="button" className="btn btn-outline" onClick={goRelocate}><ArrowLeftRight size={15}/> {relocateCount} ta ko‘chirishga tayyor</button>}</div>
     <form className="pos-real-code" onSubmit={lookup}><QrCode/><input autoFocus value={code} onChange={e=>setCode(e.target.value)} placeholder="QR, seriya, shtrix-kod yoki SKU"/><QrScanButton onScan={value=>{setCode(extractQr(value));runLookup(value)}}/><button type="submit" disabled={busy}>{busy?'Izlanmoqda…':'Topish'}</button></form>
     {error&&<div className="pos-real-inline-error">{error}</div>}
-    {context&&<UnitContextCard branchId={branchId} context={context} quantity={quantity} setQuantity={setQuantity} onAddToSale={addFromContext} onAddToRelocate={relocateFromContext} onClose={()=>setContext(null)} rate={rate}/>}
+    {context&&<UnitContextCard key={context.id||context.qr_code} branchId={branchId} context={context} quantity={quantity} setQuantity={setQuantity} onAddToSale={addFromContext} onAddToRelocate={relocateFromContext} onClose={()=>setContext(null)} rate={rate}/>}
     <label className="pos-real-search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Mahsulot nomi yoki kodi bo‘yicha"/></label>
     <div className="pos-real-unit-list">{!query.trim()?<Empty title="Qidirishni boshlang" text="Mahsulot nomi, SKU yoki kodni yozing. Bo‘sh qidiruvda katalog yuklanmaydi."/>:units.length?units.map(unit=><Unit key={unit.id} unit={unit} add={()=>add(unit)} rate={rate}/>):<Empty title="Mahsulot topilmadi" text="Qidiruvni o‘zgartiring yoki QR kodni yuqoridagi aniq qidiruvga kiriting."/>}</div>
   </section>;
@@ -149,6 +149,8 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
 // store/warehouse stock, stock in other branches, and a link to the storefront page.
 function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAddToRelocate,onClose,rate}){
   const p=context.prices,stock=context.branch_stock;
+  const[showCost,setShowCost]=useState(false);
+  const costPrice=p?.unit_cost_uzs??context.unit_cost??context.cost_price;
   const productActive=context.product_status==='active';
   const inCurrentBranch=context.in_current_branch!==false;
   const free=context.is_sellable!==false&&context.status==='available';
@@ -184,6 +186,15 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
       <span><small>Sotish narxi</small><b><DualPrice value={Number(p.retail_price_uzs||0)} rate={rate}/></b></span>
       <span><small>Ulgurji narxi</small><b>{p.wholesale_price_uzs!=null?<DualPrice value={Number(p.wholesale_price_uzs||0)} rate={rate}/>:'—'}</b></span>
       <span><small>Minimal narx</small><b><DualPrice value={Number(p.minimum_sale_price_uzs||0)} rate={rate}/></b></span>
+      <span className="pos-unit-price-cost-cell" onClick={()=>setShowCost(v=>!v)} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>
+        <small style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          Tannarx
+          {showCost?<EyeOff size={12}/>:<Eye size={12}/>}
+        </small>
+        <button type="button" className="pos-masked-price" onClick={e=>{e.stopPropagation();setShowCost(v=>!v)}} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>
+          {showCost?<b>{costPrice!=null&&Number(costPrice)>0?<DualPrice value={Number(costPrice)} rate={rate}/>:'—'}</b>:<b style={{letterSpacing:'0.12em'}}>******</b>}
+        </button>
+      </span>
     </div>
     <div className="pos-unit-context-stock">
       <span><Store size={15}/> Do‘konda: <b>{stock.store}</b> dona</span>
@@ -235,7 +246,10 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
   </article>;
 }
 
-function Unit({unit,add,rate}){return <article className="pos-real-unit">{unit.image?<img src={unit.image} alt=""/>:<span className="pos-real-image"><QrCode/></span>}<div><b>{unit.product_name}</b><small>{unit.brand_name||'Brendsiz'} · {unit.sku}</small><small>QR: {unit.qr_code}{unit.serial_number?` · S/N: ${unit.serial_number}`:''}</small>{unit.location_type&&<Status type={unit.location_type==='store'?'green':'blue'}>{unit.location_type==='store'?'Do‘konda':'Omborda'}</Status>}<strong>{<DualPrice value={Number(unit.retail_price||0)} rate={rate}/>}</strong><em>Minimum: {<DualPrice value={Number(unit.minimum_sale_price||0)} rate={rate}/>} · Tannarx: {<DualPrice value={Number(unit.unit_cost||0)} rate={rate}/>}</em>{unit.latest_batch_retail&&Number(unit.latest_batch_retail)!==Number(unit.retail_price)&&<em style={{color:'#059669'}}>Yangi partiya narxi: {<DualPrice value={Number(unit.latest_batch_retail||0)} rate={rate}/>}</em>}<em>Filialda: {unit.available_branch_count} dona</em></div><button type="button" onClick={add} aria-label="Savdoga qo'shish"><Plus/></button></article>}
+function Unit({unit,add,rate}){
+  const[showCost,setShowCost]=useState(false);
+  return <article className="pos-real-unit">{unit.image?<img src={unit.image} alt=""/>:<span className="pos-real-image"><QrCode/></span>}<div><b>{unit.product_name}</b><small>{unit.brand_name||'Brendsiz'} · {unit.sku}</small><small>QR: {unit.qr_code}{unit.serial_number?` · S/N: ${unit.serial_number}`:''}</small>{unit.location_type&&<Status type={unit.location_type==='store'?'green':'blue'}>{unit.location_type==='store'?'Do‘konda':'Omborda'}</Status>}<strong>{<DualPrice value={Number(unit.retail_price||0)} rate={rate}/>}</strong><em>Minimum: {<DualPrice value={Number(unit.minimum_sale_price||0)} rate={rate}/>} · Tannarx: <button type="button" className="pos-masked-price-inline" onClick={e=>{e.stopPropagation();setShowCost(v=>!v)}} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>{showCost?<DualPrice value={Number(unit.unit_cost||0)} rate={rate}/>:<b>******</b>}</button></em>{unit.latest_batch_retail&&Number(unit.latest_batch_retail)!==Number(unit.retail_price)&&<em style={{color:'#059669'}}>Yangi partiya narxi: {<DualPrice value={Number(unit.latest_batch_retail||0)} rate={rate}/>}</em>}<em>Filialda: {unit.available_branch_count} dona</em></div><button type="button" onClick={add} aria-label="Savdoga qo'shish"><Plus/></button></article>;
+}
 
 // --- Sale flow: cart + optional customer info + minimum-price warning (soft, not blocking).
 function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate}){

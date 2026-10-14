@@ -110,14 +110,125 @@ function wrapTextLines(ctx, text, maxWidth, maxLines = 2) {
 }
 
 /**
+ * Tovar nomi va rangini qatorlarga bo'lish - rang nomi HECH QACHON tushib qolmasligini kafolatlaydi
+ */
+export function wrapTextWithColor(ctx, title = '', color = '', maxWidth, maxLines = 2) {
+  const cleanTitle = String(title || 'Mahsulot').trim();
+  const cleanColor = String(color || '').trim();
+
+  // Agar title ichida allaqachon rang yozilgan bo'lsa, qayta qo'shmaymiz
+  const hasColorInTitle = cleanColor && (
+    cleanTitle.toLowerCase().includes(`(${cleanColor.toLowerCase()})`) ||
+    cleanTitle.toLowerCase().endsWith(cleanColor.toLowerCase())
+  );
+  const colorSuffix = (cleanColor && !hasColorInTitle) ? ` (${cleanColor})` : '';
+  const fullText = `${cleanTitle}${colorSuffix}`.trim();
+
+  // Agar to'liq matn 1 qatorga sig'sa:
+  if (ctx.measureText(fullText).width <= maxWidth) {
+    return [fullText];
+  }
+
+  // Standart qatorlarga bo'lish
+  const lines = wrapTextLines(ctx, fullText, maxWidth, maxLines);
+
+  // Agar rang ko'rsatilgan bo'lsa va u hosil bo'lgan qatorlarda tushib qolgan bo'lsa (kesilib ketgan):
+  if (colorSuffix && !lines.some(l => l.includes(colorSuffix.trim()))) {
+    const targetIdx = Math.max(0, Math.min(lines.length, maxLines) - 1);
+    let base = lines[targetIdx] || cleanTitle;
+    const suffix = colorSuffix.trim();
+
+    // Qatordan joy ochish uchun so'zlarni oxiridan qisqartirib rangni joylashtiramiz
+    while (ctx.measureText(base + ' ' + suffix).width > maxWidth && base.length > 3) {
+      const words = base.split(/\s+/);
+      if (words.length > 1) {
+        words.pop();
+        base = words.join(' ');
+      } else {
+        base = base.slice(0, -2);
+      }
+    }
+    lines[targetIdx] = base ? `${base} ${suffix}` : suffix;
+  }
+
+  return lines.slice(0, maxLines);
+}
+
+
+/**
+ * Format secret obfuscated cost code for thermal labels (haridor bilmasligi, faqat sotuvchi bilishi uchun):
+ * 1) USD bo'lsa: T{narx}M (masalan: 90$ -> T90M, 94$ -> T94M)
+ * 2) UZS bo'lsa: M{narx/1000}T (0 lari qisqartirilgan ming so'm, masalan: 478 000 so'm -> M478T)
+ */
+export function formatSecretCostCode(costOrObj, currencyParam, costUsdParam) {
+  let cost = costOrObj;
+  let currency = currencyParam;
+  let costUsd = costUsdParam;
+
+  if (costOrObj && typeof costOrObj === 'object') {
+    cost = costOrObj.cost ?? costOrObj.unit_cost ?? costOrObj.unitCost;
+    currency = costOrObj.currency || costOrObj.receiptCurrency;
+    costUsd = costOrObj.costUsd ?? costOrObj.cost_usd ?? costOrObj.unit_cost_usd;
+  }
+
+  // Agar allaqachon T...M yoki M...T formatida kodlangan bo'lsa
+  const rawStr = String(costUsd ?? cost ?? '').trim();
+  if (/^[Tt]\d+(\.\d+)?[Mm]$/.test(rawStr) || /^[Mm]\d+(\.\d+)?[Tt]$/.test(rawStr)) {
+    return rawStr.toUpperCase();
+  }
+
+  const rawCostStr = String(cost ?? '').trim();
+  if (/^[Tt]\d+(\.\d+)?[Mm]$/.test(rawCostStr) || /^[Mm]\d+(\.\d+)?[Tt]$/.test(rawCostStr)) {
+    return rawCostStr.toUpperCase();
+  }
+
+  const cleanCurr = String(currency || '').trim().toUpperCase();
+
+  // UZS tekshiruvi:
+  // Agar valyuta UZS bo'lsa, yoki cost qiymati >= 1000 bo'lsa (va valyuta aniq USD qilib ko'rsatilmagan bo'lsa)
+  const isExplicitUzs = cleanCurr === 'UZS';
+  const numericCost = Number(String(cost || '').replace(/\s+/g, ''));
+  const isHeuristicUzs = cleanCurr !== 'USD' && !isNaN(numericCost) && numericCost >= 1000;
+
+  if (isExplicitUzs || isHeuristicUzs) {
+    const uzsVal = !isNaN(numericCost) && numericCost > 0 ? numericCost : 0;
+    if (uzsVal <= 0) return '';
+
+    // 0 larni qirqib, ming so'mda yozish (masalan: 478 000 -> 478, 1 200 000 -> 1200)
+    let compactVal;
+    if (uzsVal >= 1000) {
+      const thousands = uzsVal / 1000;
+      compactVal = thousands % 1 === 0 ? String(thousands) : String(Number(thousands.toFixed(1)));
+    } else {
+      compactVal = uzsVal % 1 === 0 ? String(uzsVal) : String(Number(uzsVal.toFixed(1)));
+    }
+    return `M${compactVal}T`;
+  }
+
+  // USD tekshiruvi:
+  const numericUsd = Number(costUsd != null && costUsd !== '' ? costUsd : (cost || ''));
+  if (!isNaN(numericUsd) && numericUsd > 0) {
+    let usdFormatted;
+    if (numericUsd % 1 === 0) {
+      usdFormatted = String(numericUsd);
+    } else {
+      usdFormatted = numericUsd.toFixed(2);
+      if (usdFormatted.endsWith('.00')) usdFormatted = usdFormatted.slice(0, -3);
+      else if (usdFormatted.endsWith('0')) usdFormatted = usdFormatted.slice(0, -1);
+    }
+    return `T${usdFormatted}M`;
+  }
+
+  return '';
+}
+
+/**
  * Format USD cost into clean number string with NO dollar symbol ($)
  */
-export function formatDollarFreeCost(value) {
-  if (value == null || value === '') return '';
-  const num = Number(value);
-  if (isNaN(num) || num <= 0) return '';
-  return num % 1 === 0 ? String(num) : num.toFixed(2);
+export function formatDollarFreeCost(value, currency = 'USD') {
+  return formatSecretCostCode(value, currency);
 }
+
 
 /**
  * Render a high-contrast label onto an HTMLCanvasElement
@@ -129,6 +240,8 @@ export async function renderDetongerLabelCanvas({
   date = '',
   code = '',
   costUsd = '',
+  cost = '',
+  currency = 'USD',
   qrPayload = '',
   storefrontUrl = '',
   labelSize = '40x20',
@@ -150,8 +263,8 @@ export async function renderDetongerLabelCanvas({
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvasWidth, canvasHeight);
 
-  // Clean dollar-free cost number string (hech qanday $ yoki USD belgisi bo'lmaydi)
-  const costStr = formatDollarFreeCost(costUsd);
+  // Chalg'ituvchi maxfiy narx kodi: masalan, USD da T90M, UZS da M478T (faqat sotuvchi tushunadi)
+  const costStr = formatSecretCostCode({ cost, costUsd, currency });
   const costParam = costStr ? `?c=${encodeURIComponent(costStr)}` : '';
 
   // Generate QR code target URL / payload
@@ -195,29 +308,85 @@ export async function renderDetongerLabelCanvas({
     const rightX = 160;
     const rightW = canvasWidth - rightX - 8;
 
-    // 1. Tovar nomi (1 qator ixcham)
-    const fullTitle = `${title}${color ? ` (${color})` : ''}`.trim();
+    // 1. Tovar nomi va Rangi (shrift kattaroq, pastga surilgan badge evaziga keng bo'sh joy)
+    const cleanTitle = String(title || 'Mahsulot').trim();
+    const cleanColor = String(color || '').trim();
+    const hasColorInTitle = cleanColor && (
+      cleanTitle.toLowerCase().includes(`(${cleanColor.toLowerCase()})`) ||
+      cleanTitle.toLowerCase().endsWith(cleanColor.toLowerCase())
+    );
+    const colorSuffix = (cleanColor && !hasColorInTitle) ? ` (${cleanColor})` : '';
+    const fullTitle = `${cleanTitle}${colorSuffix}`.trim();
+
     ctx.fillStyle = '#000000';
-    ctx.font = '800 11px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
-    const lines = wrapTextLines(ctx, fullTitle, rightW, 1);
-    if (lines.length > 0) {
-      ctx.fillText(lines[0], rightX, 10);
+
+    const badgeY = costStr ? 60 : 72;
+    const badgeH = 34;
+
+    let titleFontSize = 13;
+    ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+
+    let lines = [];
+    if (ctx.measureText(fullTitle).width <= rightW) {
+      lines = [fullTitle];
+    } else {
+      // 2 qatorga sig'dirishga harakat qilamiz (shrift 12.5px dan 10.5px gacha)
+      titleFontSize = 12;
+      let fitsIn2 = false;
+      while (titleFontSize >= 10.5) {
+        ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        const testLines = wrapTextWithColor(ctx, cleanTitle, cleanColor, rightW, 2);
+        const allFit = testLines.every(l => ctx.measureText(l).width <= rightW);
+        const hasColorIncluded = !cleanColor || testLines.some(l => l.toLowerCase().includes(cleanColor.toLowerCase()));
+        if (allFit && hasColorIncluded && testLines.length <= 2) {
+          lines = testLines;
+          fitsIn2 = true;
+          break;
+        }
+        titleFontSize -= 0.5;
+      }
+
+      // Agar 10.5px da ham 2 qatorga sig'masa, 3 qatorga chiqaramiz (rang va uzun nom to'liq sig'ishi uchun)
+      if (!fitsIn2) {
+        titleFontSize = 10.5;
+        ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+        lines = wrapTextWithColor(ctx, cleanTitle, cleanColor, rightW, 3);
+        while (lines.some(l => ctx.measureText(l).width > rightW) && titleFontSize > 8.5) {
+          titleFontSize -= 0.5;
+          ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+          lines = wrapTextWithColor(ctx, cleanTitle, cleanColor, rightW, 3);
+        }
+      }
     }
 
-    // 2. Tovar kodi (QR o'qilmasa terib izlanadigan kod) - kattaroq shriftli ramka
-    let codeFontSize = 24;
-    if (displayCode.length <= 6) {
-      codeFontSize = 24;
-    } else if (displayCode.length <= 8) {
-      codeFontSize = 21;
-    } else if (displayCode.length <= 10) {
-      codeFontSize = 19;
-    } else if (displayCode.length <= 13) {
-      codeFontSize = 16;
+    const lineH = Math.round(titleFontSize * 1.34);
+    let startY = 8;
+    if (lines.length === 1) {
+      startY = Math.max(14, Math.round((badgeY - lineH) / 2));
+    } else if (lines.length === 2) {
+      startY = Math.max(8, Math.round((badgeY - lineH * 2) / 2));
     } else {
-      codeFontSize = 13;
+      startY = 6;
+    }
+
+    lines.forEach((lineText, idx) => {
+      ctx.fillText(lineText, rightX, startY + idx * lineH);
+    });
+
+    // 2. Tovar kodi badge (pastroqqa surilgan)
+    let codeFontSize = 21;
+    if (displayCode.length <= 6) {
+      codeFontSize = 21;
+    } else if (displayCode.length <= 8) {
+      codeFontSize = 19;
+    } else if (displayCode.length <= 10) {
+      codeFontSize = 16;
+    } else if (displayCode.length <= 13) {
+      codeFontSize = 14;
+    } else {
+      codeFontSize = 12;
     }
 
     ctx.font = `900 ${codeFontSize}px "Courier New", monospace`;
@@ -227,9 +396,7 @@ export async function renderDetongerLabelCanvas({
     }
 
     const badgeX = rightX;
-    const badgeY = 26;
     const badgeW = rightW;
-    const badgeH = 36;
 
     ctx.strokeStyle = '#000000';
     ctx.lineWidth = 2.0;
@@ -247,26 +414,26 @@ export async function renderDetongerLabelCanvas({
     ctx.font = `900 ${codeFontSize}px "Courier New", monospace`;
     ctx.fillText(displayCode, badgeX + badgeW / 2, badgeY + badgeH / 2);
 
-    // 3. Tannarx (dollar belgisisiz, bo'sh joyga mos kattaroq va ko'rinarli raqam)
+    // 3. Tannarx (chalg'ituvchi maxfiy kod: T90M yoki M478T - pastroqqa surilgan)
     if (costStr) {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillStyle = '#000000';
-      let costFontSize = 24;
+      let costFontSize = 22;
       ctx.font = `900 ${costFontSize}px "Courier New", monospace`;
       while (ctx.measureText(costStr).width > rightW && costFontSize > 15) {
         costFontSize -= 1;
         ctx.font = `900 ${costFontSize}px "Courier New", monospace`;
       }
-      ctx.fillText(costStr, rightX, 98);
+      ctx.fillText(costStr, rightX, 118);
     }
 
     // 4. Sana (pastki qismda)
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     ctx.fillStyle = '#000000';
-    ctx.font = '700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-    ctx.fillText(displayDate, rightX, 146);
+    ctx.font = '700 12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+    ctx.fillText(displayDate, rightX, 148);
 
     return canvas;
   }
@@ -283,14 +450,28 @@ export async function renderDetongerLabelCanvas({
   ctx.drawImage(qrImg, qrX, qrY, qrSize, qrSize);
 
   // Tovar nomi + Rangi
-  const fullTitle = `${title}${color ? ` (${color})` : ''}`.trim();
+  const cleanTitle = String(title || 'Mahsulot').trim();
+  const cleanColor = String(color || '').trim();
+  const hasColorInTitle = cleanColor && (
+    cleanTitle.toLowerCase().includes(`(${cleanColor.toLowerCase()})`) ||
+    cleanTitle.toLowerCase().endsWith(cleanColor.toLowerCase())
+  );
+  const colorSuffix = (cleanColor && !hasColorInTitle) ? ` (${cleanColor})` : '';
+  const fullTitle = `${cleanTitle}${colorSuffix}`.trim();
+
   ctx.fillStyle = '#000000';
-  ctx.font = '800 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
 
   const titleMaxWidth = canvasWidth - 16;
-  const lines = wrapTextLines(ctx, fullTitle, titleMaxWidth, 2);
+  let titleFontSize = 13;
+  ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  while (ctx.measureText(fullTitle).width > titleMaxWidth && titleFontSize > 9.5) {
+    titleFontSize -= 0.5;
+    ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  }
+
+  const lines = wrapTextWithColor(ctx, cleanTitle, cleanColor, titleMaxWidth, 2);
 
   if (lines.length === 1) {
     ctx.fillText(lines[0], canvasWidth / 2, 165);
@@ -515,6 +696,8 @@ export class DetongerBluetoothClient {
 
       const labelSize = options.labelSize || item.labelSize || '40x20';
       const costUsd = item.cost_usd || item.unit_cost_usd || item.costUsd || item.cost_price_usd || '';
+      const cost = item.cost || item.unit_cost || item.cost_price || '';
+      const currency = item.currency || '';
 
       // Render label on canvas
       const canvas = await renderDetongerLabelCanvas({
@@ -523,6 +706,8 @@ export class DetongerBluetoothClient {
         date: item.date || item.received_at || '',
         code: item.code || item.qr_code || '',
         costUsd,
+        cost,
+        currency,
         qrPayload: item.qrPayload || '',
         storefrontUrl: options.storefrontUrl || '',
         labelSize,

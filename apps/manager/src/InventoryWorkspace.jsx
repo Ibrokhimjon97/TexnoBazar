@@ -1,30 +1,322 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{createPortal}from'react-dom';
-import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,CheckCircle2,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
+import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal,formatSecretCostCode}from'@texnobazar/ui';
 import QRCode from'qrcode';
 import RichTextEditor from'./RichTextEditor';
 import{CreateProductInline}from'./InventoryRegisterModal';
+import InventoryExcelImportModal from'./InventoryExcelImportModal';
 import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia,exportBatchesBackup,exportReceiptBackup,inspectBatchesBackupFile,restoreBatchesBackupFile}from'@texnobazar/data';
 const err=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 // Visual marker only: INV-* kirimlar inventarizatsiya orqali ro‘yxatga olingan,
 // qolganlari esa oddiy yetkazib berish partiyasi.
 const isInventoryReceipt=receiptNo=>/^INV-/i.test(String(receiptNo||'').trim());
-export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInventory,toast}){
+export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInventory,toast,autoOpenReceiptId,onAutoOpenReceiptHandled,refreshTrigger}){
+  const getTodayDate=()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth(),d.getDate());};
+  const isSameDay=(d1,d2)=>{if(!d1||!d2)return false;return d1.getFullYear()===d2.getFullYear()&&d1.getMonth()===d2.getMonth()&&d1.getDate()===d2.getDate();};
   const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[aggregates,setAggregates]=useState({totalUnits:0,totalCost:0,totalMinPrice:0,batchCount:0,invCount:0}),[query,setQuery]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[locationFilter,setLocationFilter]=useState('all'),[locations,setLocations]=useState([]),[sortBy,setSortBy]=useState('newest'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
   const[passwordModal,setPasswordModal]=useState(null);
-  const[selectedDate,setSelectedDate]=useState(null);
+  const[selectedDate,setSelectedDate]=useState(()=>getTodayDate());
+  const[visibleCount,setVisibleCount]=useState(30);
   const[calMonth,setCalMonth]=useState(()=>{const n=new Date();return new Date(n.getFullYear(),n.getMonth(),1)});
   const[rate,setRate]=useState(null);
   const[serverBatchDates,setServerBatchDates]=useState([]);
   const[exportingAll,setExportingAll]=useState(false);
+  const[exportingExcel,setExportingExcel]=useState(false);
   const[exportingId,setExportingId]=useState(null);
   const[restoreModalOpen,setRestoreModalOpen]=useState(false);
+  const[excelImportOpen,setExcelImportOpen]=useState(false);
 
   useEffect(()=>{
     if(!branchId)return;
     getInventoryReferences(branchId).then(r=>setLocations(r.locations||[])).catch(()=>{});
   },[branchId]);
+
+  const downloadExcelWorkbook=async(wb,fileName)=>{
+    const buffer=await wb.xlsx.writeBuffer();
+    const blob=new Blob([buffer],{
+      type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    });
+    const url=window.URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.style.display='none';
+    a.href=url;
+    a.download=fileName.endsWith('.xlsx')?fileName:`${fileName}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=>{
+      window.URL.revokeObjectURL(url);
+    },20000);
+  };
+
+  const handleExportExcel=async(specificReceipt=null)=>{
+    const listToExport=specificReceipt?[specificReceipt]:displayRows;
+    if(!listToExport.length){
+      toast?.('Eksport qilish uchun ma’lumot mavjud emas');
+      return;
+    }
+    setExportingExcel(true);
+    try{
+      const ExcelJS=(await import('exceljs')).default||(await import('exceljs'));
+      const wb=new ExcelJS.Workbook();
+      wb.creator='Texnobazar';
+      wb.created=new Date();
+
+      const ws=wb.addWorksheet('Partiyalar tovarlari',{
+        views:[{state:'frozen',ySplit:1}]
+      });
+
+      // 19 ta ustun: Tovarlar izohi hamda UZS va USD alohida ustunlarda
+      ws.columns=[
+        {header:'№',key:'idx',width:8},
+        {header:'Mahsulot nomi',key:'product_name',width:38},
+        {header:'Mahsulot kategoriyasi',key:'category_name',width:28},
+        {header:'Mahsulot brendi',key:'brand_name',width:18},
+        {header:'Tovarlar izohi',key:'description',width:28},
+        {header:'Tan narxi (UZS)',key:'unit_cost_uzs',width:20},
+        {header:'Tan narxi (USD)',key:'unit_cost_usd',width:18},
+        {header:'Sotish narxi (UZS)',key:'retail_price_uzs',width:20},
+        {header:'Sotish narxi (USD)',key:'retail_price_usd',width:18},
+        {header:'Ulgurji narxi (UZS)',key:'wholesale_price_uzs',width:20},
+        {header:'Ulgurji narxi (USD)',key:'wholesale_price_usd',width:18},
+        {header:'Minimal sotish narxi (UZS)',key:'minimum_sale_price_uzs',width:24},
+        {header:'Minimal sotish narxi (USD)',key:'minimum_sale_price_usd',width:22},
+        {header:'Valyuta',key:'currency',width:12},
+        {header:'Miqdori (soni)',key:'quantity',width:16},
+        {header:'Partiya umumiy kodi',key:'qr_code',width:22},
+        {header:'Partiya raqami',key:'receipt_no',width:24},
+        {header:'Qabul qilingan sana',key:'received_at',width:18},
+        {header:'Joylashuv',key:'location_name',width:24},
+      ];
+
+      // Header row styling
+      const headerRow=ws.getRow(1);
+      headerRow.height=32;
+      headerRow.eachCell(cell=>{
+        cell.fill={
+          type:'pattern',
+          pattern:'solid',
+          fgColor:{argb:'FF0F172A'}
+        };
+        cell.font={
+          name:'Calibri',
+          size:11,
+          bold:true,
+          color:{argb:'FFFFFFFF'}
+        };
+        cell.alignment={vertical:'middle',horizontal:'center',wrapText:true};
+        cell.border={
+          top:{style:'thin',color:{argb:'FF334155'}},
+          bottom:{style:'medium',color:{argb:'FF334155'}},
+          left:{style:'thin',color:{argb:'FF334155'}},
+          right:{style:'thin',color:{argb:'FF334155'}}
+        };
+      });
+
+      let rowIdx=1;
+      let totalUnitsSum=0;
+
+      listToExport.forEach(receipt=>{
+        const receiptNo=receipt.receipt_no||'—';
+        const locationName=`${receipt.location_name||'—'}${receipt.location_type==='warehouse'?' (Ombor)':' (Do‘kon)'}`;
+        const receivedDate=receipt.received_at?new Date(receipt.received_at).toLocaleDateString('uz-UZ'):'—';
+        const receiptCurrency=String(receipt.currency||'').trim().toUpperCase()||'USD';
+        const exchangeRate=Number(receipt.exchange_rate)||rate||12800;
+        const items=Array.isArray(receipt.items)?receipt.items:[];
+
+        if(items.length>0){
+          items.forEach(it=>{
+            const qty=Number(it.quantity)||1;
+
+            // Tannarx
+            let costUzs=Number(it.unit_cost)||0;
+            let costUsd=Number(it.unit_cost_usd)||0;
+            if(costUsd>0&&costUzs<=0&&exchangeRate>0){
+              costUzs=Math.round(costUsd*exchangeRate);
+            }else if(costUzs>0&&costUsd<=0&&exchangeRate>0){
+              costUsd=Number((costUzs/exchangeRate).toFixed(2));
+            }
+
+            // Sotish narxi
+            let retailUzs=Number(it.retail_price)||0;
+            let retailUsd=Number(it.retail_price_usd)||0;
+            if(retailUsd>0&&retailUzs<=0&&exchangeRate>0){
+              retailUzs=Math.round(retailUsd*exchangeRate);
+            }else if(retailUzs>0&&retailUsd<=0&&exchangeRate>0){
+              retailUsd=Number((retailUzs/exchangeRate).toFixed(2));
+            }
+
+            // Ulgurji narxi
+            let wholesaleUzs=Number(it.wholesale_price)||0;
+            let wholesaleUsd=Number(it.wholesale_price_usd)||0;
+            if(wholesaleUsd>0&&wholesaleUzs<=0&&exchangeRate>0){
+              wholesaleUzs=Math.round(wholesaleUsd*exchangeRate);
+            }else if(wholesaleUzs>0&&wholesaleUsd<=0&&exchangeRate>0){
+              wholesaleUsd=Number((wholesaleUzs/exchangeRate).toFixed(2));
+            }
+
+            // Minimal sotish narxi
+            let minPriceUzs=Number(it.minimum_sale_price)||0;
+            let minPriceUsd=Number(it.minimum_sale_price_usd)||0;
+            if(minPriceUsd>0&&minPriceUzs<=0&&exchangeRate>0){
+              minPriceUzs=Math.round(minPriceUsd*exchangeRate);
+            }else if(minPriceUzs>0&&minPriceUsd<=0&&exchangeRate>0){
+              minPriceUsd=Number((minPriceUzs/exchangeRate).toFixed(2));
+            }
+
+            totalUnitsSum+=qty;
+
+            const fullName=it.variant_color
+              ?`${it.product_name||'Nomsiz tovar'} (${it.variant_color})`
+              :(it.product_name||'Nomsiz tovar');
+
+            const itemCurrency=receiptCurrency;
+
+            const addedRow=ws.addRow({
+              idx:rowIdx,
+              product_name:fullName,
+              category_name:it.category_name||'—',
+              brand_name:it.brand_name||'—',
+              description:it.description||'',
+              unit_cost_uzs:costUzs,
+              unit_cost_usd:costUsd,
+              retail_price_uzs:retailUzs,
+              retail_price_usd:retailUsd,
+              wholesale_price_uzs:wholesaleUzs,
+              wholesale_price_usd:wholesaleUsd,
+              minimum_sale_price_uzs:minPriceUzs,
+              minimum_sale_price_usd:minPriceUsd,
+              currency:itemCurrency,
+              quantity:qty,
+              qr_code:it.qr_code||'—',
+              receipt_no:receiptNo,
+              received_at:receivedDate,
+              location_name:locationName
+            });
+
+            addedRow.height=22;
+            const isEven=rowIdx%2===0;
+
+            addedRow.eachCell((cell,colNumber)=>{
+              cell.font={name:'Calibri',size:10};
+              cell.border={
+                top:{style:'thin',color:{argb:'FFE2E8F0'}},
+                bottom:{style:'thin',color:{argb:'FFE2E8F0'}},
+                left:{style:'thin',color:{argb:'FFE2E8F0'}},
+                right:{style:'thin',color:{argb:'FFE2E8F0'}}
+              };
+              if(isEven){
+                cell.fill={
+                  type:'pattern',
+                  pattern:'solid',
+                  fgColor:{argb:'FFF8FAFC'}
+                };
+              }
+
+              if(colNumber===1){
+                cell.alignment={horizontal:'center',vertical:'middle'};
+              }else if(colNumber===5){
+                // Tovarlar izohi
+                cell.alignment={horizontal:'left',vertical:'middle'};
+                cell.font={name:'Calibri',size:10,italic:true};
+              }else if(colNumber===6||colNumber===8||colNumber===10||colNumber===12){
+                // UZS ustunlar
+                cell.numFmt='#,##0';
+                cell.alignment={horizontal:'right',vertical:'middle'};
+              }else if(colNumber===7||colNumber===9||colNumber===11||colNumber===13){
+                // USD ustunlar
+                cell.numFmt='$#,##0.00';
+                cell.alignment={horizontal:'right',vertical:'middle'};
+                cell.font={name:'Calibri',size:10,color:{argb:'FF0369A1'}};
+              }else if(colNumber===14){
+                // Valyuta
+                cell.alignment={horizontal:'center',vertical:'middle'};
+                cell.font={name:'Calibri',size:10,bold:true,color:{argb:itemCurrency==='USD'?'FF0284C7':'FF16A34A'}};
+              }else if(colNumber===15){
+                // Miqdori
+                cell.numFmt='#,##0';
+                cell.alignment={horizontal:'right',vertical:'middle'};
+                cell.font={name:'Calibri',size:10,bold:true};
+              }else if(colNumber===16){
+                // QR kod
+                cell.alignment={horizontal:'center',vertical:'middle'};
+                cell.font={name:'Consolas',size:10,bold:true,color:{argb:'FF0369A1'}};
+              }else if(colNumber===18){
+                cell.alignment={horizontal:'center',vertical:'middle'};
+              }else{
+                cell.alignment={horizontal:'left',vertical:'middle'};
+              }
+            });
+
+            rowIdx++;
+          });
+        }
+      });
+
+      // Total summary row at bottom
+      const summaryRow=ws.addRow({
+        idx:'',
+        product_name:'JAMI',
+        category_name:'',
+        brand_name:'',
+        description:'',
+        unit_cost_uzs:'',
+        unit_cost_usd:'',
+        retail_price_uzs:'',
+        retail_price_usd:'',
+        wholesale_price_uzs:'',
+        wholesale_price_usd:'',
+        minimum_sale_price_uzs:'',
+        minimum_sale_price_usd:'',
+        currency:'',
+        quantity:totalUnitsSum,
+        qr_code:'',
+        receipt_no:'',
+        received_at:'',
+        location_name:''
+      });
+      summaryRow.height=26;
+      summaryRow.eachCell((cell,colNumber)=>{
+        cell.font={name:'Calibri',size:11,bold:true,color:{argb:'FF0F172A'}};
+        cell.fill={
+          type:'pattern',
+          pattern:'solid',
+          fgColor:{argb:'FFFEF3C7'}
+        };
+        cell.border={
+          top:{style:'medium',color:{argb:'FFCBD5E1'}},
+          bottom:{style:'medium',color:{argb:'FFCBD5E1'}},
+          left:{style:'thin',color:{argb:'FFCBD5E1'}},
+          right:{style:'thin',color:{argb:'FFCBD5E1'}}
+        };
+        if(colNumber===15){
+          cell.numFmt='#,##0';
+          cell.alignment={horizontal:'right',vertical:'middle'};
+        }else if(colNumber===2){
+          cell.alignment={horizontal:'left',vertical:'middle'};
+        }
+      });
+
+      let fileName;
+      if(specificReceipt){
+        fileName=`partiya_${specificReceipt.receipt_no||'tovarlar'}.xlsx`;
+      }else{
+        const dateTag=selectedDate
+          ?`${selectedDate.getFullYear()}-${String(selectedDate.getMonth()+1).padStart(2,'0')}-${String(selectedDate.getDate()).padStart(2,'0')}`
+          :'barcha_davrlar';
+        fileName=`partiyalar_tovarlar_${dateTag}.xlsx`;
+      }
+
+      await downloadExcelWorkbook(wb,fileName);
+      toast?.(`${rowIdx-1} ta tovar yozuvi "${fileName}" Excel fayliga yuklandi`);
+    }catch(e){
+      console.error(e);
+      alert('Excel faylni yaratishda xatolik: '+err(e));
+    }finally{
+      setExportingExcel(false);
+    }
+  };
 
   const handleExportAll=async()=>{
     setExportingAll(true);
@@ -87,7 +379,84 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     }
   };
   useEffect(()=>{const t=setTimeout(()=>load(selectedDate),query?250:0);return()=>clearTimeout(t)},[branchId,query,locationFilter,selectedDate]);
+  useEffect(()=>{setVisibleCount(30);},[selectedDate,query,typeFilter,locationFilter,sortBy]);
   const open=async(id,isEdit=false)=>{try{setDetail(await getStockReceipt(id));setDetailEdit(Boolean(isEdit));}catch(e){setError(err(e))}};
+
+  const handleNewlyCreatedReceipt=async(receiptId)=>{
+    if(!receiptId)return;
+    try{
+      setSelectedDate(getTodayDate());
+      setTypeFilter('all');
+      setLocationFilter('all');
+      setQuery('');
+      setSortBy('newest');
+
+      const fullReceipt=await getStockReceipt(receiptId);
+      if(fullReceipt){
+        setDetail(fullReceipt);
+        setDetailEdit(false);
+
+        setRows(prev=>{
+          if(prev.some(r=>r.id===receiptId))return prev;
+          const isInv=isInventoryReceipt(fullReceipt.receipt_no);
+          const lines=fullReceipt.lines||[];
+          const summaryRow={
+            id:fullReceipt.id,
+            receipt_no:fullReceipt.receipt_no,
+            branch_id:fullReceipt.branch_id,
+            supplier_id:fullReceipt.supplier_id,
+            supplier_name:fullReceipt.supplier?.name||(isInv?'Inventarizatsiya':'Noma’lum ta’minotchi'),
+            receiving_location_id:fullReceipt.receiving_location_id,
+            location_name:fullReceipt.receiving_location?.name||'Do‘kon',
+            location_type:fullReceipt.receiving_location?.type||'store',
+            invoice_number:fullReceipt.invoice_number||'',
+            currency:fullReceipt.currency||'USD',
+            payment_status:fullReceipt.payment_status||'paid',
+            received_at:fullReceipt.received_at||new Date().toISOString(),
+            created_at:fullReceipt.created_at||new Date().toISOString(),
+            line_count:lines.length,
+            unit_count:lines.reduce((s,l)=>s+Number(l.quantity||0),0),
+            total_cost:fullReceipt.total_cost||lines.reduce((s,l)=>s+(Number(l.quantity||0)*Number(l.unit_cost||0)),0),
+            total_retail:lines.reduce((s,l)=>s+(Number(l.quantity||0)*Number(l.retail_price||0)),0),
+            total_min_price:lines.reduce((s,l)=>s+(Number(l.quantity||0)*Number(l.minimum_sale_price||l.retail_price||0)),0),
+            items:lines.slice(0,5).map(l=>({
+              batch_id:l.id,
+              product_id:l.product_id,
+              product_name:l.product_name,
+              sku:l.sku,
+              variant_id:l.variant_id,
+              variant_color:l.variant_color,
+              quantity:l.quantity,
+              unit_cost:l.unit_cost,
+              unit_cost_usd:l.unit_cost_usd,
+              retail_price:l.retail_price,
+              wholesale_price:l.wholesale_price,
+              minimum_sale_price:l.minimum_sale_price,
+              qr_code:l.qr_code
+            }))
+          };
+          return [summaryRow,...prev];
+        });
+      }
+
+      await load(getTodayDate());
+    }catch(errLoad){
+      console.error('Yangi partiyani ochishda xatolik:',errLoad);
+      await load(getTodayDate());
+    }
+  };
+
+  useEffect(()=>{
+    if(autoOpenReceiptId){
+      handleNewlyCreatedReceipt(autoOpenReceiptId);
+      onAutoOpenReceiptHandled?.();
+    }else if(refreshTrigger){
+      setSelectedDate(getTodayDate());
+      setTypeFilter('all');
+      setQuery('');
+      load(getTodayDate());
+    }
+  },[autoOpenReceiptId,refreshTrigger]);
   const deleteBatch=async(id,receiptNo,password=null)=>{
     const cleanPassword = typeof password === 'string' ? password.trim() : null;
     if(deletingId)return;
@@ -191,6 +560,10 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     return list;
   },[displayRows,sortBy]);
 
+  const visibleRows=useMemo(()=>{
+    return sortedRows.slice(0,visibleCount);
+  },[sortedRows,visibleCount]);
+
   const handleDateClick=(date)=>{if(selectedDate&&selectedDate.getFullYear()===date.getFullYear()&&selectedDate.getMonth()===date.getMonth()&&selectedDate.getDate()===date.getDate()){setSelectedDate(null)}else{setSelectedDate(date)}};
   const handleCreateBatch=onCreateBatch||onCreate;
   const handleCreateInventory=onCreateInventory||onCreate;
@@ -208,11 +581,30 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       <button className="btn btn-outline" style={{borderColor:'#7c3aed',color:'#7c3aed',background:'#f5f3ff',fontWeight:600}} onClick={handleCreateInventory}>
         <Boxes size={16}/>Inventarizatsiya
       </button>
-      <button className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6}} onClick={handleExportAll} disabled={exportingAll} title="Barcha partiya va inventarizatsiyalarni JSON faylga yuklash">
-        <Download size={15}/>{exportingAll?'Eksport qilinmoqda…':'Zahira olish'}
+      <button
+        type="button"
+        className="btn"
+        style={{background:'#16a34a',color:'#fff',borderColor:'#16a34a',display:'inline-flex',alignItems:'center',gap:6,fontWeight:700,boxShadow:'0 2px 8px rgba(22,163,74,0.25)'}}
+        onClick={()=>handleExportExcel()}
+        disabled={exportingExcel}
+        title="Sahifadagi barcha partiyalarning tovarlarini Excel (.xlsx) formatida yuklab olish"
+      >
+        <FileSpreadsheet size={16}/>{exportingExcel?'Excel yuklanmoqda…':'Excel (.xlsx) yuklash'}
+      </button>
+      <button
+        type="button"
+        className="btn"
+        style={{background:'#0284c7',color:'#fff',borderColor:'#0284c7',display:'inline-flex',alignItems:'center',gap:6,fontWeight:700,boxShadow:'0 2px 8px rgba(2,132,199,0.25)'}}
+        onClick={()=>setExcelImportOpen(true)}
+        title="Excel (.xlsx) orqali partiya yoki inventarizatsiyani import qilish"
+      >
+        <Upload size={16}/>Exceldan import
+      </button>
+      <button className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#64748b'}} onClick={handleExportAll} disabled={exportingAll} title="Barcha partiyalarni dasturiy JSON zahira fayliga yuklash">
+        <Download size={14}/>{exportingAll?'Eksport…':'Zahira (JSON)'}
       </button>
       <button className="btn btn-outline" style={{borderColor:'#2563eb',color:'#2563eb',background:'#eff6ff',display:'inline-flex',alignItems:'center',gap:6,fontWeight:600}} onClick={()=>setRestoreModalOpen(true)} title="Zahira faylidan partiyalarni qayta tiklash">
-        <Upload size={15}/>Zahiradan tiklash
+        <Upload size={14}/>Zahiradan tiklash
       </button>
     </div>
   </div>
@@ -224,19 +616,58 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     <div><b><DualPrice value={aggregates.totalCost || totalCostAll} rate={rate}/></b><span>Barcha tovarlar tan narxi</span></div>
     <div><b><DualPrice value={aggregates.totalMinPrice || totalMinAll} rate={rate}/></b><span>Barcha tovarlar min. sotish</span></div>
   </div>
-  <div className="batch-origin-tabs">
-    <button type="button" className={`btn ${typeFilter==='all'?'btn-primary':'btn-outline'}`} onClick={()=>setTypeFilter('all')}>
-      Barchasi ({rows.length})
-    </button>
-    <button type="button" className={`btn ${typeFilter==='batch'?'btn-primary':'btn-outline'}`} onClick={()=>setTypeFilter('batch')}>
-      Partiyalar ({batchCount})
-    </button>
-    <button type="button" className={`btn ${typeFilter==='inventory'?'btn-primary':'btn-outline'}`} style={typeFilter==='inventory'?{background:'#7c3aed',borderColor:'#7c3aed',color:'#fff'}:{borderColor:'#ddd6fe',color:'#6d28d9'}} onClick={()=>setTypeFilter('inventory')}>
-      Inventarizatsiya ({invCount})
-    </button>
+  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10,marginBottom:12}}>
+    <div className="batch-origin-tabs" style={{margin:0}}>
+      <button type="button" className={`btn ${typeFilter==='all'?'btn-primary':'btn-outline'}`} onClick={()=>setTypeFilter('all')}>
+        Barchasi ({rows.length})
+      </button>
+      <button type="button" className={`btn ${typeFilter==='batch'?'btn-primary':'btn-outline'}`} onClick={()=>setTypeFilter('batch')}>
+        Partiyalar ({batchCount})
+      </button>
+      <button type="button" className={`btn ${typeFilter==='inventory'?'btn-primary':'btn-outline'}`} style={typeFilter==='inventory'?{background:'#7c3aed',borderColor:'#7c3aed',color:'#fff'}:{borderColor:'#ddd6fe',color:'#6d28d9'}} onClick={()=>setTypeFilter('inventory')}>
+        Inventarizatsiya ({invCount})
+      </button>
+    </div>
+    <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+      <button
+        type="button"
+        className={`btn ${selectedDate&&isSameDay(selectedDate,new Date())?'btn-primary':'btn-outline'}`}
+        style={selectedDate&&isSameDay(selectedDate,new Date())?{fontWeight:700}:{background:'#fff'}}
+        onClick={()=>setSelectedDate(getTodayDate())}
+      >
+        <Calendar size={15}/> Faqat bugun
+      </button>
+      <button
+        type="button"
+        className={`btn ${selectedDate===null?'btn-primary':'btn-outline'}`}
+        style={selectedDate===null?{fontWeight:700}:{background:'#fff'}}
+        onClick={()=>setSelectedDate(null)}
+      >
+        🌐 Barchasini ko‘rsatish
+      </button>
+    </div>
   </div>
   <BatchCalendar month={calMonth} setMonth={setCalMonth} batchDates={batchDatesSet} selectedDate={selectedDate} onDateClick={handleDateClick}/>
-  {selectedDate&&<div className="batch-date-filter"><Calendar size={15}/><span>{formatUzDate(selectedDate, { day: true, month: 'long', year: true })} — {sortedRows.length} ta yozuv</span><button className="btn" onClick={()=>setSelectedDate(null)}><X size={14}/>Tozalash</button></div>}
+  {selectedDate ? (
+    <div className="batch-date-filter">
+      <Calendar size={15}/>
+      <span>
+        {isSameDay(selectedDate, new Date()) ? 'Bugungi kiritilgan yozuvlar' : formatUzDate(selectedDate, { day: true, month: 'long', year: true })}
+        {' '}— {displayRows.length} ta yozuv
+      </span>
+      <button className="btn" onClick={()=>setSelectedDate(null)} title="Barcha davrlarni ko‘rish">
+        <RotateCcw size={14}/> Barchasini ko‘rsatish
+      </button>
+    </div>
+  ) : (
+    <div className="batch-date-filter" style={{background:'#f8fafc',borderColor:'#e2e8f0',color:'#475569'}}>
+      <Boxes size={15} style={{color:'var(--orange)'}}/>
+      <span>Barcha davrlardagi yozuvlar ko‘rsatilmoqda — {displayRows.length} ta yozuv</span>
+      <button className="btn" onClick={()=>setSelectedDate(getTodayDate())} style={{background:'#fff',borderColor:'#cbd5e1'}}>
+        <Calendar size={14}/> Faqat bugunni ko‘rsatish
+      </button>
+    </div>
+  )}
   <div className="batch-filters-row" style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap',marginBottom:12}}>
     <div className="mobile-search batch-filter-search" style={{flex:1,minWidth:220,margin:0}}>
       <Search/>
@@ -278,7 +709,23 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       </select>
     </div>
   </div>
-  {loading?<div className="inventory-state">Yuklanmoqda…</div>:error?<ErrorState message={error} retry={load}/>:sortedRows.length===0?<Empty title={selectedDate?"Bu kunda partiya yoki inventarizatsiya yo‘q":"Hech narsa topilmadi"} text={selectedDate?"Boshqa kunni tanlang yoki filtrni tozalang.":"Yangi partiya yoki inventarizatsiya yarating."}/>:<div className="batch-list">{sortedRows.map(x=>{
+  {loading?<div className="inventory-state">Yuklanmoqda…</div>:error?<ErrorState message={error} retry={load}/>:sortedRows.length===0?(
+    <div>
+      <Empty
+        title={selectedDate?(isSameDay(selectedDate,new Date())?"Bugun kiritilgan partiya yoki inventarizatsiya yo‘q":"Bu kunda partiya yoki inventarizatsiya yo‘q"):"Hech narsa topilmadi"}
+        text={selectedDate?"Barcha davrlarni ko‘rish uchun 'Barchasini ko‘rsatish' tugmasini bosing yoki yangi yozuv yarating.":"Yangi partiya yoki inventarizatsiya yarating."}
+      />
+      {selectedDate&&(
+        <div style={{display:'flex',justifyContent:'center',marginTop:12}}>
+          <button className="btn btn-primary" onClick={()=>setSelectedDate(null)} style={{display:'inline-flex',alignItems:'center',gap:6}}>
+            🌐 Barchasini ko‘rsatish (barcha davrlar)
+          </button>
+        </div>
+      )}
+    </div>
+  ):(
+    <>
+      <div className="batch-list">{visibleRows.map(x=>{
     const isInv=isInventoryReceipt(x.receipt_no);
     return <article className="card" key={x.id} style={isInv?{borderLeft:'4px solid #7c3aed'}:{borderLeft:'4px solid var(--orange)'}}>
       <div className="batch-card-header">
@@ -370,8 +817,11 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       <div className="batch-card-bottom">
         <span>{x.line_count} xil tovar · Tan: <DualPrice value={Number(x.total_cost||0)} rate={rate}/> · Sotish: <DualPrice value={Number(x.total_retail||0)} rate={rate}/></span>
         <div className="batch-card-actions">
+          <button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:12,color:'#16a34a',borderColor:'#86efac',background:'#f0fdf4',display:'inline-flex',alignItems:'center',gap:4,height:28,fontWeight:600}} title="Ushbu partiyadagi tovarlarni Excel (.xlsx) formatida yuklash" disabled={exportingExcel} onClick={()=>handleExportExcel(x)}>
+            <FileSpreadsheet size={13}/>Excel
+          </button>
           <button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:12,display:'inline-flex',alignItems:'center',gap:4,height:28}} title="Zahiraga yuklab olish (JSON)" disabled={exportingId===x.id} onClick={()=>handleExportSingle(x.id,x.receipt_no)}>
-            <Download size={13}/>{exportingId===x.id?'…':'Zahira'}
+            <Download size={13}/>{exportingId===x.id?'…':'JSON'}
           </button>
           <button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:12,display:'inline-flex',alignItems:'center',gap:4,height:28}} title="Tahrirlash" onClick={()=>open(x.id,true)}>
             <Pencil size={13}/>Tahrirlash
@@ -385,7 +835,72 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         </div>
       </div>
     </article>;
-  })}</div>}
+  })}</div>
+  {sortedRows.length > visibleCount && (
+    <div className="batch-load-more-container" style={{
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 10,
+      padding: '24px 16px',
+      margin: '20px 0 32px',
+      background: 'linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(248,250,252,0.98) 100%)',
+      borderRadius: 14,
+      border: '1px dashed #cbd5e1'
+    }}>
+      <div style={{fontSize: 13, color: '#64748b', fontWeight: 600}}>
+        Ko‘rsatilmoqda: <b style={{color: '#0f172a'}}>{visibleCount}</b> / {sortedRows.length} ta yozuv
+      </div>
+      <div style={{display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center'}}>
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '10px 22px',
+            fontSize: 14,
+            fontWeight: 700,
+            boxShadow: '0 4px 12px rgba(234, 88, 12, 0.25)'
+          }}
+          onClick={() => setVisibleCount(prev => prev + 30)}
+        >
+          <ChevronDown size={17}/>
+          Yana 30 ta yuklash (Load more)
+          <span style={{
+            background: 'rgba(255,255,255,0.25)',
+            padding: '2px 8px',
+            borderRadius: 12,
+            fontSize: 12,
+            fontWeight: 800
+          }}>
+            +{Math.min(30, sortedRows.length - visibleCount)}
+          </span>
+        </button>
+        <button
+          type="button"
+          className="btn btn-outline"
+          style={{fontSize: 13, height: 38, padding: '0 16px', color: '#475569', background: '#fff'}}
+          onClick={() => setVisibleCount(sortedRows.length)}
+        >
+          Barchasini ochish ({sortedRows.length} ta)
+        </button>
+      </div>
+      <div style={{fontSize: 12, color: '#94a3b8'}}>
+        Qolgan: {sortedRows.length - visibleCount} ta yozuv
+      </div>
+    </div>
+  )}
+  {sortedRows.length > 30 && visibleCount >= sortedRows.length && (
+    <div style={{textAlign: 'center', padding: '16px', color: '#16a34a', fontSize: 13, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, margin: '12px 0 24px'}}>
+      <CheckCircle2 size={16}/>
+      Barcha {sortedRows.length} ta yozuv to‘liq ko‘rsatildi
+    </div>
+  )}
+  </>
+  )}
   <ReceiptDetail receipt={detail} locations={locations} toast={toast} initialEditing={detailEdit} close={()=>{setDetail(null);setDetailEdit(false);}} onUpdated={(updated)=>{if(updated){setDetail(updated);setDetailEdit(false);}else{setDetail(null);setDetailEdit(false);}load();}} onExportSingle={handleExportSingle}/>
   {passwordModal && (
     <Modal open={Boolean(passwordModal)} onClose={() => setPasswordModal(null)} title="Sotilgan tovarlar mavjud — Parol talab qilinadi">
@@ -455,6 +970,21 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     branchId={branchId}
     onRestored={()=>{load();toast?.('Partiyalar va tovarlar muvaffaqiyatli tiklandi');}}
     toast={toast}
+  />
+  <InventoryExcelImportModal
+    open={excelImportOpen}
+    onClose={()=>setExcelImportOpen(false)}
+    branchId={branchId}
+    locations={locations}
+    rate={rate}
+    toast={toast}
+    onImported={()=>{
+      setSelectedDate(getTodayDate());
+      setTypeFilter('all');
+      setQuery('');
+      load(getTodayDate());
+      toast?.('Excel fayldagi tovarlar muvaffaqiyatli qabul qilindi');
+    }}
   />
   </>;
 }
@@ -2347,11 +2877,14 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
   const[form,setForm]=useState(()=>{
     const n=new Date();
     const prefix = isInventory ? 'INV-' : 'PT-';
-    const rno=prefix+n.toISOString().slice(0,10).replace(/-/g,'')+'-'+String(n.getHours()).padStart(2,'0')+String(n.getMinutes()).padStart(2,'0')+String(n.getSeconds()).padStart(2,'0');
+    const localDateStr = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+    const dateNumStr = `${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, '0')}${String(n.getDate()).padStart(2, '0')}`;
+    const timeNumStr = `${String(n.getHours()).padStart(2, '0')}${String(n.getMinutes()).padStart(2, '0')}${String(n.getSeconds()).padStart(2, '0')}`;
+    const rno = `${prefix}${dateNumStr}-${timeNumStr}`;
     const savedLoc = isInventory && typeof window !== 'undefined'
       ? (localStorage.getItem('tb_last_inventory_loc_' + (branchId || '')) || localStorage.getItem('tb_last_inventory_loc') || '')
       : '';
-    return{receipt_no:rno,supplier_id:'',receiving_location_id:savedLoc,invoice_number:'',currency:'USD',payment_status:'paid',received_at:n.toISOString().slice(0,10),notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'',paid_amount:''};
+    return{receipt_no:rno,supplier_id:'',receiving_location_id:savedLoc,invoice_number:'',currency:'USD',payment_status:'paid',received_at:localDateStr,notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'',paid_amount:''};
   });
   const[lines,setLines]=useState([{
     product_id:'',
@@ -2384,10 +2917,14 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     if(open&&branchId){
       const n=new Date();
       const prefix = isInventory ? 'INV-' : 'PT-';
-      const rno=prefix+n.toISOString().slice(0,10).replace(/-/g,'')+'-'+String(n.getHours()).padStart(2,'0')+String(n.getMinutes()).padStart(2,'0')+String(n.getSeconds()).padStart(2,'0');
+      const localDateStr = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
+      const dateNumStr = `${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, '0')}${String(n.getDate()).padStart(2, '0')}`;
+      const timeNumStr = `${String(n.getHours()).padStart(2, '0')}${String(n.getMinutes()).padStart(2, '0')}${String(n.getSeconds()).padStart(2, '0')}`;
+      const rno = `${prefix}${dateNumStr}-${timeNumStr}`;
       setForm(f=>({
         ...f,
         receipt_no:rno,
+        received_at:f.received_at || localDateStr,
         currency:f.currency||'USD',
         notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':f.notes
       }));
@@ -2764,7 +3301,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         } catch {}
       }
 
-      await createStockReceipt({
+      const createdRes = await createStockReceipt({
         ...form,
         exchange_rate: rate || 12800,
         supplier_id: isInventory ? (supplierId || null) : supplierId,
@@ -2776,7 +3313,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
       setLines([{
         product_id:'',color_name:'',variant_id:'',quantity:1,unit_cost:'',unit_cost_usd:'',serials:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',minimum_sale_price:'',minimum_sale_price_usd:'',priceConfirmed:false,variants:[],variantConfigs:{}
       }]);
-      await created();
+      await created(createdRes);
     }catch(e){
       setError(err(e));
     }finally{
@@ -3464,7 +4001,15 @@ export function InventoryScanner({open,close,branchId,toast}){
       </div>
       <div className="passport-grid">
         <span><small>QR kod</small><b>{unit.qr_code}</b></span>
-        <span><small>Mavjud qoldiq</small><b>{availableCount} dona {unit.total_count ? `(jami ${unit.total_count} ta)` : ''}</b></span>
+        <span>
+          <small>Mavjud qoldiq</small>
+          <b>{availableCount} dona {unit.total_count ? `(jami ${unit.total_count} ta)` : ''}</b>
+          {unit.branch_stock && (unit.branch_stock.store > 0 || unit.branch_stock.warehouse > 0) && (
+            <small style={{display:'block',color:'var(--muted)',fontSize:10.5,marginTop:2}}>
+              Filialda: Do‘konda {unit.branch_stock.store} · Omborda {unit.branch_stock.warehouse}
+            </small>
+          )}
+        </span>
         <span><small>Zavod seriyasi</small><b>{unit.serial_number||'—'}</b></span>
         <span><small>Partiya</small><b>{unit.batch?.receipt_no||'—'}</b></span>
         <span><small>Ta’minotchi</small><b>{unit.batch?.supplier_name||'—'}</b></span>

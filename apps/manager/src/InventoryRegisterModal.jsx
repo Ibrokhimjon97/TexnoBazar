@@ -1,6 +1,6 @@
 import React,{useEffect,useState}from'react';
 import{AlertTriangle,Boxes,Plus,X}from'lucide-react';
-import{ColorVariantEditor,DualPriceInput,Modal,Status,formatMoney}from'@texnobazar/ui';
+import{ColorVariantEditor,DualPriceInput,Modal,Status,formatMoney,SearchableCategoryPicker,SearchableBrandPicker,saveStoredRecent,RECENT_CATS_KEY,RECENT_BRANDS_KEY}from'@texnobazar/ui';
 import{getBrowserClient,getInventoryReferences,getLatestExchangeRate,saveProductVariants,uploadProductMedia}from'@texnobazar/data';
 import RichTextEditor from'./RichTextEditor';
 
@@ -47,14 +47,14 @@ export default function CreateProductModal({open,close,branchId,created}){
         category_id:form.category_id||null,
         brand_id:form.brand_id||null,
         cost_price:Number(form.cost_price)||0,
-        cost_price_usd:Number(form.cost_price_usd)||(rate&&Number(form.cost_price)?Number((Number(form.cost_price)/rate).toFixed(2)):null),
+        cost_price_usd:form.cost_price_usd!==''&&form.cost_price_usd!=null&&!isNaN(Number(form.cost_price_usd))?Number(form.cost_price_usd):(rate&&Number(form.cost_price)?Number((Number(form.cost_price)/rate).toFixed(2)):null),
         retail_price:Number(form.retail_price)||0,
-        retail_price_usd:Number(form.retail_price_usd)||(rate&&Number(form.retail_price)?Number((Number(form.retail_price)/rate).toFixed(2)):null),
+        retail_price_usd:form.retail_price_usd!==''&&form.retail_price_usd!=null&&!isNaN(Number(form.retail_price_usd))?Number(form.retail_price_usd):(rate&&Number(form.retail_price)?Number((Number(form.retail_price)/rate).toFixed(2)):null),
         wholesale_price:Number(form.wholesale_price)||null,
-        wholesale_price_usd:Number(form.wholesale_price_usd)||(rate&&Number(form.wholesale_price)?Number((Number(form.wholesale_price)/rate).toFixed(2)):null),
+        wholesale_price_usd:form.wholesale_price_usd===''?null:(form.wholesale_price_usd!=null&&!isNaN(Number(form.wholesale_price_usd))?Number(form.wholesale_price_usd):(rate&&Number(form.wholesale_price)?Number((Number(form.wholesale_price)/rate).toFixed(2)):null)),
         promotion_price:Number(form.promotion_price)||null,
         minimum_sale_price:Number(form.minimum_sale_price)||0,
-        minimum_sale_price_usd:Number(form.minimum_sale_price_usd)||(rate&&Number(form.minimum_sale_price)?Number((Number(form.minimum_sale_price)/rate).toFixed(2)):null),
+        minimum_sale_price_usd:form.minimum_sale_price_usd!==''&&form.minimum_sale_price_usd!=null&&!isNaN(Number(form.minimum_sale_price_usd))?Number(form.minimum_sale_price_usd):(rate&&Number(form.minimum_sale_price)?Number((Number(form.minimum_sale_price)/rate).toFixed(2)):null),
         currency:'USD',
         compare_at_price:Number(form.compare_at_price)||null,
         description:form.description||null,
@@ -136,12 +136,14 @@ export default function CreateProductModal({open,close,branchId,created}){
         onCancel={close}
         busy={busy}
         rate={rate}
+        onCategoryCreated={cat => setRefs(prev => ({ ...prev, categories: [...(prev.categories || []).filter(c => c.id !== cat.id), cat] }))}
+        onBrandCreated={b => setRefs(prev => ({ ...prev, brands: [...(prev.brands || []).filter(x => x.id !== b.id), b] }))}
       />
     </div>
   </div>;
 }
 
-export function CreateProductInline({categories,brands,categoryId,onCreated,onCancel,rate}){
+export function CreateProductInline({categories,brands,categoryId,onCreated,onCancel,rate,onCategoryCreated,onBrandCreated}){
   return <div className="inv-create-overlay">
     <div className="inv-create-form card">
       <div className="between" style={{marginBottom:16}}>
@@ -155,12 +157,19 @@ export function CreateProductInline({categories,brands,categoryId,onCreated,onCa
         onSave={onCreated}
         onCancel={onCancel}
         rate={rate}
+        onCategoryCreated={onCategoryCreated}
+        onBrandCreated={onBrandCreated}
       />
     </div>
   </div>;
 }
 
-function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,onCancel,busy=false,rate}){
+function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,onCancel,busy=false,rate,onCategoryCreated,onBrandCreated}){
+  const[localCategories,setLocalCategories]=useState(categories||[]);
+  const[localBrands,setLocalBrands]=useState(brands||[]);
+  useEffect(()=>{setLocalCategories(categories||[])},[categories]);
+  useEffect(()=>{setLocalBrands(brands||[])},[brands]);
+
   const[form,setForm]=useState({
     name:'',sku:'',barcode:'',category_id:initialCategoryId||'',brand_id:'',
     cost_price:'',cost_price_usd:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',promotion_price:'',
@@ -195,9 +204,42 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
     <label className="wide"><span className="label">Mahsulot nomi *</span><input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required minLength="2" placeholder="Masalan: Gaz plita Artel Apetito 50-00E"/></label>
     <label><span className="label">SKU / Artikul</span><input className="input" value={form.sku} onChange={e=>setForm({...form,sku:e.target.value})} placeholder="Avtomatik (TB-...)"/></label>
     <label><span className="label">Shtrix-kod (barcode)</span><input className="input" value={form.barcode} onChange={e=>setForm({...form,barcode:e.target.value})} placeholder="Skaner yoki raqamlar"/></label>
-    <label><span className="label">Kategoriya</span><select className="select" value={form.category_id} onChange={e=>setForm({...form,category_id:e.target.value})}><option value="">Tanlang</option>{categories.filter(c=>!c.parent_id).map(p=><optgroup key={p.id} label={p.name}><option value={p.id}>{p.name}</option>{categories.filter(c=>c.parent_id===p.id).map(child=><option key={child.id} value={child.id}>&nbsp;&nbsp;{child.name}</option>)}</optgroup>)}</select></label>
-    <NewCategoryInline categories={categories} onCreated={cat=>setForm({...form,category_id:cat.id})}/>
-    <label><span className="label">Brend</span><div style={{display:'flex',gap:6,position:'relative'}}><select className="select" style={{flex:1}} value={form.brand_id} onChange={e=>setForm({...form,brand_id:e.target.value})}><option value="">Brendsiz</option>{brands.map(b=><option key={b.id} value={b.id}>{b.name}</option>)}</select><NewBrandInline brands={brands} onCreated={b=>setForm({...form,brand_id:b.id})}/></div></label>
+    <div>
+      <span className="label">Kategoriya</span>
+      <SearchableCategoryPicker
+        categories={localCategories}
+        value={form.category_id}
+        onChange={catId => setForm(f => ({ ...f, category_id: catId }))}
+      />
+      <NewCategoryInline
+        categories={localCategories}
+        onCreated={cat => {
+          setLocalCategories(prev => [...prev.filter(c => c.id !== cat.id), cat]);
+          setForm(f => ({ ...f, category_id: cat.id }));
+          saveStoredRecent(RECENT_CATS_KEY, cat.id);
+          onCategoryCreated?.(cat);
+        }}
+      />
+    </div>
+    <div>
+      <span className="label">Brend</span>
+      <div style={{ display: 'flex', gap: 6, position: 'relative', alignItems: 'flex-start' }}>
+        <SearchableBrandPicker
+          brands={localBrands}
+          value={form.brand_id}
+          onChange={bId => setForm(f => ({ ...f, brand_id: bId }))}
+        />
+        <NewBrandInline
+          brands={localBrands}
+          onCreated={b => {
+            setLocalBrands(prev => [...prev.filter(x => x.id !== b.id), b]);
+            setForm(f => ({ ...f, brand_id: b.id }));
+            saveStoredRecent(RECENT_BRANDS_KEY, b.id);
+            onBrandCreated?.(b);
+          }}
+        />
+      </div>
+    </div>
     <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v=>setForm(f=>({...f,cost_price:v}))} valueUsd={form.cost_price_usd} onChangeUsd={v=>setForm(f=>({...f,cost_price_usd:v}))} rate={rate}/>
     <DualPriceInput label="Sotish narxi *" valueUzs={form.retail_price} onChangeUzs={v=>setForm(f=>({...f,retail_price:v}))} valueUsd={form.retail_price_usd} onChangeUsd={v=>setForm(f=>({...f,retail_price_usd:v}))} rate={rate}/>
     <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v=>setForm(f=>({...f,wholesale_price:v}))} valueUsd={form.wholesale_price_usd} onChangeUsd={v=>setForm(f=>({...f,wholesale_price_usd:v}))} rate={rate}/>
@@ -252,7 +294,8 @@ function NewCategoryInline({categories,onCreated}){
         seo_image_url:form.imageUrl.trim()||null
       }).select('id,name,parent_id').single();
       if(insErr)throw insErr;
-      categories.push(data);
+      try { categories.push(data); } catch {}
+      saveStoredRecent(RECENT_CATS_KEY, data.id);
       onCreated(data);
       setOpen(false);setForm({name:'',parentId:'',imageUrl:''});
     }catch(e){setError(err(e))}finally{setBusy(false)}
@@ -313,7 +356,8 @@ function NewBrandInline({brands,onCreated}){
         name:form.name.trim(),slug,logo_url:form.logo_url.trim()||null,description:form.description.trim()||null,is_active:true
       }).select('id,name').single();
       if(insErr)throw insErr;
-      brands.push(data);
+      try { brands.push(data); } catch {}
+      saveStoredRecent(RECENT_BRANDS_KEY, data.id);
       onCreated(data);
       setOpen(false);setForm({name:'',slug:'',logo_url:'',description:''});
     }catch(e){setError(err(e))}finally{setBusy(false)}

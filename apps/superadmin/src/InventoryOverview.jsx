@@ -1,7 +1,7 @@
 import React,{useCallback,useEffect,useMemo,useState}from'react';
 import RichTextEditor from'./RichTextEditor';
 import{AlertTriangle,Bluetooth,Boxes,CheckSquare,Download,Pencil,Plus,Printer,RefreshCw,Search,Store,Trash2,Upload,Warehouse,X}from'lucide-react';
-import{DualPrice,DualPriceInput,Empty,Modal,QrScanButton,Status,useExchangeRate,DetongerPrintModal}from'@texnobazar/ui';
+import{DualPrice,DualPriceInput,Empty,Modal,QrScanButton,Status,useExchangeRate,DetongerPrintModal,formatSecretCostCode}from'@texnobazar/ui';
 import{bulkDeleteProducts,deleteCategoryProducts,getBrowserClient,listInventoryBalances,listInventorySearchSellers,listMasterRecords,searchInventoryUnits}from'@texnobazar/data';
 import ProductCatalog,{ProductEditor}from'./ProductCatalog';
 
@@ -238,7 +238,7 @@ function BalanceTable({rows,selected=[],toggleSelect,allSelected=false,toggleSel
 function UnitTable({rows,rate}){
   const[printUnit,setPrintUnit]=useState(null);
   return <>
-    <div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>QR / seriya</th><th>Partiya</th><th>Filial / joy</th><th>Status</th><th>Narx</th><th>Sotilgan sana</th><th>Chop</th></tr></thead><tbody>{rows.map(item=><tr key={item.id}><td><b>{item.product_name}</b><small>{item.sku}</small></td><td><code>{item.qr_code}</code><small>{item.serial_number||'—'}</small></td><td>{item.batch_reference||'—'}</td><td>{item.branch_name}<small>{item.location_name}</small></td><td><Status type={item.status==='available'?'green':item.status==='sold'?'blue':'orange'}>{item.status}</Status></td><td><DualPrice value={Number((item.promotion_price??item.retail_price)||0)} rate={rate}/></td><td>{item.sold_at?new Date(item.sold_at).toLocaleString('uz-UZ'):'—'}</td><td><button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:11,display:'inline-flex',alignItems:'center',gap:4}} title="Termoprinter (Detonger / MHT-L80G) orqali chop etish" onClick={()=>setPrintUnit({ id: item.id, title: item.product_name, code: item.qr_code, cost_usd: item.cost_price_usd || item.unit_cost_usd || '', date: new Date().toLocaleDateString('uz-UZ'), batch: item.batch_reference })}><Bluetooth size={12} color="var(--orange)"/><Printer size={12}/></button></td></tr>)}</tbody></table></div>
+    <div className="table-wrap"><table className="table"><thead><tr><th>Mahsulot</th><th>QR / seriya</th><th>Partiya</th><th>Filial / joy</th><th>Status</th><th>Narx</th><th>Sotilgan sana</th><th>Chop</th></tr></thead><tbody>{rows.map(item=><tr key={item.id}><td><b>{item.product_name}</b><small>{item.sku}</small></td><td><code>{item.qr_code}</code><small>{item.serial_number||'—'}</small></td><td>{item.batch_reference||'—'}</td><td>{item.branch_name}<small>{item.location_name}</small></td><td><Status type={item.status==='available'?'green':item.status==='sold'?'blue':'orange'}>{item.status}</Status></td><td><DualPrice value={Number((item.promotion_price??item.retail_price)||0)} rate={rate}/></td><td>{item.sold_at?new Date(item.sold_at).toLocaleString('uz-UZ'):'—'}</td><td><button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:11,display:'inline-flex',alignItems:'center',gap:4}} title="Termoprinter (Detonger / MHT-L80G) orqali chop etish" onClick={()=>setPrintUnit({ id: item.id, title: item.product_name, code: item.qr_code, cost_usd: formatSecretCostCode({ cost: item.unit_cost || item.cost_price, costUsd: item.cost_price_usd || item.unit_cost_usd, currency: item.currency || 'USD' }), date: new Date().toLocaleDateString('uz-UZ'), batch: item.batch_reference })}><Bluetooth size={12} color="var(--orange)"/><Printer size={12}/></button></td></tr>)}</tbody></table></div>
     <DetongerPrintModal
       open={Boolean(printUnit)}
       onClose={()=>setPrintUnit(null)}
@@ -307,13 +307,11 @@ function ProductDetailModal({product,close,toast,rate,onEdit}){
     if(!unit.qr_code){alert('Birlik QR kodi topilmadi');return}
     const QRCode=await import('qrcode');
     const rawCost = (unit.unit_cost_usd != null && Number(unit.unit_cost_usd) > 0)
-      ? Number(unit.unit_cost_usd)
-      : (detail?.cost_price_usd != null && Number(detail.cost_price_usd) > 0)
-        ? Number(detail.cost_price_usd)
-        : '';
-    const costNumStr = (rawCost !== '' && !isNaN(rawCost))
-      ? (rawCost % 1 === 0 ? String(rawCost) : rawCost.toFixed(2))
-      : '';
+    const costNumStr = formatSecretCostCode({
+      cost: detail?.cost_price || unit.unit_cost || '',
+      costUsd: unit.unit_cost_usd || detail?.cost_price_usd || '',
+      currency: detail?.currency || 'USD'
+    });
     const costParam = costNumStr ? '?c=' + encodeURIComponent(costNumStr) : '';
     const url=`${STOREFRONT}/qr/${encodeURIComponent(unit.qr_code)}${costParam}`;
     const canvas=await QRCode.toCanvas(url,{width:300,margin:2,color:{dark:'#000000',light:'#ffffff'}});

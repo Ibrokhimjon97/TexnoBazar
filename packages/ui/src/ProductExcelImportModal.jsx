@@ -18,7 +18,7 @@ import {
   Video,
   X,
 } from 'lucide-react';
-import { getBrowserClient, uploadProductMedia, saveProductVariants } from '@texnobazar/data';
+import { getBrowserClient, uploadProductMedia, saveProductVariants, getLatestExchangeRate } from '@texnobazar/data';
 import { formatMoney, useExchangeRate } from './index.jsx';
 
 async function getExcelJS() {
@@ -118,7 +118,7 @@ export function ProductExcelImportModal({
   const [autoCreateCategory, setAutoCreateCategory] = useState(true);
   const [autoCreateBrand, setAutoCreateBrand] = useState(true);
   const [uploadImages, setUploadImages] = useState(true);
-  const [exchangeRate, setExchangeRate] = useState(12800);
+  const [exchangeRate, setExchangeRate] = useState(Number(latestRate) || 11900);
   const [markupPercent, setMarkupPercent] = useState(25);
 
   // DB references
@@ -140,7 +140,16 @@ export function ProductExcelImportModal({
     errors: [],
   });
 
-  // Sync exchange rate
+  // Sync live exchange rate from database
+  useEffect(() => {
+    if (open) {
+      getLatestExchangeRate('USD', 'UZS').then(r => {
+        const num = Number(r);
+        if (num > 0) setExchangeRate(num);
+      }).catch(() => {});
+    }
+  }, [open]);
+
   useEffect(() => {
     if (latestRate && Number(latestRate) > 0) {
       setExchangeRate(Number(latestRate));
@@ -503,15 +512,24 @@ export function ProductExcelImportModal({
       });
 
       const buf = await wb.xlsx.writeBuffer();
-      const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const u8 = buf instanceof Uint8Array
+        ? new Uint8Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength))
+        : new Uint8Array(buf);
+      const blob = new Blob([u8], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
+      a.style.display = 'none';
       a.href = url;
       a.download = 'texnobazar_tovarlar_namuna.xlsx';
+      a.setAttribute('download', 'texnobazar_tovarlar_namuna.xlsx');
       document.body.appendChild(a);
       a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 100);
+      document.body.removeChild(a);
+      setTimeout(() => {
+        try {
+          URL.revokeObjectURL(url);
+        } catch {}
+      }, 30000);
     } catch (e) {
       alert('Namunani yuklab olishda xatolik: ' + e.message);
     }
@@ -1154,7 +1172,7 @@ export function ProductExcelImportModal({
           const bCandidate = item.brandName || extractBrand(item.name);
           const brandId = bCandidate ? (brandMap.get(bCandidate.trim().toUpperCase()) || null) : null;
 
-          // Helper to convert prices
+          // Helpers to convert prices
           const toUzs = (val) => {
             if (val == null || val === '') return null;
             const n = Number(val);
@@ -1162,21 +1180,41 @@ export function ProductExcelImportModal({
             return n < 5000 ? Math.round(n * rate) : Math.round(n);
           };
 
+          const toUsd = (val) => {
+            if (val == null || val === '') return null;
+            const n = Number(val);
+            if (isNaN(n) || n <= 0) return null;
+            return n < 5000 ? Number(n.toFixed(2)) : Number((n / rate).toFixed(2));
+          };
+
+          const isUsdProduct = (item.currency && String(item.currency).toUpperCase().includes('USD')) ||
+                               (Number(item.costPrice) > 0 && Number(item.costPrice) < 5000) ||
+                               (Number(item.retailPrice) > 0 && Number(item.retailPrice) < 5000);
+          const productCurrency = isUsdProduct ? 'USD' : 'UZS';
+
           const costUzs = toUzs(item.costPrice) || 0;
+          const costUsd = toUsd(item.costPrice) || (costUzs > 0 ? Number((costUzs / rate).toFixed(2)) : 0);
 
           let retailUzs = toUzs(item.retailPrice);
+          let retailUsd = toUsd(item.retailPrice);
           if (retailUzs == null || retailUzs <= 0) {
             retailUzs = Math.round(costUzs * margin);
+            retailUsd = Number((retailUzs / rate).toFixed(2));
           }
           if (retailUzs < costUzs) {
             retailUzs = costUzs;
+            retailUsd = costUsd;
           }
 
           const oldPriceUzs = toUzs(item.oldPrice);
           const wholesaleUzs = toUzs(item.wholesalePrice);
+          const wholesaleUsd = toUsd(item.wholesalePrice) || (wholesaleUzs ? Number((wholesaleUzs / rate).toFixed(2)) : null);
+
           let minPriceUzs = toUzs(item.minPrice);
+          let minPriceUsd = toUsd(item.minPrice);
           if (minPriceUzs == null || minPriceUzs <= 0) {
             minPriceUzs = costUzs;
+            minPriceUsd = costUsd;
           }
 
           const desc = item.description || `${item.name} — eng so‘nggi model, kafolatlangan yuqori sifat va rasmiy servis.`;
@@ -1189,10 +1227,15 @@ export function ProductExcelImportModal({
             category_id: catId,
             brand_id: brandId,
             cost_price: costUzs,
+            cost_price_usd: costUsd,
             retail_price: retailUzs,
+            retail_price_usd: retailUsd,
             compare_at_price: oldPriceUzs,
-            wholesale_price: wholesaleUzs,
-            minimum_sale_price: minPriceUzs,
+            wholesale_price: wholesaleUzs || null,
+            wholesale_price_usd: wholesaleUsd || null,
+            minimum_sale_price: minPriceUzs || costUzs,
+            minimum_sale_price_usd: minPriceUsd || costUsd,
+            currency: productCurrency,
             video_url: item.videoUrl || null,
             description: desc,
             status: isPublished ? 'active' : 'draft',
@@ -1207,10 +1250,14 @@ export function ProductExcelImportModal({
             sku,
             item,
             costUzs,
+            costUsd,
             retailUzs,
+            retailUsd,
             oldPriceUzs,
             wholesaleUzs,
+            wholesaleUsd,
             minPriceUzs,
+            minPriceUsd,
           });
         }
 
@@ -1234,7 +1281,7 @@ export function ProductExcelImportModal({
             const productId = insertedMap.get(meta.sku);
             if (!productId) continue;
 
-            const { item, costUzs, retailUzs, oldPriceUzs, wholesaleUzs, minPriceUzs } = meta;
+            const { item, costUzs, costUsd, retailUzs, retailUsd, oldPriceUzs, wholesaleUzs, wholesaleUsd, minPriceUzs, minPriceUsd } = meta;
 
             // A. If product has color variants, save them via save_product_variants
             let savedVariantsList = [];
@@ -1247,21 +1294,36 @@ export function ProductExcelImportModal({
                   return n < 5000 ? Math.round(n * rate) : Math.round(n);
                 };
 
+                const toUsdVal = (vNum) => {
+                  if (vNum == null || vNum === '') return null;
+                  const n = Number(vNum);
+                  if (isNaN(n) || n <= 0) return null;
+                  return n < 5000 ? Number(n.toFixed(2)) : Number((n / rate).toFixed(2));
+                };
+
                 // Fallback rules: if price not provided for variant, use product's base price!
-                const vRetail = toUzsVal(v.retailPrice) || retailUzs;
-                const vCost = toUzsVal(v.costPrice) || costUzs;
-                const vOld = toUzsVal(v.oldPrice) || oldPriceUzs;
-                const vWholesale = toUzsVal(v.wholesalePrice) || wholesaleUzs;
-                const vMin = toUzsVal(v.minPrice) || minPriceUzs;
+                const vRetailUzs = toUzsVal(v.retailPrice) || retailUzs;
+                const vRetailUsd = toUsdVal(v.retailPrice) || (vRetailUzs ? Number((vRetailUzs / rate).toFixed(2)) : retailUsd);
+                const vCostUzs = toUzsVal(v.costPrice) || costUzs;
+                const vCostUsd = toUsdVal(v.costPrice) || (vCostUzs ? Number((vCostUzs / rate).toFixed(2)) : costUsd);
+                const vOldUzs = toUzsVal(v.oldPrice) || oldPriceUzs;
+                const vWholesaleUzs = toUzsVal(v.wholesalePrice) || wholesaleUzs;
+                const vWholesaleUsd = toUsdVal(v.wholesalePrice) || (vWholesaleUzs ? Number((vWholesaleUzs / rate).toFixed(2)) : wholesaleUsd);
+                const vMinUzs = toUzsVal(v.minPrice) || minPriceUzs;
+                const vMinUsd = toUsdVal(v.minPrice) || (vMinUzs ? Number((vMinUzs / rate).toFixed(2)) : minPriceUsd);
 
                 return {
                   color_name: v.colorName,
                   color_hex: v.colorHex || null,
-                  retail_price: vRetail,
-                  compare_at_price: vOld,
-                  cost_price: vCost,
-                  wholesale_price: vWholesale,
-                  minimum_sale_price: vMin,
+                  retail_price: vRetailUzs,
+                  retail_price_usd: vRetailUsd,
+                  compare_at_price: vOldUzs,
+                  cost_price: vCostUzs,
+                  cost_price_usd: vCostUsd,
+                  wholesale_price: vWholesaleUzs,
+                  wholesale_price_usd: vWholesaleUsd,
+                  minimum_sale_price: vMinUzs,
+                  minimum_sale_price_usd: vMinUsd,
                   sort_order: sIdx,
                   is_active: true,
                 };

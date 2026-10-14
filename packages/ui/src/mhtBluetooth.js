@@ -32,7 +32,7 @@ export const KNOWN_PRINTER_SERVICES = [
   '0000af30-0000-1000-8000-00805f9b34fb',
 ];
 
-import { formatDollarFreeCost } from './detongerBluetooth.js';
+import { formatDollarFreeCost, wrapTextWithColor, formatSecretCostCode } from './detongerBluetooth.js';
 
 
 /**
@@ -70,6 +70,8 @@ export async function renderMhtLabelCanvas({
   date = '',
   code = '',
   costUsd = '',
+  cost = '',
+  currency = 'USD',
   qrPayload = '',
   storefrontUrl = '',
   width = MHT_CANVAS_WIDTH_PX,
@@ -86,8 +88,8 @@ export async function renderMhtLabelCanvas({
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, width, height);
 
-  // Clean dollar-free cost number string ($ siz toza raqam)
-  const costStr = formatDollarFreeCost(costUsd);
+  // Chalg'ituvchi maxfiy narx kodi: masalan, USD da T90M, UZS da M478T (faqat sotuvchi tushunadi)
+  const costStr = formatSecretCostCode({ cost, costUsd, currency });
   const costParam = costStr ? `?c=${encodeURIComponent(costStr)}` : '';
 
   // Generate QR code target URL / payload
@@ -131,35 +133,73 @@ export async function renderMhtLabelCanvas({
   const rightX = 276;
   const rightW = width - rightX - 12; // ~176px
 
-  // 1. Tovar nomi + Rangi (1-2 qator)
-  const fullTitle = `${title}${color ? ` (${color})` : ''}`.trim();
-  ctx.fillStyle = '#000000';
-  ctx.font = '800 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.textAlign = 'left';
-  const lines = wrapTextLines(ctx, fullTitle, rightW, 2);
+  // 1. Tovar nomi + Rangi (1-3 qator, bo'sh joy evaziga kattaroq shrift, rang kafolatlangan)
+  const cleanTitle = String(title || 'Mahsulot').trim();
+  const cleanColor = String(color || '').trim();
+  const hasColorInTitle = cleanColor && (
+    cleanTitle.toLowerCase().includes(`(${cleanColor.toLowerCase()})`) ||
+    cleanTitle.toLowerCase().endsWith(cleanColor.toLowerCase())
+  );
+  const colorSuffix = (cleanColor && !hasColorInTitle) ? ` (${cleanColor})` : '';
+  const fullTitle = `${cleanTitle}${colorSuffix}`.trim();
 
-  let curY = 32;
-  if (lines.length === 1) {
-    ctx.fillText(lines[0], rightX, curY);
-    curY += 20;
-  } else if (lines.length >= 2) {
-    ctx.fillText(lines[0], rightX, curY);
-    ctx.fillText(lines[1], rightX, curY + 16);
-    curY += 36;
+  ctx.fillStyle = '#000000';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+
+  const badgeY = costStr ? 162 : 178;
+  const badgeH = 48;
+
+  let titleFontSize = 18;
+  ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+
+  let lines = [];
+  if (ctx.measureText(fullTitle).width <= rightW) {
+    lines = [fullTitle];
+  } else {
+    // 2 yoki 3 qatorga sig'dirishga harakat qilamiz (shrift 18px dan 12.5px gacha)
+    while (titleFontSize > 12.5) {
+      ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      lines = wrapTextWithColor(ctx, cleanTitle, cleanColor, rightW, 3);
+      const allFit = lines.every(l => ctx.measureText(l).width <= rightW);
+      const hasColorIncluded = !cleanColor || lines.some(l => l.toLowerCase().includes(cleanColor.toLowerCase()));
+      if (allFit && hasColorIncluded && lines.length <= 3) {
+        break;
+      }
+      titleFontSize -= 0.5;
+    }
+    if (titleFontSize <= 12.5) {
+      ctx.font = `800 ${titleFontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+      lines = wrapTextWithColor(ctx, cleanTitle, cleanColor, rightW, 3);
+    }
   }
 
-  // 2. Tovar qidiruv kodi (kamera tanimasa terib qidiriladigan kod) - KATTA RAMKALI BADGE
-  let codeFontSize = 30;
+  const lineH = Math.round(titleFontSize * 1.34);
+  let startY = 16;
+  if (lines.length === 1) {
+    startY = Math.max(26, Math.round((badgeY - lineH) / 2));
+  } else if (lines.length === 2) {
+    startY = Math.max(20, Math.round((badgeY - lineH * 2) / 2));
+  } else {
+    startY = 16;
+  }
+
+  lines.forEach((lineText, idx) => {
+    ctx.fillText(lineText, rightX, startY + idx * lineH);
+  });
+
+  // 2. Tovar qidiruv kodi (kamera tanimasa terib qidiriladigan kod) - KATTA RAMKALI BADGE (pastroqqa surilgan)
+  let codeFontSize = 28;
   if (displayCode.length <= 6) {
-    codeFontSize = 30;
+    codeFontSize = 28;
   } else if (displayCode.length <= 8) {
-    codeFontSize = 26;
+    codeFontSize = 25;
   } else if (displayCode.length <= 11) {
-    codeFontSize = 22;
+    codeFontSize = 21;
   } else if (displayCode.length <= 15) {
     codeFontSize = 18;
   } else {
-    codeFontSize = 15;
+    codeFontSize = 14;
   }
 
   ctx.font = `900 ${codeFontSize}px "Courier New", monospace`;
@@ -169,9 +209,7 @@ export async function renderMhtLabelCanvas({
   }
 
   const badgeX = rightX;
-  const badgeY = curY;
   const badgeW = rightW;
-  const badgeH = 52;
 
   ctx.strokeStyle = '#000000';
   ctx.lineWidth = 2.2;
@@ -189,30 +227,26 @@ export async function renderMhtLabelCanvas({
   ctx.font = `900 ${codeFontSize}px "Courier New", monospace`;
   ctx.fillText(displayCode, badgeX + badgeW / 2, badgeY + badgeH / 2);
 
-  // 3. Tannarx (dollar belgisisiz, kattaroq USD raqami)
-  curY = badgeY + badgeH + 32;
+  // 3. Tannarx (maxfiy kod, masalan T90M yoki M478T - pastroqqa surilgan)
   if (costStr) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#000000';
-    let costFontSize = 30;
+    let costFontSize = 28;
     ctx.font = `900 ${costFontSize}px "Courier New", monospace`;
     while (ctx.measureText(costStr).width > rightW && costFontSize > 18) {
       costFontSize -= 1;
       ctx.font = `900 ${costFontSize}px "Courier New", monospace`;
     }
-    ctx.fillText(costStr, rightX, curY);
-    curY += 34;
-  } else {
-    curY += 14;
+    ctx.fillText(costStr, rightX, 246);
   }
 
-  // 4. Sana
+  // 4. Sana (pastki qismda)
   ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = '#000000';
   ctx.font = '700 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
-  ctx.fillText(`Sana: ${displayDate}`, rightX, curY);
+  ctx.fillText(`Sana: ${displayDate}`, rightX, 296);
 
   return canvas;
 }
@@ -505,6 +539,8 @@ export class MhtBluetoothClient {
         date: item.date || item.received_at || '',
         code: item.code || item.qr_code || '',
         costUsd: item.cost_usd || item.unit_cost_usd || item.costUsd || item.cost_price_usd || '',
+        cost: item.cost || item.unit_cost || item.cost_price || '',
+        currency: item.currency || '',
         qrPayload: item.qrPayload || '',
         storefrontUrl: options.storefrontUrl || '',
       });

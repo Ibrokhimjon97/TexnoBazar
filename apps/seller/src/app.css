@@ -34,7 +34,7 @@ body{background:#dfe4ea}.seller-shell{max-width:820px;margin:auto;min-height:100
 
 /* Unified seller polish, dark theme and touch-safe responsive layer */
 body{background:radial-gradient(circle at 50% 0,#edf1f6,#dce2e9)}.seller-shell{background:var(--bg);box-shadow:0 24px 80px rgba(15,23,42,.16)}.seller>header{background:rgba(255,255,255,.9);backdrop-filter:blur(18px) saturate(135%)}.pos-real-kpis article,.pos-real-kpi-wide,.pos-real-pending button,.pos-real-sales button,.pos-real-unit,.pos-real-cart article,.pos-real-payment,.pos-real-totals,.pos-real-notes,.profile-tabs,.profile-avatar-section,.profile-details,.profile-form,.salary-history{background:var(--surface);border-color:var(--border);box-shadow:var(--shadow-sm)}.pos-real-pending button,.pos-real-sales button,.pos-real-unit{transition:transform .18s ease,border-color .18s ease,box-shadow .18s ease}.pos-real-pending button:hover,.pos-real-sales button:hover,.pos-real-unit:hover{transform:translateY(-2px);border-color:rgba(249,115,22,.4);box-shadow:var(--shadow)}.pos-real-scan-cta{box-shadow:0 14px 30px rgba(249,115,22,.25);transition:transform .2s ease,box-shadow .2s ease}.pos-real-scan-cta:hover{transform:translateY(-2px);box-shadow:0 18px 38px rgba(249,115,22,.34)}
-html[data-theme="dark"] body{background:#070d17}html[data-theme="dark"] .seller>header,html[data-theme="dark"] .pos-real-nav{background:rgba(17,28,44,.96);border-color:var(--border)}html[data-theme="dark"] .pos-real-code,html[data-theme="dark"] .pos-real-search,html[data-theme="dark"] .receipt-delivery-status,html[data-theme="dark"] .salary-card,html[data-theme="dark"] .profile-avatar-upload{background:var(--surface-2);border-color:var(--border)}html[data-theme="dark"] .pos-real-prices{background:var(--surface-2)}html[data-theme="dark"] .profile-row{border-color:var(--border)}html[data-theme="dark"] .salary-month-picker button:hover{background:var(--surface-2)}
+html[data-theme="dark"] body{background:#070d17}html[data-theme="dark"] .seller>header,html[data-theme="dark"] .pos-real-nav{background:rgba(17,28,44,.96);border-color:var(--border)}html[data-theme="dark"] .pos-real-code,html[data-theme="dark"] .pos-real-search,html[data-theme="dark"] .receipt-delivery-status,html[data-theme="dark"] .salary-card,html[data-theme="dark"] .profile-avatar-upload{background:var(--surface-2);border-color:var(--border)}html[data-theme="dark"] .pos-real-prices,html[data-theme="dark"] .pos-unit-context-prices{background:var(--surface-2);border:1px solid var(--border)}html[data-theme="dark"] .pos-unit-context-prices b,html[data-theme="dark"] .pos-masked-price b{color:var(--text)}html[data-theme="dark"] .pos-unit-price-cost-cell:hover{background:rgba(255,255,255,.06)}html[data-theme="dark"] .profile-row{border-color:var(--border)}html[data-theme="dark"] .salary-month-picker button:hover{background:var(--surface-2)}
 .seller>header>div:first-child,.pos-real-title>div,.pos-real-unit>div,.pos-real-cart-head>div,.profile-avatar-name{min-width:0}.seller>header b,.pos-real-unit b,.pos-real-pending b,.pos-real-sales b,.profile-row b,.salary-item b{overflow-wrap:anywhere}.pos-real-payment-row>*,.pos-real-line-grid>*{min-width:0}
 @media(min-width:640px){.pos-real-workspace{padding:22px}.pos-real-kpis{grid-template-columns:repeat(4,minmax(0,1fr))}}
 @media(max-width:640px){.seller{padding-bottom:calc(76px + env(safe-area-inset-bottom))}.seller>header{padding-inline:12px}.seller>header>div:first-child{flex:1}.seller>header b{max-width:38vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.seller>header .theme-toggle{margin-left:auto}.pos-real-nav{height:calc(68px + env(safe-area-inset-bottom));padding-bottom:env(safe-area-inset-bottom);backdrop-filter:blur(18px)}.pos-real-workspace{padding-inline:10px}.pos-real-title{gap:10px}.pos-real-title>*{min-width:0}.pos-real-kpi-wide{min-width:0}.profile-row{gap:12px}.profile-row b{text-align:right}.receipt-delivery label{min-width:0}}
@@ -49,11 +49,20 @@ html[data-theme="dark"] body{background:#070d17}html[data-theme="dark"] .seller>
 .pos-unit-context-head b,.pos-unit-context-head small{display:block;overflow-wrap:anywhere}
 .pos-unit-context-head small{color:var(--muted);font-size:10px}
 .pos-unit-context-link{flex:0 0 auto;font-size:11px;padding:6px 10px}
-.pos-unit-context-prices{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;background:#f8fafc;border-radius:11px;padding:11px}
+.pos-unit-context-prices{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;background:#f8fafc;border-radius:11px;padding:11px}
 .pos-unit-context-prices span{display:flex;flex-direction:column;gap:2px}
 .pos-unit-context-prices small{color:var(--muted);font-size:9px}
 .pos-unit-context-prices b{font-size:13px;color:var(--navy)}
 .pos-unit-context-prices em{font-style:normal;color:var(--orange);font-size:10px;font-weight:700}
+.pos-masked-price{display:inline-flex;align-items:center;gap:4px;border:0;background:none;padding:0;cursor:pointer;color:inherit;text-align:left;font:inherit}
+.pos-masked-price b{font-size:13px;color:var(--navy)}
+.pos-masked-price svg{color:var(--muted);flex-shrink:0}
+.pos-unit-price-cost-cell{cursor:pointer;user-select:none;border-radius:6px;transition:background-color .15s}
+.pos-unit-price-cost-cell:hover{background:rgba(0,0,0,.04)}
+.pos-unit-price-cost-cell small svg{color:var(--muted)}
+.pos-masked-price-inline{border:0;background:none;padding:0 3px;cursor:pointer;font:inherit;color:inherit;display:inline-flex;align-items:center;gap:3px;border-radius:4px}
+.pos-masked-price-inline:hover{background:rgba(0,0,0,.06)}
+.pos-masked-price-inline b{letter-spacing:.08em}
 .pos-unit-context-stock{display:flex;gap:16px;font-size:12px;color:var(--navy)}
 .pos-unit-context-stock svg{color:var(--orange);vertical-align:middle;margin-right:4px}
 .pos-unit-context-branches{background:#fff7ed;border-radius:10px;padding:9px 11px;font-size:11px}
@@ -108,8 +117,8 @@ html[data-theme="dark"] body{background:#070d17}html[data-theme="dark"] .seller>
 .pos-relocate-item b,.pos-relocate-item small{overflow-wrap:anywhere}
 .pos-relocate-item small{color:var(--muted);font-size:10px}
 
-@media(max-width:480px){
-  .pos-unit-context-prices{grid-template-columns:1fr 1fr}
+@media(max-width:640px){
+  .pos-unit-context-prices{grid-template-columns:1fr 1fr;gap:8px 12px}
   .pos-unit-context-actions{grid-template-columns:1fr}
   .pos-unit-context-head{flex-direction:column;align-items:stretch}
   .pos-unit-context-link{align-self:flex-start}

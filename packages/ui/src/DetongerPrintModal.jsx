@@ -212,6 +212,8 @@ export function DetongerPrintModal({
     const date = item.date || item.received_at || receiptDate || new Date().toLocaleDateString('uz-UZ');
     const code = item.code || item.qr_code || '';
     const costUsd = item.cost_usd || item.unit_cost_usd || item.costUsd || item.cost_price_usd || '';
+    const cost = item.cost || item.unit_cost || item.cost_price || '';
+    const currency = item.currency || '';
     const qrPayload = item.qrPayload || '';
 
     if (selectedPrinter === 'mht') {
@@ -222,6 +224,8 @@ export function DetongerPrintModal({
         date,
         code,
         costUsd,
+        cost,
+        currency,
         qrPayload,
         width: MHT_CANVAS_WIDTH_PX,
         height: MHT_CANVAS_HEIGHT_PX,
@@ -245,6 +249,8 @@ export function DetongerPrintModal({
         date,
         code,
         costUsd,
+        cost,
+        currency,
         qrPayload,
         labelSize,
         width: sizeConfig.widthPx,

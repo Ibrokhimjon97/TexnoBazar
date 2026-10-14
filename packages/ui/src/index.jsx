@@ -4,6 +4,7 @@ export {AiChat} from './AiChat.jsx';
 export {ColorVariantEditor, BASE_COLOR_PALETTE} from './ColorVariantEditor.jsx';
 export {ProductExcelImportModal} from './ProductExcelImportModal.jsx';
 export {ProductEditor} from './ProductEditor.jsx';
+export {SearchableCategoryPicker, SearchableBrandPicker, saveStoredRecent, RECENT_CATS_KEY, RECENT_BRANDS_KEY} from './CategoryBrandPickers.jsx';
 export * from './thermalReceipt.jsx';
 export * from './detongerBluetooth.js';
 export * from './mhtBluetooth.js';
