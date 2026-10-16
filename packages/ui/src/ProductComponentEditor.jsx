@@ -36,6 +36,7 @@ export function ProductComponentEditor({ components = [], onChange, rate }) {
       imageFile: null,
       previewUrl: null,
       currency: 'UZS',
+      quantity: 1,
     };
     if (typeof onChange === 'function') {
       onChange(prev => {
@@ -293,6 +294,29 @@ function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
           placeholder="Rangi (masalan: Yong‘oq, Oq, Qizil)"
           style={{ flex: '1 1 140px' }}
         />
+
+        {/* Quantity (Soni) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: '#f8fafc', padding: '2px 8px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted, #64748b)' }}>Soni:</span>
+          <input
+            className="input"
+            type="number"
+            min="1"
+            value={component.quantity !== undefined && component.quantity !== null ? component.quantity : 1}
+            onChange={e => {
+              const val = e.target.value;
+              set('quantity', val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
+            }}
+            onBlur={() => {
+              if (!component.quantity || Number(component.quantity) < 1) {
+                set('quantity', 1);
+              }
+            }}
+            style={{ width: 60, padding: '2px 4px', textAlign: 'center', fontWeight: 700, height: 28 }}
+            title="Ushbu tarkibiy qism soni (dona)"
+          />
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>dona</span>
+        </div>
 
         {/* Toggle URL input */}
         <button

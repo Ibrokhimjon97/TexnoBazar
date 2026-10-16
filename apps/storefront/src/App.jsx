@@ -149,6 +149,7 @@ const adaptProduct = raw => {
       isRequired: Boolean(c.is_required ?? c.isRequired),
       canBuyStandalone: (c.can_buy_standalone ?? c.canBuyStandalone) !== false,
       imageUrl: c.image_url || c.imageUrl || null,
+      quantity: Math.max(1, numberOf(c.quantity) || 1),
       sortOrder: numberOf(c.sort_order ?? c.sortOrder),
     })),
   };
@@ -1800,7 +1801,7 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
                         />
                       )}
                       <span style={{ fontSize: 13, fontWeight: isChecked ? 600 : 400, color: '#1e293b' }}>
-                        {comp.name} {comp.colorName ? `(${comp.colorName})` : ''}
+                        {comp.name} {comp.quantity > 1 ? `(${comp.quantity} dona)` : ''} {comp.colorName ? `· ${comp.colorName}` : ''}
                       </span>
                       {comp.isRequired && (
                         <span style={{ fontSize: 10, background: '#fee2e2', color: '#b91c1c', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>

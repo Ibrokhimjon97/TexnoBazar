@@ -1,12 +1,12 @@
 import React,{useEffect,useMemo,useRef,useState}from'react';
 import{createPortal}from'react-dom';
-import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,Camera,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
-import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal,formatSecretCostCode}from'@texnobazar/ui';
+import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,Camera,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Layers,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
+import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,ProductComponentEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal,formatSecretCostCode}from'@texnobazar/ui';
 import QRCode from'qrcode';
 import RichTextEditor from'./RichTextEditor';
 import{CreateProductInline}from'./InventoryRegisterModal';
 import InventoryExcelImportModal from'./InventoryExcelImportModal';
-import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia,exportBatchesBackup,exportReceiptBackup,inspectBatchesBackupFile,restoreBatchesBackupFile}from'@texnobazar/data';
+import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia,exportBatchesBackup,exportReceiptBackup,inspectBatchesBackupFile,restoreBatchesBackupFile,saveProductComponents,getProductComponents}from'@texnobazar/data';
 const err=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 // Visual marker only: INV-* kirimlar inventarizatsiya orqali ro‘yxatga olingan,
 // qolganlari esa oddiy yetkazib berish partiyasi.
@@ -2983,7 +2983,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     priceConfirmed:false,
     variants:[],
     variantConfigs:{},
-    variantImageFiles:[]
+    variantImageFiles:[],
+    components:[]
   }]);
   const[busy,setBusy]=useState(false),[error,setError]=useState('');
   const[showCreateProduct,setShowCreateProduct]=useState(false);
@@ -3087,7 +3088,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
       priceConfirmed:false,
       variants:product?.variants || [],
       variantConfigs:{},
-      variantImageFiles:[]
+      variantImageFiles:[],
+      components:[]
     };
     setLines(lines.map((x,j)=>j===i?initialLine:x));
     if(!productId)return;
@@ -3101,11 +3103,37 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
           media: sortedMedia
         };
       });
+
+      let loadedComps = [];
+      try {
+        const { data: dbComps } = await getBrowserClient()
+          .from('product_components')
+          .select('*')
+          .eq('product_id', productId)
+          .eq('is_active', true)
+          .order('sort_order');
+        loadedComps = (dbComps || []).map(c => ({
+          ...c,
+          quantity: c.quantity || 1,
+          cost_price: c.cost_price != null ? String(c.cost_price) : '',
+          cost_price_usd: c.cost_price_usd != null ? Number(c.cost_price_usd) : '',
+          retail_price: c.retail_price != null ? String(c.retail_price) : '',
+          retail_price_usd: c.retail_price_usd != null ? Number(c.retail_price_usd) : '',
+          wholesale_price: c.wholesale_price != null ? String(c.wholesale_price) : '',
+          wholesale_price_usd: c.wholesale_price_usd != null ? Number(c.wholesale_price_usd) : '',
+          image_url: c.image_url || null,
+          imageFile: null,
+          previewUrl: c.image_url || null
+        }));
+      } catch (cErr) {
+        console.warn('Components load error:', cErr);
+      }
+
       setLines(current=>current.map((x,j)=>{
         if (x.product_id === productId) {
-          return { ...x, variants: loadedVariants };
+          return { ...x, variants: loadedVariants, components: loadedComps };
         }
-        return j===i ? { ...x, variants: loadedVariants } : x;
+        return j===i ? { ...x, variants: loadedVariants, components: loadedComps } : x;
       }));
     }catch{/* variantsiz mahsulot */}
   };
@@ -3137,7 +3165,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         serials: '',
         variants: lastLineWithProduct.variants || [],
         variantConfigs: {},
-        variantImageFiles: []
+        variantImageFiles: [],
+        components: (lastLineWithProduct.components || []).map(c => ({ ...c }))
       }
     ]);
   };
@@ -3163,7 +3192,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         priceConfirmed: false,
         variants: [],
         variantConfigs: {},
-        variantImageFiles: []
+        variantImageFiles: [],
+        components: []
       }
     ]);
   };
@@ -3373,6 +3403,82 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         });
       }
 
+      // Agar qatorlardagi tovarlar modulli / tarkibiy qismlarga ega bo'lsa, ularni saqlaymiz
+      const savedCompProductIds = new Set();
+      for (const line of lines) {
+        if (!line.product_id || savedCompProductIds.has(line.product_id)) continue;
+        savedCompProductIds.add(line.product_id);
+
+        if (Array.isArray(line.components)) {
+          try {
+            const compsPayload = [];
+            for (let cIdx = 0; cIdx < line.components.length; cIdx++) {
+              const c = line.components[cIdx];
+              let cImageUrl = c.image_url || null;
+              if (c.imageFile) {
+                try {
+                  const product = refs.products.find(p => p.id === line.product_id);
+                  const compLabel = `${product?.name || 'Mahsulot'} qismi: ${c.name || 'Qism'}`;
+                  const uploadRes = await uploadProductMedia(line.product_id, c.imageFile, compLabel, null);
+                  if (uploadRes?.publicUrl || uploadRes?.url) {
+                    cImageUrl = uploadRes.publicUrl || uploadRes.url;
+                  }
+                } catch (cImgErr) {
+                  console.warn('Modul qismi rasmini yuklashda xatolik:', cImgErr);
+                }
+              }
+
+              let cCost = Number(c.cost_price) || 0;
+              let cRetail = Number(c.retail_price) || 0;
+              let cWholesale = Number(c.wholesale_price) || 0;
+              let cCostUsd = c.cost_price_usd !== undefined && c.cost_price_usd !== '' && c.cost_price_usd !== null ? Number(c.cost_price_usd) : null;
+              let cRetailUsd = c.retail_price_usd !== undefined && c.retail_price_usd !== '' && c.retail_price_usd !== null ? Number(c.retail_price_usd) : null;
+              let cWholesaleUsd = c.wholesale_price_usd !== undefined && c.wholesale_price_usd !== '' && c.wholesale_price_usd !== null ? Number(c.wholesale_price_usd) : null;
+
+              if (line.currency === 'USD') {
+                if (cCostUsd == null && cCost > 0) cCostUsd = cCost < 20000 ? cCost : (rate ? Number((cCost / rate).toFixed(2)) : cCost);
+                if (cRetailUsd == null && cRetail > 0) cRetailUsd = cRetail < 20000 ? cRetail : (rate ? Number((cRetail / rate).toFixed(2)) : cRetail);
+                if (cWholesaleUsd == null && cWholesale > 0) cWholesaleUsd = cWholesale < 20000 ? cWholesale : (rate ? Number((cWholesale / rate).toFixed(2)) : cWholesale);
+                if (rate && cCostUsd != null && cCostUsd > 0) cCost = Math.round(cCostUsd * rate);
+                if (rate && cRetailUsd != null && cRetailUsd > 0) cRetail = Math.round(cRetailUsd * rate);
+                if (rate && cWholesaleUsd != null && cWholesaleUsd > 0) cWholesale = Math.round(cWholesaleUsd * rate);
+              } else {
+                cCost = Math.round(cCost);
+                cRetail = Math.round(cRetail);
+                cWholesale = Math.round(cWholesale);
+                if (rate && cCost > 0 && cCostUsd == null) cCostUsd = Number((cCost / rate).toFixed(2));
+                if (rate && cRetail > 0 && cRetailUsd == null) cRetailUsd = Number((cRetail / rate).toFixed(2));
+                if (rate && cWholesale > 0 && cWholesaleUsd == null) cWholesaleUsd = Number((cWholesale / rate).toFixed(2));
+              }
+
+              compsPayload.push({
+                ...(c.id && !String(c.id).startsWith('temp_') ? { id: c.id } : {}),
+                name: c.name?.trim() || `Qism ${cIdx + 1}`,
+                color_name: c.color_name || null,
+                color_hex: c.color_hex || null,
+                quantity: Math.max(1, Number(c.quantity) || 1),
+                cost_price: cCost,
+                cost_price_usd: cCostUsd,
+                retail_price: cRetail,
+                retail_price_usd: cRetailUsd,
+                wholesale_price: cWholesale,
+                wholesale_price_usd: cWholesaleUsd,
+                is_default: c.is_default !== false,
+                is_required: Boolean(c.is_required),
+                can_buy_standalone: c.can_buy_standalone !== false,
+                sort_order: cIdx,
+                image_url: cImageUrl
+              });
+            }
+            if (compsPayload.length > 0) {
+              await saveProductComponents(line.product_id, compsPayload);
+            }
+          } catch (compErr) {
+            console.warn('Inventarizatsiyada qismlarni saqlash xatoligi:', compErr);
+          }
+        }
+      }
+
       if (isInventory && form.receiving_location_id) {
         try {
           localStorage.setItem('tb_last_inventory_loc_' + branchId, form.receiving_location_id);
@@ -3390,7 +3496,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
       }, payloadLines);
 
       setLines([{
-        product_id:'',color_name:'',variant_id:'',quantity:1,unit_cost:'',unit_cost_usd:'',serials:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',minimum_sale_price:'',minimum_sale_price_usd:'',priceConfirmed:false,variants:[],variantConfigs:{},variantImageFiles:[]
+        product_id:'',color_name:'',variant_id:'',quantity:1,unit_cost:'',unit_cost_usd:'',serials:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',minimum_sale_price:'',minimum_sale_price_usd:'',priceConfirmed:false,variants:[],variantConfigs:{},variantImageFiles:[],components:[]
       }]);
       await created(createdRes);
     }catch(e){
@@ -3400,7 +3506,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     }
   };
 
-  const onProductCreatedFromForm=async(newProdForm,images=[],variants=[])=>{
+  const onProductCreatedFromForm=async(newProdForm,images=[],variants=[],components=[])=>{
     const client=getBrowserClient();
     const slug=newProdForm.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+Date.now().toString(36);
     const prodCurrency = newProdForm.currency || (newProdForm.retail_price_usd && Number(newProdForm.retail_price_usd) > 0 ? 'USD' : 'UZS');
@@ -3471,6 +3577,46 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
           }
         }
       }catch{}
+    }
+    if (Array.isArray(components) && components.length > 0) {
+      try {
+        const compsPayload = [];
+        for (let cIdx = 0; cIdx < components.length; cIdx++) {
+          const c = components[cIdx];
+          let cImageUrl = c.image_url || null;
+          if (c.imageFile) {
+            try {
+              const compLabel = `${newProdForm.name.trim()} qismi: ${c.name || 'Qism'}`;
+              const uploadRes = await uploadProductMedia(data.id, c.imageFile, compLabel, null);
+              if (uploadRes?.publicUrl || uploadRes?.url) {
+                cImageUrl = uploadRes.publicUrl || uploadRes.url;
+              }
+            } catch (cImgErr) {
+              console.warn('Inline new component image upload error:', cImgErr);
+            }
+          }
+          compsPayload.push({
+            name: c.name?.trim() || `Qism ${cIdx + 1}`,
+            color_name: c.color_name || null,
+            color_hex: c.color_hex || null,
+            quantity: Math.max(1, Number(c.quantity) || 1),
+            cost_price: Number(c.cost_price) || 0,
+            cost_price_usd: c.cost_price_usd !== undefined && c.cost_price_usd !== '' && c.cost_price_usd !== null ? Number(c.cost_price_usd) : null,
+            retail_price: Number(c.retail_price) || 0,
+            retail_price_usd: c.retail_price_usd !== undefined && c.retail_price_usd !== '' && c.retail_price_usd !== null ? Number(c.retail_price_usd) : null,
+            wholesale_price: Number(c.wholesale_price) || 0,
+            wholesale_price_usd: c.wholesale_price_usd !== undefined && c.wholesale_price_usd !== '' && c.wholesale_price_usd !== null ? Number(c.wholesale_price_usd) : null,
+            is_default: c.is_default !== false,
+            is_required: Boolean(c.is_required),
+            can_buy_standalone: c.can_buy_standalone !== false,
+            sort_order: cIdx,
+            image_url: cImageUrl
+          });
+        }
+        await saveProductComponents(data.id, compsPayload);
+      } catch (compErr) {
+        console.warn('Inline new product components save error:', compErr);
+      }
     }
     setRefs(prev=>({...prev,products:[...prev.products,data]}));
     setShowCreateProduct(false);
@@ -3871,6 +4017,11 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
             <Camera size={12}/> {line.variantImageFiles?.length > 0 ? `${line.variantImageFiles.length} ta yangi rasm` : 'Rasmi bor'}
           </span>
         )}
+        {Array.isArray(line.components) && line.components.length > 0 && (
+          <span style={{background:'#fef3c7',color:'#92400e',border:'1px solid #fde68a',padding:'1px 8px',borderRadius:12,fontSize:11,fontWeight:700,display:'inline-flex',alignItems:'center',gap:4}}>
+            <Layers size={12}/> {line.components.length} ta tarkibiy qism ({line.components.reduce((sum, c) => sum + (Number(c.quantity) || 1), 0)} dona)
+          </span>
+        )}
       </div>
       {removeLine && (
         <button
@@ -4246,6 +4397,25 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
           <span>Seriya raqamlari (ixtiyoriy, har satrda bittadan)</span>
           <textarea className="textarea" value={line.serials} onChange={e=>setLine(index,'serials',e.target.value)} placeholder={`Agar kiritilsa, aynan ${line.quantity} ta bo'lishi kerak`}/>
         </label>
+
+        {/* Ko'p qismli tovar / Tarkibiy va qo'shimcha qismlar (Modulli tovar) */}
+        <div className="wide" style={{ marginTop: 14, paddingTop: 14, borderTop: '1px dashed var(--line, #cbd5e1)' }}>
+          <ProductComponentEditor
+            components={line.components || []}
+            onChange={updated => {
+              const nextComps = typeof updated === 'function' ? updated(line.components || []) : updated;
+              setLine(index, 'components', nextComps);
+            }}
+            rate={rate}
+          />
+          {Array.isArray(line.components) && line.components.length > 0 && (
+            <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', background: '#f8fafc', padding: '10px 14px', borderRadius: 8, fontSize: 12, color: 'var(--muted, #64748b)', marginTop: 8, border: '1px solid #e2e8f0' }}>
+              <span>Jami tarkibiy qismlar: <b style={{ color: '#1e293b' }}>{line.components.reduce((sum, c) => sum + (Number(c.quantity) || 1), 0)} dona</b> ({line.components.length} xil qism)</span>
+              <span>Qismlar umumiy tannarxi: <b style={{ color: '#1e293b' }}>{formatDualMoney(line.components.reduce((sum, c) => sum + ((Number(c.cost_price) || 0) * (Number(c.quantity) || 1)), 0), rate)}</b></span>
+              <span>Qismlar umumiy sotish narxi: <b style={{ color: '#1e293b' }}>{formatDualMoney(line.components.reduce((sum, c) => sum + ((Number(c.retail_price) || 0) * (Number(c.quantity) || 1)), 0), rate)}</b></span>
+            </div>
+          )}
+        </div>
       </>
     )}
   </div>;

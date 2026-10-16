@@ -139,6 +139,7 @@ export default function CreateProductModal({open,close,branchId,created}){
           can_buy_standalone:c.can_buy_standalone!==false,
           image_url:(c.image_url&&!c.image_url.startsWith('blob:'))?c.image_url:null,
           sort_order:idx,
+          quantity: Math.max(1, Number(c.quantity) || 1),
           is_active:true
         }));
         try{
