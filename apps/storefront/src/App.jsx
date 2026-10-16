@@ -250,8 +250,9 @@ const parseRoute = () => {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
   const searchParams = new URLSearchParams(window.location.search);
   const cardId = searchParams.get('id') || null;
+  const variantParam = searchParams.get('variant') || searchParams.get('variant_id') || searchParams.get('color') || null;
   if (path.startsWith('/qr/')) return { view: 'qr', code: decodeURIComponent(path.slice(4)) };
-  if (path.startsWith('/product/')) return { view: 'product', slug: decodeURIComponent(path.slice(9)), cardId };
+  if (path.startsWith('/product/')) return { view: 'product', slug: decodeURIComponent(path.slice(9)), cardId, variantParam };
   if (path.startsWith('/category/')) return { view: 'category', slug: decodeURIComponent(path.slice(10)) };
   if (path.startsWith('/page/')) return { view: 'page', slug: decodeURIComponent(path.slice(6)) };
   if (path.startsWith('/block/')) return { view: 'block', blockId: decodeURIComponent(path.slice(7)) };
@@ -262,7 +263,11 @@ const routePath = (view, product) => {
   if (view === 'home') return '/';
   if (view === 'product') {
     const slug = encodeURIComponent(product?.slug || '');
-    return product?.id && String(product.id).includes('_') ? `/product/${slug}?id=${encodeURIComponent(product.id)}` : `/product/${slug}`;
+    const params = new URLSearchParams();
+    if (product?.id && String(product.id).includes('_')) params.set('id', product.id);
+    if (product?.selectedVariantId) params.set('variant', product.selectedVariantId);
+    const qs = params.toString();
+    return qs ? `/product/${slug}?${qs}` : `/product/${slug}`;
   }
   return ['category','page'].includes(view) ? `/${view}/${encodeURIComponent(product?.slug || '')}` : view === 'block' ? `/block/${encodeURIComponent(product?.blockId || '')}` : `/${view}`;
 };
@@ -721,7 +726,7 @@ export default function App() {
         </>
       )}
       {route.view === 'catalog' && <ServerCatalog {...{ go, add, toggleFavorite, favorites, query, setQuery, references, navigateTarget }} cmsBanners={safeArray(cms.banners)} onItemsLoaded={mergeCatalogProducts}/>} 
-      {route.view === 'product' && (selected ? <Product product={selected} {...{ go, add, toggleFavorite, favorites, session, setToast, setAuthOpen }} loved={favorites.includes(selected.id)} related={(() => { const others = catalog.filter(item => item.id !== selected.id); const sameCat = others.filter(item => item.categoryId && item.categoryId === selected.categoryId); if (sameCat.length >= 5) return sameCat.slice(0, 50); const sameBrand = others.filter(item => item.categoryId && item.categoryId === selected.categoryId || (item.brandId && item.brandId === selected.brandId)); return sameBrand.length > sameCat.length ? sameBrand.slice(0, 50) : sameCat.slice(0, 50); })()}/> : <StatePanel loading={detailState.loading||catalogState.loading} error={detailState.error||catalogState.error} onRetry={()=>loadStorefrontProduct(route.slug).then(raw=>raw&&mergeCatalogProducts([raw]))} title="Mahsulot topilmadi"/>)}
+      {route.view === 'product' && (selected ? <Product product={selected} route={route} {...{ go, add, toggleFavorite, favorites, session, setToast, setAuthOpen }} loved={favorites.includes(selected.id)} related={(() => { const others = catalog.filter(item => item.id !== selected.id); const sameCat = others.filter(item => item.categoryId && item.categoryId === selected.categoryId); if (sameCat.length >= 5) return sameCat.slice(0, 50); const sameBrand = others.filter(item => item.categoryId && item.categoryId === selected.categoryId || (item.brandId && item.brandId === selected.brandId)); return sameBrand.length > sameCat.length ? sameBrand.slice(0, 50) : sameCat.slice(0, 50); })()}/> : <StatePanel loading={detailState.loading||catalogState.loading} error={detailState.error||catalogState.error} onRetry={()=>loadStorefrontProduct(route.slug).then(raw=>raw&&mergeCatalogProducts([raw]))} title="Mahsulot topilmadi"/>)}
       {route.view === 'category' && (selectedCategory ? <CategoryLanding key={selectedCategory.id} category={selectedCategory} {...{go,add,toggleFavorite,favorites,query,setQuery,references,navigateTarget}} cmsBanners={safeArray(cms.banners)} onItemsLoaded={mergeCatalogProducts}/> : <StatePanel loading={catalogState.loading} error={catalogState.error} onRetry={loadCatalog} title="Kategoriya topilmadi"/>)}
       {route.view === 'page' && (selectedPage ? <CmsPage page={selectedPage}/> : <StatePanel loading={cmsState.loading} error={cmsState.error} onRetry={loadCms} title="Sahifa topilmadi"/>)}
       {route.view === 'block' && <HomeBlockPage blockId={route.blockId} blocks={safeArray(cms.home_blocks)} catalog={catalog} references={references} {...{go,add,toggleFavorite,favorites}} loading={cmsState.loading||catalogState.loading}/>}
@@ -1385,12 +1390,15 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
       try {
         const client = getBrowserClient();
         let targetSlug = null;
-        let variantId = null;
+        let variantId = undefined;
+        let colorName = null;
 
         // 1. Resolve QR code via RPC
         const { data: rpcData, error: rpcError } = await client.rpc('resolve_qr_for_storefront', { p_code: code });
         if (!rpcError && rpcData?.slug) {
           targetSlug = rpcData.slug;
+          variantId = rpcData.variant_id ?? null;
+          colorName = rpcData.color_name || rpcData.variant_color || null;
         } else {
           // Fallback direct lookup
           const { data: fallbackUnit } = await client
@@ -1402,7 +1410,7 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
 
           if (fallbackUnit?.products?.slug) {
             targetSlug = fallbackUnit.products.slug;
-            variantId = fallbackUnit.variant_id;
+            variantId = fallbackUnit.variant_id ?? null;
           }
         }
 
@@ -1425,10 +1433,29 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
         }
         mergeCatalogProducts?.([adapted]);
         setState({ loading: false, error: '', product: adapted });
+
+        // 3. Find matching variant based on scanned unit
+        let matchedVariant = null;
+        const variantsList = safeArray(adapted.variants);
+
         if (variantId) {
-          setSelectedVariantId(String(variantId));
-        } else if (adapted.variants?.length) {
-          setSelectedVariantId(String(adapted.variants[0].id));
+          matchedVariant = variantsList.find(v => String(v.id) === String(variantId));
+        } else if (variantId === null) {
+          // Scanned unit has variant_id IS NULL (standard variant)
+          matchedVariant = variantsList.find(v => v.id === 'standard' || ['standart', 'standard', 'baza', 'asosiy'].includes(v.colorName?.toLowerCase().trim()));
+        }
+
+        // Fallback by colorName if matching by ID didn't succeed
+        if (!matchedVariant && colorName) {
+          matchedVariant = variantsList.find(v => v.colorName?.toLowerCase().trim() === colorName.toLowerCase().trim());
+        }
+
+        if (matchedVariant) {
+          setSelectedVariantId(String(matchedVariant.id));
+        } else if (variantsList.length > 0) {
+          setSelectedVariantId(String(variantsList[0].id));
+        } else {
+          setSelectedVariantId(null);
         }
         setSelectedCompIds(new Set((adapted.components || []).filter(c => c.isDefault || c.isRequired).map(c => c.id)));
       } catch (err) {
@@ -1792,13 +1819,14 @@ function ProductReviews({ productId, session, setToast, setAuthOpen }) {
   </div>;
 }
 
-function Product({ product, go, add, toggleFavorite, loved, related, favorites, session, setToast, setAuthOpen }) {
+function Product({ product, go, add, toggleFavorite, loved, related, favorites, session, setToast, setAuthOpen, route }) {
   const variants = product.variants || [];
   const priceTiers = product.priceTiers || [];
   const components = product.components || [];
 
-  const initialVariantId = (product.selectedVariantId && variants.some(v => String(v.id) === String(product.selectedVariantId)))
-    ? product.selectedVariantId
+  const targetVariantVal = product.selectedVariantId || route?.variantParam || null;
+  const initialVariantId = (targetVariantVal && variants.some(v => String(v.id) === String(targetVariantVal) || v.colorName?.toLowerCase().trim() === String(targetVariantVal).toLowerCase().trim()))
+    ? (variants.find(v => String(v.id) === String(targetVariantVal) || v.colorName?.toLowerCase().trim() === String(targetVariantVal).toLowerCase().trim())?.id)
     : (variants[0]?.id || null);
   const [variantId, setVariantId] = useState(initialVariantId);
   const [selectedTierId, setSelectedTierId] = useState(() => {
@@ -1812,7 +1840,11 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
 
   const lastCompKeyRef = useRef('');
   useEffect(() => {
-    setVariantId((product.selectedVariantId && variants.some(v => String(v.id) === String(product.selectedVariantId))) ? product.selectedVariantId : (variants[0]?.id || null));
+    const targetVal = product.selectedVariantId || route?.variantParam || null;
+    const resolvedId = (targetVal && variants.some(v => String(v.id) === String(targetVal) || v.colorName?.toLowerCase().trim() === String(targetVal).toLowerCase().trim()))
+      ? (variants.find(v => String(v.id) === String(targetVal) || v.colorName?.toLowerCase().trim() === String(targetVal).toLowerCase().trim())?.id)
+      : (variants[0]?.id || null);
+    setVariantId(resolvedId);
     setSelectedTierId(product.id && product.id.includes('_') ? product.id : (priceTiers[0]?.id || null));
     const key = `${product.id}:${(product.components || []).length}`;
     if (lastCompKeyRef.current !== key) {
