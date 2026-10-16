@@ -1292,7 +1292,7 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
 function ProductDetailModal({product,close,branchId,rate,onEdit}){
   const[detail,setDetail]=useState(null),[units,setUnits]=useState([]),[media,setMedia]=useState([]),[variants,setVariants]=useState([]),[loading,setLoading]=useState(true),[filterLocation,setFilterLocation]=useState(''),[filterStatus,setFilterStatus]=useState(''),[filterColor,setFilterColor]=useState(''),[unitQuery,setUnitQuery]=useState(''),[editDesc,setEditDesc]=useState(false),[desc,setDesc]=useState(''),[videoUrl,setVideoUrl]=useState(''),[uploading,setUploading]=useState(false);
   useEffect(()=>{loadDetail()},[product]);
-  const loadDetail=async()=>{setLoading(true);try{const client=getBrowserClient();const{data:p}=await client.from('products').select('*,categories(name),brands(name)').eq('id',product.product_id).single();const{data:u}=await client.from('inventory_units').select('id,qr_code,serial_number,status,location_id,variant_id,locations(name,type,branch_id)').eq('product_id',product.product_id).order('created_at',{ascending:false}).limit(500);const{data:m}=await client.from('product_media').select('*').eq('product_id',product.product_id).order('is_primary',{ascending:false}).order('sort_order');const{data:v}=await client.from('product_variants').select('id,color_name,color_hex').eq('product_id',product.product_id);setDetail(p);setUnits((u||[]).filter(x=>x.locations?.branch_id===branchId));setMedia(m||[]);setVariants(v||[]);setDesc(p?.description||'');setVideoUrl(p?.seo_image_url||'')}catch(e){}finally{setLoading(false)}};
+  const loadDetail=async()=>{setLoading(true);try{const client=getBrowserClient();const{data:p}=await client.from('products').select('*,categories(name),brands(name)').eq('id',product.product_id).single();const{data:u}=await client.from('inventory_units').select('id,qr_code,serial_number,status,location_id,variant_id,locations(name,type,branch_id)').eq('product_id',product.product_id).order('created_at',{ascending:false}).limit(500);const{data:m}=await client.from('product_media').select('*').eq('product_id',product.product_id).order('is_primary',{ascending:false}).order('sort_order');const{data:v}=await client.from('product_variants').select('id,color_name,color_hex,cost_price,cost_price_usd,retail_price,retail_price_usd').eq('product_id',product.product_id);setDetail(p);setUnits((u||[]).filter(x=>x.locations?.branch_id===branchId));setMedia(m||[]);setVariants(v||[]);setDesc(p?.description||'');setVideoUrl(p?.seo_image_url||'')}catch(e){}finally{setLoading(false)}};
   const colorById=Object.fromEntries(variants.map(v=>[v.id,v.color_name]));
   const locations=[...new Set(units.map(u=>u.locations?.name).filter(Boolean))];
   const queryLower=unitQuery.trim().toLowerCase();
@@ -1309,9 +1309,10 @@ function ProductDetailModal({product,close,branchId,rate,onEdit}){
   const statusLabels={available:'Sotuvga tayyor',reserved:'Band',sold:'Sotilgan',in_transit:"Yo'lda",returned:'Qaytarilgan',written_off:'Hisobdan chiqarilgan',in_repair:"Ta'mirda"};
   const downloadQR=async(unit)=>{
     const QRCode=await import('qrcode');
+    const matchedVar = variants.find(v => v.id === unit.variant_id);
     const costNumStr = formatSecretCostCode({
-      cost: detail?.cost_price || unit.unit_cost || '',
-      costUsd: unit.unit_cost_usd || detail?.cost_price_usd || '',
+      cost: matchedVar?.cost_price || detail?.cost_price || unit.unit_cost || '',
+      costUsd: matchedVar?.cost_price_usd || unit.unit_cost_usd || detail?.cost_price_usd || '',
       currency: detail?.currency || 'USD'
     });
     const costParam = costNumStr ? '?c=' + encodeURIComponent(costNumStr) : '';
@@ -1323,7 +1324,9 @@ function ProductDetailModal({product,close,branchId,rate,onEdit}){
     ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);
     ctx.strokeStyle='#ddd';ctx.lineWidth=2;ctx.setLineDash([6,4]);ctx.strokeRect(8,8,W-16,H-16);
     ctx.drawImage(qrCanvas,(W-220)/2,30);
-    const price=detail?.retail_price?formatDualMoney(Number(detail.retail_price),rate):formatMoney(0);
+    const varRetailUzs = matchedVar?.retail_price ?? detail?.retail_price;
+    const varRetailUsd = matchedVar?.retail_price_usd ?? detail?.retail_price_usd;
+    const price=varRetailUzs?formatDualMoney(Number(varRetailUzs),rate,varRetailUsd):formatMoney(0);
     ctx.fillStyle='#000';ctx.font='bold 15px sans-serif';ctx.textAlign='center';
     const name=detail?.name||'';
     const colorName=colorById[unit.variant_id]||'';
@@ -3312,6 +3315,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
                   .insert({
                     product_id: line.product_id,
                     color_name: colorName,
+                    cost_price: baseCost || null,
+                    cost_price_usd: baseCostUsd || null,
                     retail_price: baseRetail || null,
                     retail_price_usd: baseRetailUsd || null,
                     wholesale_price: baseWholesale || null,
@@ -3442,7 +3447,17 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     const namedVariants=(variants||[]).filter(v=>v.color_name?.trim());
     if(namedVariants.length){
       try{
-        const variantsPayload=namedVariants.map(v=>({color_name:v.color_name.trim(),color_hex:v.color_hex||null,retail_price:v.retail_price===''?null:Number(v.retail_price),wholesale_price:v.wholesale_price===''?null:Number(v.wholesale_price),is_active:true}));
+        const variantsPayload=namedVariants.map(v=>({
+          color_name:v.color_name.trim(),
+          color_hex:v.color_hex||null,
+          cost_price:v.cost_price===''||v.cost_price==null?null:Number(v.cost_price),
+          cost_price_usd:v.cost_price_usd===''||v.cost_price_usd==null?null:Number(v.cost_price_usd),
+          retail_price:v.retail_price===''||v.retail_price==null?null:Number(v.retail_price),
+          retail_price_usd:v.retail_price_usd===''||v.retail_price_usd==null?null:Number(v.retail_price_usd),
+          wholesale_price:v.wholesale_price===''||v.wholesale_price==null?null:Number(v.wholesale_price),
+          wholesale_price_usd:v.wholesale_price_usd===''||v.wholesale_price_usd==null?null:Number(v.wholesale_price_usd),
+          is_active:true
+        }));
         const{saveProductVariants}=await import('@texnobazar/data');
         const createdVariants=await saveProductVariants(data.id,variantsPayload);
         data.variants=createdVariants;
@@ -3910,8 +3925,12 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
                 setLine(index, {
                   color_name: val,
                   variant_id: matched.id,
+                  unit_cost: matched.cost_price ? String(matched.cost_price) : line.unit_cost,
+                  unit_cost_usd: matched.cost_price_usd ?? line.unit_cost_usd,
                   retail_price: matched.retail_price ? String(matched.retail_price) : line.retail_price,
-                  retail_price_usd: matched.retail_price_usd ?? line.retail_price_usd
+                  retail_price_usd: matched.retail_price_usd ?? line.retail_price_usd,
+                  wholesale_price: matched.wholesale_price ? String(matched.wholesale_price) : line.wholesale_price,
+                  wholesale_price_usd: matched.wholesale_price_usd ?? line.wholesale_price_usd
                 });
               } else {
                 setLine(index, {
@@ -3951,8 +3970,12 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
                     setLine(index, {
                       color_name: v.color_name,
                       variant_id: v.id,
+                      unit_cost: v.cost_price ? String(v.cost_price) : line.unit_cost,
+                      unit_cost_usd: v.cost_price_usd ?? line.unit_cost_usd,
                       retail_price: v.retail_price ? String(v.retail_price) : line.retail_price,
-                      retail_price_usd: v.retail_price_usd ?? line.retail_price_usd
+                      retail_price_usd: v.retail_price_usd ?? line.retail_price_usd,
+                      wholesale_price: v.wholesale_price ? String(v.wholesale_price) : line.wholesale_price,
+                      wholesale_price_usd: v.wholesale_price_usd ?? line.wholesale_price_usd
                     });
                   }}
                 >

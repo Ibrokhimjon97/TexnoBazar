@@ -32,16 +32,34 @@ export const BASE_COLOR_PALETTE = [
  * - rate: valyuta kursi (DualPriceInput uchun)
  * - onRemoveExistingImage(mediaId): mavjud (allaqachon serverга yuklangan) rasmni o'chirish
  */
-function VariantRow({ variant, onChange, onRemove, showQuantity, showWholesale, basePriceHint, rate }) {
-  const set = (key, value) => onChange({ ...variant, [key]: value });
-  const pickPalette = (hex, name) => onChange({ ...variant, color_hex: hex, color_name: variant.color_name || name });
+function VariantRow({ variant, onChange, onRemove, showQuantity, showWholesale, showCost = true, basePriceHint, baseCostHint, rate }) {
+  const set = (key, value) => {
+    onChange(prev => {
+      const current = typeof prev === 'object' && prev !== null ? prev : variant;
+      return { ...current, [key]: value };
+    });
+  };
+  const pickPalette = (hex, name) => {
+    onChange(prev => {
+      const current = typeof prev === 'object' && prev !== null ? prev : variant;
+      return { ...current, color_hex: hex, color_name: current.color_name || name };
+    });
+  };
   const addImages = e => {
     const files = [...(e.target.files || [])];
     if (!files.length) return;
-    onChange({ ...variant, imageFiles: [...(variant.imageFiles || []), ...files] });
+    onChange(prev => {
+      const current = typeof prev === 'object' && prev !== null ? prev : variant;
+      return { ...current, imageFiles: [...(current.imageFiles || []), ...files] };
+    });
     e.target.value = '';
   };
-  const removeNewImage = index => onChange({ ...variant, imageFiles: (variant.imageFiles || []).filter((_, i) => i !== index) });
+  const removeNewImage = index => {
+    onChange(prev => {
+      const current = typeof prev === 'object' && prev !== null ? prev : variant;
+      return { ...current, imageFiles: (current.imageFiles || []).filter((_, i) => i !== index) };
+    });
+  };
 
   return (
     <article className="variant-row card pad">
@@ -96,11 +114,25 @@ function VariantRow({ variant, onChange, onRemove, showQuantity, showWholesale, 
             />
           </label>
         )}
+        {showCost && (
+          <div className="variant-field wide">
+            <DualPriceInput
+              label={`Tan narxi ${baseCostHint ? `(bo'sh = ${baseCostHint})` : '(ixtiyoriy)'}`}
+              valueUzs={variant.cost_price != null ? String(variant.cost_price) : ''}
+              onChangeUzs={v => set('cost_price', v)}
+              valueUsd={variant.cost_price_usd != null ? String(variant.cost_price_usd) : ''}
+              onChangeUsd={v => set('cost_price_usd', v)}
+              rate={rate}
+            />
+          </div>
+        )}
         <div className="variant-field wide">
           <DualPriceInput
             label={`Sotish narxi ${basePriceHint ? `(bo'sh = ${basePriceHint})` : '(ixtiyoriy)'}`}
-            valueUzs={variant.retail_price ?? ''}
+            valueUzs={variant.retail_price != null ? String(variant.retail_price) : ''}
             onChangeUzs={v => set('retail_price', v)}
+            valueUsd={variant.retail_price_usd != null ? String(variant.retail_price_usd) : ''}
+            onChangeUsd={v => set('retail_price_usd', v)}
             rate={rate}
           />
         </div>
@@ -108,8 +140,10 @@ function VariantRow({ variant, onChange, onRemove, showQuantity, showWholesale, 
           <div className="variant-field wide">
             <DualPriceInput
               label="Ulgurji narx (ixtiyoriy)"
-              valueUzs={variant.wholesale_price ?? ''}
+              valueUzs={variant.wholesale_price != null ? String(variant.wholesale_price) : ''}
               onChangeUzs={v => set('wholesale_price', v)}
+              valueUsd={variant.wholesale_price_usd != null ? String(variant.wholesale_price_usd) : ''}
+              onChangeUsd={v => set('wholesale_price_usd', v)}
               rate={rate}
             />
           </div>
@@ -141,14 +175,44 @@ function VariantRow({ variant, onChange, onRemove, showQuantity, showWholesale, 
   );
 }
 
-export function ColorVariantEditor({ variants = [], setVariants, showQuantity = false, showWholesale = true, basePriceHint, rate }) {
+export function ColorVariantEditor({
+  variants = [],
+  setVariants,
+  showQuantity = false,
+  showWholesale = true,
+  showCost = true,
+  basePriceHint,
+  baseCostHint,
+  rate
+}) {
   const [showCustom, setShowCustom] = useState(false);
   const add = () => {
-    setVariants([...variants, { color_name: '', color_hex: '#CCCCCC', retail_price: '', wholesale_price: '', promotion_price: '', minimum_sale_price: '', quantity: '', media: [], imageFiles: [] }]);
+    setVariants(prev => [
+      ...(prev || []),
+      {
+        color_name: '',
+        color_hex: '#CCCCCC',
+        cost_price: '',
+        cost_price_usd: '',
+        retail_price: '',
+        retail_price_usd: '',
+        wholesale_price: '',
+        wholesale_price_usd: '',
+        promotion_price: '',
+        minimum_sale_price: '',
+        quantity: '',
+        media: [],
+        imageFiles: []
+      }
+    ]);
     setShowCustom(false);
   };
-  const update = (index, next) => setVariants(variants.map((v, i) => (i === index ? next : v)));
-  const remove = index => setVariants(variants.filter((_, i) => i !== index));
+  const update = (index, patch) => {
+    setVariants(prev =>
+      (prev || []).map((v, i) => (i === index ? (typeof patch === 'function' ? patch(v) : { ...v, ...patch }) : v))
+    );
+  };
+  const remove = index => setVariants(prev => (prev || []).filter((_, i) => i !== index));
 
   return (
     <section className="attribute-editor color-variant-editor">
@@ -171,7 +235,9 @@ export function ColorVariantEditor({ variants = [], setVariants, showQuantity = 
               onRemove={() => remove(index)}
               showQuantity={showQuantity}
               showWholesale={showWholesale}
+              showCost={showCost}
               basePriceHint={basePriceHint}
+              baseCostHint={baseCostHint}
               rate={rate}
             />
           ))}

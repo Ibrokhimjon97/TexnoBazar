@@ -92,8 +92,12 @@ export default function CreateProductModal({open,close,branchId,created}){
         const variantsPayload=namedVariants.map(v=>({
           color_name:v.color_name.trim(),
           color_hex:v.color_hex||null,
-          retail_price:v.retail_price===''?null:Number(v.retail_price),
-          wholesale_price:v.wholesale_price===''?null:Number(v.wholesale_price),
+          cost_price:v.cost_price===''||v.cost_price==null?null:Number(v.cost_price),
+          cost_price_usd:v.cost_price_usd===''||v.cost_price_usd==null?null:Number(v.cost_price_usd),
+          retail_price:v.retail_price===''||v.retail_price==null?null:Number(v.retail_price),
+          retail_price_usd:v.retail_price_usd===''||v.retail_price_usd==null?null:Number(v.retail_price_usd),
+          wholesale_price:v.wholesale_price===''||v.wholesale_price==null?null:Number(v.wholesale_price),
+          wholesale_price_usd:v.wholesale_price_usd===''||v.wholesale_price_usd==null?null:Number(v.wholesale_price_usd),
           is_active:true
         }));
         const createdVariants=await saveProductVariants(data.id,variantsPayload);
@@ -263,7 +267,16 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
       </label>
     </div>
     <div className="wide">
-      <ColorVariantEditor variants={variants} setVariants={setVariants} showQuantity={false} showWholesale rate={rate} basePriceHint={form.retail_price?`${form.retail_price} so'm`:''}/>
+      <ColorVariantEditor
+        variants={variants}
+        setVariants={setVariants}
+        showQuantity={false}
+        showWholesale
+        showCost
+        rate={rate}
+        basePriceHint={form.retail_price?`${form.retail_price} so'm`:''}
+        baseCostHint={form.cost_price?`${form.cost_price} so'm`:''}
+      />
     </div>
     <div className="wide" style={{display:'flex',gap:10,marginTop:10,flexWrap:'wrap'}}>
       <button className="btn btn-primary" type="submit" disabled={isBusy} style={{flex:'1 1 180px'}}>

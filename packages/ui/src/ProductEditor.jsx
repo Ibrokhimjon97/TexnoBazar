@@ -401,10 +401,14 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
           id: v.id || null,
           color_name: v.color_name.trim(),
           color_hex: v.color_hex || null,
-          retail_price: v.retail_price === '' ? null : v.retail_price,
-          wholesale_price: v.wholesale_price === '' ? null : v.wholesale_price,
-          promotion_price: v.promotion_price === '' ? null : v.promotion_price,
-          minimum_sale_price: v.minimum_sale_price === '' ? null : v.minimum_sale_price,
+          cost_price: v.cost_price === '' || v.cost_price == null ? null : Number(v.cost_price),
+          cost_price_usd: v.cost_price_usd === '' || v.cost_price_usd == null ? null : Number(v.cost_price_usd),
+          retail_price: v.retail_price === '' || v.retail_price == null ? null : Number(v.retail_price),
+          retail_price_usd: v.retail_price_usd === '' || v.retail_price_usd == null ? null : Number(v.retail_price_usd),
+          wholesale_price: v.wholesale_price === '' || v.wholesale_price == null ? null : Number(v.wholesale_price),
+          wholesale_price_usd: v.wholesale_price_usd === '' || v.wholesale_price_usd == null ? null : Number(v.wholesale_price_usd),
+          promotion_price: v.promotion_price === '' || v.promotion_price == null ? null : Number(v.promotion_price),
+          minimum_sale_price: v.minimum_sale_price === '' || v.minimum_sale_price == null ? null : Number(v.minimum_sale_price),
           is_active: v.is_active !== false,
         }));
         const savedVariants = await saveProductVariants(currentId, variantsPayload);
@@ -589,7 +593,16 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
           </div>
 
           <div className="wide">
-            <ColorVariantEditor variants={variants} setVariants={setVariants} showQuantity={false} showWholesale rate={rate} basePriceHint={form.retail_price ? `${form.retail_price} so'm` : ''} />
+            <ColorVariantEditor
+              variants={variants}
+              setVariants={setVariants}
+              showQuantity={false}
+              showWholesale
+              showCost
+              rate={rate}
+              basePriceHint={form.retail_price ? `${form.retail_price} so'm` : ''}
+              baseCostHint={form.cost_price ? `${form.cost_price} so'm` : ''}
+            />
           </div>
 
           {applicable.length > 0 && <AttributeFields definitions={applicable} values={attributes} setValues={setAttributes} />}
