@@ -55,7 +55,7 @@ export default function CreateProductModal({open,close,branchId,created}){
         promotion_price:Number(form.promotion_price)||null,
         minimum_sale_price:Number(form.minimum_sale_price)||0,
         minimum_sale_price_usd:form.minimum_sale_price_usd!==''&&form.minimum_sale_price_usd!=null&&!isNaN(Number(form.minimum_sale_price_usd))?Number(form.minimum_sale_price_usd):(rate&&Number(form.minimum_sale_price)?Number((Number(form.minimum_sale_price)/rate).toFixed(2)):null),
-        currency:'USD',
+        currency:form.currency || (form.retail_price_usd && Number(form.retail_price_usd) > 0 ? 'USD' : 'UZS'),
         compare_at_price:Number(form.compare_at_price)||null,
         description:form.description||null,
         seo_image_url:null,
@@ -173,7 +173,8 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
   const[form,setForm]=useState({
     name:'',sku:'',barcode:'',category_id:initialCategoryId||'',brand_id:'',
     cost_price:'',cost_price_usd:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',promotion_price:'',
-    minimum_sale_price:'0',minimum_sale_price_usd:'0',compare_at_price:'',slug:'',video_url:'',description:''
+    minimum_sale_price:'0',minimum_sale_price_usd:'0',compare_at_price:'',slug:'',video_url:'',description:'',
+    currency:'UZS'
   });
   const[images,setImages]=useState([]);
   const[variants,setVariants]=useState([]);
@@ -240,10 +241,10 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
         />
       </div>
     </div>
-    <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v=>setForm(f=>({...f,cost_price:v}))} valueUsd={form.cost_price_usd} onChangeUsd={v=>setForm(f=>({...f,cost_price_usd:v}))} rate={rate}/>
-    <DualPriceInput label="Sotish narxi *" valueUzs={form.retail_price} onChangeUzs={v=>setForm(f=>({...f,retail_price:v}))} valueUsd={form.retail_price_usd} onChangeUsd={v=>setForm(f=>({...f,retail_price_usd:v}))} rate={rate}/>
-    <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v=>setForm(f=>({...f,wholesale_price:v}))} valueUsd={form.wholesale_price_usd} onChangeUsd={v=>setForm(f=>({...f,wholesale_price_usd:v}))} rate={rate}/>
-    <DualPriceInput label="Minimal sotuv narxi" valueUzs={form.minimum_sale_price} onChangeUzs={v=>setForm(f=>({...f,minimum_sale_price:v}))} valueUsd={form.minimum_sale_price_usd} onChangeUsd={v=>setForm(f=>({...f,minimum_sale_price_usd:v}))} rate={rate}/>
+    <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v=>setForm(f=>({...f,cost_price:v}))} valueUsd={form.cost_price_usd} onChangeUsd={v=>setForm(f=>({...f,cost_price_usd:v}))} rate={rate} currency={form.currency} onCurrencyChange={c=>setForm(f=>({...f,currency:c}))}/>
+    <DualPriceInput label="Sotish narxi *" valueUzs={form.retail_price} onChangeUzs={v=>setForm(f=>({...f,retail_price:v}))} valueUsd={form.retail_price_usd} onChangeUsd={v=>setForm(f=>({...f,retail_price_usd:v}))} rate={rate} currency={form.currency} onCurrencyChange={c=>setForm(f=>({...f,currency:c}))}/>
+    <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v=>setForm(f=>({...f,wholesale_price:v}))} valueUsd={form.wholesale_price_usd} onChangeUsd={v=>setForm(f=>({...f,wholesale_price_usd:v}))} rate={rate} currency={form.currency} onCurrencyChange={c=>setForm(f=>({...f,currency:c}))}/>
+    <DualPriceInput label="Minimal sotuv narxi" valueUzs={form.minimum_sale_price} onChangeUzs={v=>setForm(f=>({...f,minimum_sale_price:v}))} valueUsd={form.minimum_sale_price_usd} onChangeUsd={v=>setForm(f=>({...f,minimum_sale_price_usd:v}))} rate={rate} currency={form.currency} onCurrencyChange={c=>setForm(f=>({...f,currency:c}))}/>
     <label><span className="label">Aksiya narxi</span><input className="input" type="number" min="0" value={form.promotion_price} onChange={e=>setForm({...form,promotion_price:e.target.value})} placeholder="Ixtiyoriy"/></label>
     <label><span className="label">Eski narx (chizilgan)</span><input className="input" type="number" min="0" value={form.compare_at_price} onChange={e=>setForm({...form,compare_at_price:e.target.value})} placeholder="Ixtiyoriy"/></label>
     <label className="wide"><span className="label">YouTube video URL</span><input className="input" value={form.video_url} onChange={e=>setForm({...form,video_url:e.target.value})} placeholder="https://youtube.com/watch?v=..."/></label>

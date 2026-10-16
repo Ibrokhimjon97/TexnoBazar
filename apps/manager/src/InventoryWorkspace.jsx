@@ -1,6 +1,6 @@
-import React,{useEffect,useMemo,useState}from'react';
+import React,{useEffect,useMemo,useRef,useState}from'react';
 import{createPortal}from'react-dom';
-import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
+import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,Camera,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal,formatSecretCostCode}from'@texnobazar/ui';
 import QRCode from'qrcode';
 import RichTextEditor from'./RichTextEditor';
@@ -1639,9 +1639,10 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
   const[labels,setLabels]=useState([]),[printPending,setPrintPending]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState(''),[editing,setEditing]=useState(Boolean(initialEditing)),[editForm,setEditForm]=useState({}),[saving,setSaving]=useState(false),[deleting,setDeleting]=useState(false),[expandedLine,setExpandedLine]=useState(null),[lineUnits,setLineUnits]=useState([]),[lineProduct,setLineProduct]=useState(null),[loadingLine,setLoadingLine]=useState(false),[editingLine,setEditingLine]=useState(false),[linePrices,setLinePrices]=useState({}),[savingLine,setSavingLine]=useState(false);
   const[bluetoothModalOpen,setBluetoothModalOpen]=useState(false);
   const[singlePrintLabel,setSinglePrintLabel]=useState(null);
+  const[deletedBatchIds,setDeletedBatchIds]=useState([]);
 
   useEffect(()=>{
-    setLabels([]);setPrintPending(false);document.body.classList.remove('printing-qr-labels');setError('');setEditing(Boolean(initialEditing));
+    setLabels([]);setPrintPending(false);document.body.classList.remove('printing-qr-labels');setError('');setEditing(Boolean(initialEditing));setDeletedBatchIds([]);
     if(receipt){
       const isReceiptUsd = (receipt.currency || 'USD') === 'USD';
       setEditForm({
@@ -2307,10 +2308,60 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
     });
   };
 
+  const removeReceiptLine = (idx) => {
+    const line = editForm.lines?.[idx];
+    if (!line) return;
+    if ((editForm.lines?.length || 0) <= 1) {
+      alert("Partiyada kamida 1 ta tovar qolishi kerak. Butun partiyani o'chirmoqchi bo'lsangiz, 'O'chirish' tugmasidan foydalaning.");
+      return;
+    }
+    const colorText = line.variant_color ? ` (${line.variant_color})` : '';
+    if (!window.confirm(`Haqiqatan ham "${line.product_name}"${colorText} tovarini ushbu partiyadan o'chirmoqchimisiz? Agar sotilmagan bo'lsa, zaxiradan ham o'chiriladi.`)) {
+      return;
+    }
+    const batchId = line.id || line.batch_id;
+    if (batchId) {
+      setDeletedBatchIds(prev => [...new Set([...prev, batchId])]);
+    }
+    setEditForm(prev => ({
+      ...prev,
+      lines: (prev.lines || []).filter((_, i) => i !== idx)
+    }));
+  };
+
   const saveEdit=async()=>{
     setSaving(true);setError('');
     try{
       const isUsd = (editForm.currency || receipt.currency || 'USD') === 'USD';
+
+      const zeroLines = (editForm.lines || []).filter(l => l.quantity !== '' && Number(l.quantity) <= 0);
+      let activeLines = editForm.lines || [];
+      let toDeleteIds = [...deletedBatchIds];
+
+      if (zeroLines.length > 0) {
+        if (activeLines.length === zeroLines.length) {
+          setError("Barcha tovarlar miqdori 0 qilib kiritilgan. Partiyani to'liq o'chirish uchun 'O'chirish' tugmasidan foydalaning.");
+          setSaving(false);
+          return;
+        }
+        const names = zeroLines.map(l => `"${l.product_name}"${l.variant_color ? ` (${l.variant_color})` : ''}`).join(', ');
+        if (!window.confirm(`${names} tovarining soni 0 deb kiritilgan. Ushbu tovar(lar) partiyadan butunlay o'chirilsinmi?`)) {
+          setSaving(false);
+          return;
+        }
+        zeroLines.forEach(zl => {
+          const bId = zl.id || zl.batch_id;
+          if (bId) toDeleteIds.push(bId);
+        });
+        activeLines = activeLines.filter(l => Number(l.quantity) > 0);
+      }
+
+      if (activeLines.length === 0) {
+        setError("Partiyada kamida 1 ta tovar qolishi kerak.");
+        setSaving(false);
+        return;
+      }
+
       const payload={
         invoice_number:editForm.invoice_number,
         payment_status:editForm.payment_status,
@@ -2318,7 +2369,8 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
         notes:editForm.notes,
         receiving_location_id:editForm.receiving_location_id||null,
         currency:editForm.currency,
-        lines:(editForm.lines||[]).map(l=>{
+        deleted_batch_ids:[...new Set(toDeleteIds)],
+        lines:activeLines.map(l=>{
           const uc = l.unit_cost===''?null:Number(l.unit_cost);
           const rp = l.retail_price===''?null:Number(l.retail_price);
           const wp = l.wholesale_price===''?null:Number(l.wholesale_price);
@@ -2358,6 +2410,7 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
         })
       };
       const updatedReceipt = await updateStockReceipt(receipt.id,payload);
+      setDeletedBatchIds([]);
       setEditing(false);
       toast?.('Partiya va tovarlar joylashuvi muvaffaqiyatli saqlandi!');
       onUpdated?.(updatedReceipt);
@@ -2465,14 +2518,38 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
             <div style={{display:'flex',flexDirection:'column',gap:10,marginBottom:16}}>
               {(editForm.lines||[]).map((l,idx)=>(
                 <div key={l.id||idx} style={{background:'#fff',border:'1px solid #cbd5e1',borderRadius:10,padding:12}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                    <b style={{fontSize:14,color:'#0f172a'}}>{l.product_name}</b>
-                    <span style={{fontSize:11,color:'#64748b'}}>SKU: {l.sku||'—'}</span>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,gap:8,flexWrap:'wrap'}}>
+                    <div>
+                      <b style={{fontSize:14,color:'#0f172a'}}>{l.product_name}</b>
+                      <span style={{fontSize:11,color:'#64748b',marginLeft:8}}>SKU: {l.sku||'—'}</span>
+                    </div>
+                    {(editForm.lines||[]).length > 1 && (
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        style={{
+                          display:'inline-flex',
+                          alignItems:'center',
+                          gap:4,
+                          color:'#dc2626',
+                          borderColor:'#fecaca',
+                          background:'#fff1f2',
+                          padding:'4px 8px',
+                          fontSize:11,
+                          fontWeight:600,
+                          cursor:'pointer'
+                        }}
+                        onClick={()=>removeReceiptLine(idx)}
+                        title="Ushbu tovarni partiyadan o'chirish"
+                      >
+                        <Trash2 size={13}/> O'chirish
+                      </button>
+                    )}
                   </div>
                   <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(140px, 1fr))',gap:8,fontSize:12}}>
                     <label>
                       <span style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:2}}>Soni (dona) *</span>
-                      <input className="input" style={{width:'100%',padding:'6px 8px'}} type="number" min="1" value={l.quantity} onChange={e=>updateLineField(idx,'quantity',e.target.value)}/>
+                      <input className="input" style={{width:'100%',padding:'6px 8px'}} type="number" min="0" value={l.quantity} onChange={e=>updateLineField(idx,'quantity',e.target.value)}/>
                     </label>
                     <label>
                       <span style={{fontSize:11,color:'var(--muted)',display:'block',marginBottom:2}}>Mahsulot rangi / varianti</span>
@@ -2902,7 +2979,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     minimum_sale_price_usd:'',
     priceConfirmed:false,
     variants:[],
-    variantConfigs:{}
+    variantConfigs:{},
+    variantImageFiles:[]
   }]);
   const[busy,setBusy]=useState(false),[error,setError]=useState('');
   const[showCreateProduct,setShowCreateProduct]=useState(false);
@@ -2988,11 +3066,13 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
 
   const handleProductSelect=async(i,productId,productOverride=null)=>{
     const product=productOverride || refs.products.find(p=>p.id===productId);
+    const prodCurrency = product?.currency || form.currency || 'USD';
     const initialLine = {
       ...lines[i],
       product_id:productId,
       color_name:'',
       variant_id:'',
+      currency: prodCurrency,
       unit_cost:String(product?.cost_price!=null?product.cost_price:''),
       unit_cost_usd:product?.cost_price_usd!=null?Number(product.cost_price_usd):(product?.cost_price&&rate?Number((Number(product.cost_price)/rate).toFixed(2)):''),
       retail_price:String(product?.retail_price!=null?product.retail_price:''),
@@ -3003,17 +3083,28 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
       minimum_sale_price_usd:product?.minimum_sale_price_usd!=null?Number(product.minimum_sale_price_usd):(product?.minimum_sale_price&&rate?Number((Number(product.minimum_sale_price)/rate).toFixed(2)):''),
       priceConfirmed:false,
       variants:product?.variants || [],
-      variantConfigs:{}
+      variantConfigs:{},
+      variantImageFiles:[]
     };
     setLines(lines.map((x,j)=>j===i?initialLine:x));
     if(!productId)return;
-    if(!product?.variants?.length){
-      try{
-        const{data}=await getBrowserClient().from('product_variants').select('*').eq('product_id',productId).eq('is_active',true).order('sort_order');
-        const loadedVariants = data || [];
-        setLines(current=>current.map((x,j)=>j===i?{...x,variants:loadedVariants}:x));
-      }catch{/* variantsiz mahsulot */}
-    }
+    try{
+      const{data}=await getBrowserClient().from('product_variants').select('*, product_media(id, public_url, is_primary, sort_order)').eq('product_id',productId).eq('is_active',true).order('sort_order');
+      const loadedVariants = (data || []).map(v => {
+        const sortedMedia = (v.product_media || []).sort((a,b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0));
+        return {
+          ...v,
+          image_url: sortedMedia[0]?.public_url || null,
+          media: sortedMedia
+        };
+      });
+      setLines(current=>current.map((x,j)=>{
+        if (x.product_id === productId) {
+          return { ...x, variants: loadedVariants };
+        }
+        return j===i ? { ...x, variants: loadedVariants } : x;
+      }));
+    }catch{/* variantsiz mahsulot */}
   };
 
   const handleAddColorToLastProduct = () => {
@@ -3030,6 +3121,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         color_name: '',
         variant_id: '',
         quantity: 1,
+        currency: lastLineWithProduct.currency || product?.currency || form.currency || 'USD',
         unit_cost: lastLineWithProduct.unit_cost || String(product?.cost_price || ''),
         unit_cost_usd: lastLineWithProduct.unit_cost_usd ?? (product?.cost_price_usd != null ? Number(product.cost_price_usd) : ''),
         retail_price: lastLineWithProduct.retail_price || String(product?.retail_price || ''),
@@ -3041,7 +3133,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         priceConfirmed: lastLineWithProduct.priceConfirmed || false,
         serials: '',
         variants: lastLineWithProduct.variants || [],
-        variantConfigs: {}
+        variantConfigs: {},
+        variantImageFiles: []
       }
     ]);
   };
@@ -3054,6 +3147,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         color_name: '',
         variant_id: '',
         quantity: 1,
+        currency: form.currency || 'USD',
         unit_cost: '',
         unit_cost_usd: '',
         serials: '',
@@ -3065,7 +3159,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         minimum_sale_price_usd: '',
         priceConfirmed: false,
         variants: [],
-        variantConfigs: {}
+        variantConfigs: {},
+        variantImageFiles: []
       }
     ]);
   };
@@ -3084,6 +3179,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
 
     setLine(i, {
       priceConfirmed: true,
+      currency: line?.currency || product?.currency || form.currency || 'USD',
       retail_price: rUzs,
       retail_price_usd: rUsd,
       wholesale_price: wUzs,
@@ -3100,51 +3196,10 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     if (newCurrency === prevCurrency) return;
     setForm(f => ({ ...f, currency: newCurrency }));
     setLines(prevLines => prevLines.map(line => {
-      const updated = { ...line };
-      if (newCurrency === 'UZS') {
-        if (line.unit_cost_usd !== '' && line.unit_cost_usd != null) {
-          const usdVal = Number(line.unit_cost_usd);
-          updated.unit_cost = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
-        }
-        if (line.retail_price_usd !== '' && line.retail_price_usd != null) {
-          const usdVal = Number(line.retail_price_usd);
-          updated.retail_price = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
-        }
-        if (line.wholesale_price_usd !== '' && line.wholesale_price_usd != null) {
-          const usdVal = Number(line.wholesale_price_usd);
-          updated.wholesale_price = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
-        }
-        if (line.minimum_sale_price_usd !== '' && line.minimum_sale_price_usd != null) {
-          const usdVal = Number(line.minimum_sale_price_usd);
-          updated.minimum_sale_price = rate ? String(Math.round(usdVal * rate)) : String(usdVal);
-        }
-      } else if (newCurrency === 'USD') {
-        if (line.unit_cost !== '' && line.unit_cost != null) {
-          const rawUzs = Number(line.unit_cost);
-          updated.unit_cost_usd = line.unit_cost_usd !== '' && line.unit_cost_usd != null && Number(line.unit_cost_usd) > 0
-            ? String(line.unit_cost_usd)
-            : (rate && rawUzs > 0 ? String(Number((rawUzs / rate).toFixed(2))) : line.unit_cost);
-        }
-        if (line.retail_price !== '' && line.retail_price != null) {
-          const rawUzs = Number(line.retail_price);
-          updated.retail_price_usd = line.retail_price_usd !== '' && line.retail_price_usd != null && Number(line.retail_price_usd) > 0
-            ? String(line.retail_price_usd)
-            : (rate && rawUzs > 0 ? String(Number((rawUzs / rate).toFixed(2))) : line.retail_price);
-        }
-        if (line.wholesale_price !== '' && line.wholesale_price != null) {
-          const rawUzs = Number(line.wholesale_price);
-          updated.wholesale_price_usd = line.wholesale_price_usd !== '' && line.wholesale_price_usd != null && Number(line.wholesale_price_usd) > 0
-            ? String(line.wholesale_price_usd)
-            : (rate && rawUzs > 0 ? String(Number((rawUzs / rate).toFixed(2))) : line.wholesale_price);
-        }
-        if (line.minimum_sale_price !== '' && line.minimum_sale_price != null) {
-          const rawUzs = Number(line.minimum_sale_price);
-          updated.minimum_sale_price_usd = line.minimum_sale_price_usd !== '' && line.minimum_sale_price_usd != null && Number(line.minimum_sale_price_usd) > 0
-            ? String(line.minimum_sale_price_usd)
-            : (rate && rawUzs > 0 ? String(Number((rawUzs / rate).toFixed(2))) : line.minimum_sale_price);
-        }
+      if (!line.product_id) {
+        return { ...line, currency: newCurrency };
       }
-      return updated;
+      return line;
     }));
   };
 
@@ -3184,51 +3239,55 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
 
       for(const line of lines){
         const product = refs.products.find(p=>p.id===line.product_id);
-        const isReceiptUsd = form.currency === 'USD';
-        const baseCost = Number(line.unit_cost) || 0;
-        const baseRetail = Number(line.retail_price) || Number(product?.retail_price) || 0;
-        const baseWholesale = Number(line.wholesale_price) || Number(product?.wholesale_price) || 0;
-        const baseMin = Number(line.minimum_sale_price) || Number(product?.minimum_sale_price) || 0;
+        const lineCurrency = line.currency || product?.currency || form.currency || 'USD';
+        const isLineUsd = lineCurrency === 'USD';
+
+        let baseCost = Number(line.unit_cost) || 0;
+        let baseRetail = Number(line.retail_price) || Number(product?.retail_price) || 0;
+        let baseWholesale = Number(line.wholesale_price) || Number(product?.wholesale_price) || 0;
+        let baseMin = Number(line.minimum_sale_price) || Number(product?.minimum_sale_price) || 0;
 
         let baseCostUsd = line.unit_cost_usd !== undefined && line.unit_cost_usd !== '' && line.unit_cost_usd !== null 
           ? Number(line.unit_cost_usd) 
-          : (isReceiptUsd
-              ? (baseCost > 0 && baseCost < 20000 ? baseCost : (product?.cost_price_usd ? Number(product.cost_price_usd) : (rate && baseCost > 0 ? Number((baseCost / rate).toFixed(2)) : null)))
-              : (product?.cost_price_usd ? Number(product.cost_price_usd) : (rate && baseCost > 0 ? Number((baseCost / rate).toFixed(2)) : null)));
-        
+          : null;
         let baseRetailUsd = line.retail_price_usd !== undefined && line.retail_price_usd !== '' && line.retail_price_usd !== null
           ? Number(line.retail_price_usd)
-          : (isReceiptUsd
-              ? (baseRetail > 0 && baseRetail < 20000 ? baseRetail : (product?.retail_price_usd ? Number(product.retail_price_usd) : (rate && baseRetail > 0 ? Number((baseRetail / rate).toFixed(2)) : null)))
-              : (product?.retail_price_usd ? Number(product.retail_price_usd) : (rate && baseRetail > 0 ? Number((baseRetail / rate).toFixed(2)) : null)));
-
+          : null;
         let baseWholesaleUsd = line.wholesale_price_usd !== undefined && line.wholesale_price_usd !== '' && line.wholesale_price_usd !== null
           ? Number(line.wholesale_price_usd)
-          : (isReceiptUsd
-              ? (baseWholesale > 0 && baseWholesale < 20000 ? baseWholesale : (product?.wholesale_price_usd ? Number(product.wholesale_price_usd) : (rate && baseWholesale > 0 ? Number((baseWholesale / rate).toFixed(2)) : null)))
-              : (product?.wholesale_price_usd ? Number(product.wholesale_price_usd) : (rate && baseWholesale > 0 ? Number((baseWholesale / rate).toFixed(2)) : null)));
-
+          : null;
         let baseMinUsd = line.minimum_sale_price_usd !== undefined && line.minimum_sale_price_usd !== '' && line.minimum_sale_price_usd !== null
           ? Number(line.minimum_sale_price_usd)
-          : (isReceiptUsd
-              ? (baseMin > 0 && baseMin < 20000 ? baseMin : (product?.minimum_sale_price_usd ? Number(product.minimum_sale_price_usd) : (rate && baseMin > 0 ? Number((baseMin / rate).toFixed(2)) : null)))
-              : (product?.minimum_sale_price_usd ? Number(product.minimum_sale_price_usd) : (rate && baseMin > 0 ? Number((baseMin / rate).toFixed(2)) : null)));
+          : null;
 
-        let finalCost = baseCost;
-        if (isReceiptUsd && baseCost > 0 && baseCost < 20000 && rate) {
-          finalCost = Math.round(baseCost * rate);
-        }
-        let finalRetail = baseRetail;
-        if (isReceiptUsd && baseRetail > 0 && baseRetail < 20000 && rate) {
-          finalRetail = Math.round(baseRetail * rate);
-        }
-        let finalWholesale = baseWholesale;
-        if (isReceiptUsd && baseWholesale > 0 && baseWholesale < 20000 && rate) {
-          finalWholesale = Math.round(baseWholesale * rate);
-        }
-        let finalMin = baseMin;
-        if (isReceiptUsd && baseMin > 0 && baseMin < 20000 && rate) {
-          finalMin = Math.round(baseMin * rate);
+        if (isLineUsd) {
+          if (baseCostUsd == null && baseCost > 0) {
+            baseCostUsd = baseCost < 20000 ? baseCost : (rate ? Number((baseCost / rate).toFixed(2)) : baseCost);
+          }
+          if (baseRetailUsd == null && baseRetail > 0) {
+            baseRetailUsd = baseRetail < 20000 ? baseRetail : (rate ? Number((baseRetail / rate).toFixed(2)) : baseRetail);
+          }
+          if (baseWholesaleUsd == null && baseWholesale > 0) {
+            baseWholesaleUsd = baseWholesale < 20000 ? baseWholesale : (rate ? Number((baseWholesale / rate).toFixed(2)) : baseWholesale);
+          }
+          if (baseMinUsd == null && baseMin > 0) {
+            baseMinUsd = baseMin < 20000 ? baseMin : (rate ? Number((baseMin / rate).toFixed(2)) : baseMin);
+          }
+          if (rate && baseCostUsd != null && baseCostUsd > 0) baseCost = Math.round(baseCostUsd * rate);
+          if (rate && baseRetailUsd != null && baseRetailUsd > 0) baseRetail = Math.round(baseRetailUsd * rate);
+          if (rate && baseWholesaleUsd != null && baseWholesaleUsd > 0) baseWholesale = Math.round(baseWholesaleUsd * rate);
+          if (rate && baseMinUsd != null && baseMinUsd > 0) baseMin = Math.round(baseMinUsd * rate);
+        } else {
+          // UZS konstanta: so'm narxini aynan saqlaymiz, faqat USD ekvivalentini hisoblaymiz
+          baseCost = Math.round(baseCost);
+          baseRetail = Math.round(baseRetail);
+          baseWholesale = Math.round(baseWholesale);
+          baseMin = Math.round(baseMin);
+
+          if (rate && baseCost > 0) baseCostUsd = Number((baseCost / rate).toFixed(2));
+          if (rate && baseRetail > 0) baseRetailUsd = Number((baseRetail / rate).toFixed(2));
+          if (rate && baseWholesale > 0) baseWholesaleUsd = Number((baseWholesale / rate).toFixed(2));
+          if (rate && baseMin > 0) baseMinUsd = Number((baseMin / rate).toFixed(2));
         }
 
         let variantId = line.variant_id || null;
@@ -3273,6 +3332,20 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
           }
         }
 
+        // Agar ushbu qator/rang uchun rasm yuklangan bo'lsa, variantga bog'lab saqlaymiz
+        if (Array.isArray(line.variantImageFiles) && line.variantImageFiles.length > 0) {
+          for (const file of line.variantImageFiles) {
+            try {
+              const label = colorName
+                ? `${product?.name || 'Mahsulot'} (${colorName})`
+                : (product?.name || 'Mahsulot');
+              await uploadProductMedia(line.product_id, file, label, variantId || null);
+            } catch (vImgErr) {
+              console.warn('Rang rasmini yuklashda xatolik:', vImgErr);
+            }
+          }
+        }
+
         const serials = (line.serials || '').split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean);
         const priceOverride = line.priceConfirmed && baseRetail > 0 ? {
           retail_price: baseRetail,
@@ -3286,6 +3359,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         payloadLines.push({
           product_id: line.product_id,
           variant_id: variantId || null,
+          currency: lineCurrency,
           quantity: Number(line.quantity) || 1,
           unit_cost: baseCost,
           unit_cost_usd: baseCostUsd,
@@ -3311,7 +3385,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
       }, payloadLines);
 
       setLines([{
-        product_id:'',color_name:'',variant_id:'',quantity:1,unit_cost:'',unit_cost_usd:'',serials:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',minimum_sale_price:'',minimum_sale_price_usd:'',priceConfirmed:false,variants:[],variantConfigs:{}
+        product_id:'',color_name:'',variant_id:'',quantity:1,unit_cost:'',unit_cost_usd:'',serials:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',minimum_sale_price:'',minimum_sale_price_usd:'',priceConfirmed:false,variants:[],variantConfigs:{},variantImageFiles:[]
       }]);
       await created(createdRes);
     }catch(e){
@@ -3324,6 +3398,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
   const onProductCreatedFromForm=async(newProdForm,images=[],variants=[])=>{
     const client=getBrowserClient();
     const slug=newProdForm.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+Date.now().toString(36);
+    const prodCurrency = newProdForm.currency || (newProdForm.retail_price_usd && Number(newProdForm.retail_price_usd) > 0 ? 'USD' : 'UZS');
     const{data,error:insertErr}=await client.from('products').insert({
       name:newProdForm.name.trim(),
       sku:newProdForm.sku?.trim().toUpperCase()||('TB-'+Date.now().toString(36).toUpperCase()),
@@ -3339,7 +3414,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
       minimum_sale_price:Number(newProdForm.minimum_sale_price)||0,
       minimum_sale_price_usd:newProdForm.minimum_sale_price_usd!=null?Number(newProdForm.minimum_sale_price_usd):(rate&&newProdForm.minimum_sale_price?Number((Number(newProdForm.minimum_sale_price)/rate).toFixed(2)):null),
       status:'active',
-      currency:'USD',
+      currency:prodCurrency,
       is_published:true,
       track_individual_units:true,
       tax_rate:0,
@@ -3371,6 +3446,15 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         const{saveProductVariants}=await import('@texnobazar/data');
         const createdVariants=await saveProductVariants(data.id,variantsPayload);
         data.variants=createdVariants;
+        for (let i = 0; i < createdVariants.length && i < namedVariants.length; i++) {
+          for (const file of namedVariants[i].imageFiles || []) {
+            try {
+              await uploadProductMedia(data.id, file, `${newProdForm.name.trim()} (${namedVariants[i].color_name})`, createdVariants[i].id);
+            } catch (vImgErr) {
+              console.warn('Inline new variant image upload error:', vImgErr);
+            }
+          }
+        }
       }catch{}
     }
     setRefs(prev=>({...prev,products:[...prev.products,data]}));
@@ -3585,6 +3669,8 @@ function CurrencyNumberInput({
   valueUsd,
   onChangeUsd,
   currency = 'USD',
+  baseCurrency,
+  onBaseCurrencyChange,
   rate,
   placeholder,
   className = 'input',
@@ -3595,14 +3681,20 @@ function CurrencyNumberInput({
 }) {
   const [text, setText] = useState('');
   const [isFocused, setIsFocused] = useState(false);
+  const userTypedRef = useRef(false);
 
   useEffect(() => {
     if (isFocused) return;
+    userTypedRef.current = false;
+    const effectiveBase = baseCurrency || (currency === 'UZS' ? 'UZS' : 'USD');
+
     if (currency === 'USD') {
-      if (valueUsd !== undefined && valueUsd !== '' && valueUsd !== null) {
-        const num = Number(valueUsd);
-        setText(isNaN(num) || num === 0 ? '' : String(num));
-        return;
+      if (effectiveBase === 'USD') {
+        if (valueUsd !== undefined && valueUsd !== '' && valueUsd !== null) {
+          const num = Number(valueUsd);
+          setText(isNaN(num) || num === 0 ? '' : String(num));
+          return;
+        }
       }
       if (valueUzs !== '' && valueUzs !== null && valueUzs !== undefined) {
         const num = Number(valueUzs);
@@ -3611,18 +3703,38 @@ function CurrencyNumberInput({
           return;
         }
       }
-      setText('');
-    } else {
-      if (valueUzs === '' || valueUzs === null || valueUzs === undefined) {
-        setText('');
+      if (valueUsd !== undefined && valueUsd !== '' && valueUsd !== null) {
+        const num = Number(valueUsd);
+        setText(isNaN(num) || num === 0 ? '' : String(num));
         return;
       }
-      const num = Number(valueUzs);
-      setText(isNaN(num) || num === 0 ? '' : String(num));
+      setText('');
+    } else {
+      if (effectiveBase === 'UZS') {
+        if (valueUzs !== '' && valueUzs !== null && valueUzs !== undefined) {
+          const num = Number(valueUzs);
+          setText(isNaN(num) || num === 0 ? '' : String(num));
+          return;
+        }
+      }
+      if (valueUsd !== undefined && valueUsd !== '' && valueUsd !== null) {
+        const num = Number(valueUsd);
+        if (!isNaN(num) && num > 0 && rate) {
+          setText(String(Math.round(num * rate)));
+          return;
+        }
+      }
+      if (valueUzs !== '' && valueUzs !== null && valueUzs !== undefined) {
+        const num = Number(valueUzs);
+        setText(isNaN(num) || num === 0 ? '' : String(num));
+        return;
+      }
+      setText('');
     }
-  }, [valueUzs, valueUsd, currency, rate, isFocused]);
+  }, [valueUzs, valueUsd, currency, baseCurrency, rate, isFocused]);
 
   const handleChange = (e) => {
+    userTypedRef.current = true;
     const val = e.target.value;
     setText(val);
     if (val.trim() === '') {
@@ -3634,10 +3746,12 @@ function CurrencyNumberInput({
     const num = parseFloat(clean);
     if (!isNaN(num)) {
       if (currency === 'USD') {
+        onBaseCurrencyChange?.('USD');
         onChangeUsd?.(num);
-        const uzs = rate ? Math.round(num * rate) : Math.round(num);
-        onChangeUzs?.(String(uzs));
+        const derivedUzs = rate ? Math.round(num * rate) : Math.round(num);
+        onChangeUzs?.(String(derivedUzs));
       } else {
+        onBaseCurrencyChange?.('UZS');
         onChangeUzs?.(String(Math.round(num)));
         if (rate) {
           onChangeUsd?.(Number((num / rate).toFixed(2)));
@@ -3648,6 +3762,10 @@ function CurrencyNumberInput({
 
   const handleBlur = () => {
     setIsFocused(false);
+    if (!userTypedRef.current) {
+      return;
+    }
+    userTypedRef.current = false;
     if (text.trim() === '') {
       onChangeUzs?.('');
       onChangeUsd?.('');
@@ -3658,11 +3776,14 @@ function CurrencyNumberInput({
     if (!isNaN(num) && num > 0) {
       if (currency === 'USD') {
         setText(Number(num.toFixed(2)).toString());
+        onBaseCurrencyChange?.('USD');
         onChangeUsd?.(num);
         if (rate) onChangeUzs?.(String(Math.round(num * rate)));
       } else {
         setText(String(Math.round(num)));
+        onBaseCurrencyChange?.('UZS');
         onChangeUzs?.(String(Math.round(num)));
+        if (rate) onChangeUsd?.(Number((num / rate).toFixed(2)));
       }
     } else {
       setText('');
@@ -3691,13 +3812,22 @@ function CurrencyNumberInput({
 function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,onSelect,confirmPrice,openCreateProduct,rate,currency='USD'}){
   const[search,setSearch]=useState('');
   const[dropdownOpen,setDropdownOpen]=useState(false);
-  const[priceCurrency,setPriceCurrency]=useState(currency);
+  const[priceCurrency,setPriceCurrency]=useState(() => line.currency || currency || 'USD');
 
   useEffect(()=>{
-    if(currency) setPriceCurrency(currency);
-  },[currency]);
+    if(line.currency) {
+      setPriceCurrency(line.currency);
+    } else if(currency) {
+      setPriceCurrency(currency);
+    }
+  },[line.currency, currency]);
 
   const selectedProduct=products.find(p=>p.id===line.product_id);
+  const matchedVariant = (line.variants || []).find(v =>
+    (line.variant_id && v.id === line.variant_id) ||
+    (line.color_name && v.color_name?.trim().toLowerCase() === line.color_name.trim().toLowerCase())
+  );
+  const existingVariantImage = matchedVariant?.image_url || matchedVariant?.media?.[0]?.public_url || null;
   const filtered=search?products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||p.sku.toLowerCase().includes(search.toLowerCase())).slice(0,15):products.slice(0,15);
 
   return <div className="receipt-product card" style={{padding:16,marginBottom:14,border:'1px solid var(--line)',borderRadius:14,background:index%2===1?'#fcfdfd':'#fff'}}>
@@ -3719,6 +3849,11 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
         ) : (
           <span style={{fontSize:11,color:'var(--muted)',flexShrink:0}}>
             (Rangi kiritilmagan)
+          </span>
+        )}
+        {(line.variantImageFiles?.length > 0 || existingVariantImage) && (
+          <span style={{background:'#ecfdf5',color:'#047857',border:'1px solid #a7f3d0',padding:'1px 8px',borderRadius:12,fontSize:11,fontWeight:700,display:'inline-flex',alignItems:'center',gap:4}}>
+            <Camera size={12}/> {line.variantImageFiles?.length > 0 ? `${line.variantImageFiles.length} ta yangi rasm` : 'Rasmi bor'}
           </span>
         )}
       </div>
@@ -3802,12 +3937,15 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
                   type="button"
                   className="btn btn-sm"
                   style={{
-                    padding:'1px 6px',
-                    fontSize:10,
+                    padding:'2px 7px',
+                    fontSize:11,
+                    display:'inline-flex',
+                    alignItems:'center',
+                    gap:5,
                     background: line.color_name?.toLowerCase() === v.color_name?.toLowerCase() ? '#0284c7' : '#f1f5f9',
                     color: line.color_name?.toLowerCase() === v.color_name?.toLowerCase() ? '#fff' : '#334155',
-                    border: 0,
-                    borderRadius: 4
+                    border: '1px solid ' + (line.color_name?.toLowerCase() === v.color_name?.toLowerCase() ? '#0284c7' : '#e2e8f0'),
+                    borderRadius: 6
                   }}
                   onClick={()=>{
                     setLine(index, {
@@ -3818,12 +3956,158 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
                     });
                   }}
                 >
+                  {v.image_url ? (
+                    <img src={v.image_url} alt="" style={{width:13,height:13,borderRadius:2,objectFit:'cover'}}/>
+                  ) : v.color_hex ? (
+                    <span style={{width:9,height:9,borderRadius:'50%',background:v.color_hex,display:'inline-block'}}/>
+                  ) : null}
                   {v.color_name}
                 </button>
               ))}
             </div>
           )}
         </label>
+
+        {/* Tanlangan rang uchun alohida rasm yuklash bloki */}
+        <div className="wide" style={{
+          background: '#f8fafc',
+          border: '1px dashed #cbd5e1',
+          borderRadius: 12,
+          padding: '10px 14px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          marginBottom: 4
+        }}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:8}}>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <Camera size={15} style={{color:'var(--orange,#ea580c)'}}/>
+              <span style={{fontSize:12,fontWeight:700,color:'var(--navy,#0f172a)'}}>
+                {line.color_name ? `"${line.color_name}" rangi uchun rasm:` : 'Ushbu tovar / rang uchun rasm:'}
+              </span>
+              {line.color_name ? (
+                <small style={{fontSize:11,color:'var(--muted)'}}>
+                  (saytda mijoz "{line.color_name}" rangini tanlaganda aynan shu rasm ko‘rinadi)
+                </small>
+              ) : (
+                <small style={{fontSize:11,color:'var(--muted)'}}>
+                  (ixtiyoriy, har bir rang uchun alohida rasm yuklash mumkin)
+                </small>
+              )}
+            </div>
+
+            <label
+              className="btn btn-outline btn-sm"
+              style={{
+                cursor:'pointer',
+                display:'inline-flex',
+                alignItems:'center',
+                gap:5,
+                background:'#fff',
+                borderColor:'#94a3b8',
+                fontWeight:600,
+                fontSize:11,
+                padding:'4px 10px'
+              }}
+            >
+              <Upload size={13}/>
+              <span>{(line.variantImageFiles?.length || 0) > 0 ? 'Yana rasm qo‘shish' : 'Rasm yuklash'}</span>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                hidden
+                onChange={e=>{
+                  const files = [...e.target.files];
+                  if(!files.length)return;
+                  const valid = files.filter(f => f.type.startsWith('image/'));
+                  const currentFiles = line.variantImageFiles || [];
+                  setLine(index, 'variantImageFiles', [...currentFiles, ...valid]);
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </div>
+
+          <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+            {/* Bazada allaqachon mavjud bo'lgan rasm */}
+            {existingVariantImage && (
+              <div
+                style={{
+                  width:58,
+                  height:58,
+                  borderRadius:8,
+                  overflow:'hidden',
+                  position:'relative',
+                  border:'2px solid #0284c7',
+                  background:'#fff',
+                  flexShrink:0
+                }}
+                title={`Ushbu rang uchun bazadagi mavjud rasm (${matchedVariant?.color_name || ''})`}
+              >
+                <img src={existingVariantImage} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                <span style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(2,132,199,0.9)',color:'#fff',fontSize:8,textAlign:'center',fontWeight:700,padding:'1px 0'}}>
+                  Mavjud
+                </span>
+              </div>
+            )}
+
+            {/* Yangi tanlangan rasmlar (pending upload) */}
+            {(line.variantImageFiles || []).map((file, fIdx)=>(
+              <div
+                key={fIdx}
+                style={{
+                  width:58,
+                  height:58,
+                  borderRadius:8,
+                  overflow:'hidden',
+                  position:'relative',
+                  border:'2px solid #16a34a',
+                  background:'#fff',
+                  flexShrink:0
+                }}
+                title={file.name || 'Yangi rasm'}
+              >
+                <img src={URL.createObjectURL(file)} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                <span style={{position:'absolute',bottom:0,left:0,right:0,background:'rgba(22,163,74,0.9)',color:'#fff',fontSize:8,textAlign:'center',fontWeight:700,padding:'1px 0'}}>
+                  Yangi
+                </span>
+                <button
+                  type="button"
+                  style={{
+                    position:'absolute',
+                    top:2,
+                    right:2,
+                    width:18,
+                    height:18,
+                    borderRadius:'50%',
+                    background:'rgba(0,0,0,0.7)',
+                    color:'#fff',
+                    border:0,
+                    cursor:'pointer',
+                    display:'grid',
+                    placeItems:'center',
+                    fontSize:10,
+                    lineHeight:1
+                  }}
+                  onClick={()=>{
+                    const updated = (line.variantImageFiles || []).filter((_, i) => i !== fIdx);
+                    setLine(index, 'variantImageFiles', updated);
+                  }}
+                  title="Ushbu rasmni olib tashlash"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+
+            {!existingVariantImage && (!line.variantImageFiles || line.variantImageFiles.length === 0) && (
+              <span style={{fontSize:11,color:'#94a3b8',fontStyle:'italic'}}>
+                Rasm yuklanmagan. Ixtiyoriy ravishda ushbu rang uchun fotosurat tanlashingiz mumkin.
+              </span>
+            )}
+          </div>
+        </div>
 
         <label>
           <span>Miqdor {line.color_name ? `(${line.color_name} soni, dona) *` : '(dona) *'}</span>
@@ -3850,6 +4134,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
             valueUsd={line.unit_cost_usd}
             onChangeUsd={v=>setLine(index,'unit_cost_usd',v)}
             currency={priceCurrency}
+            baseCurrency={line.currency}
+            onBaseCurrencyChange={c=>setLine(index,'currency',c)}
             rate={rate}
             placeholder={priceCurrency==='USD'?'0.00':'0'}
             required
@@ -3895,6 +4181,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
                 valueUsd={line.retail_price_usd}
                 onChangeUsd={v=>setLine(index,'retail_price_usd',v)}
                 currency={priceCurrency}
+                baseCurrency={line.currency}
+                onBaseCurrencyChange={c=>setLine(index,'currency',c)}
                 rate={rate}
                 placeholder={priceCurrency==='USD'?'0.00':'0'}
                 required
@@ -3908,6 +4196,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
                 valueUsd={line.wholesale_price_usd}
                 onChangeUsd={v=>setLine(index,'wholesale_price_usd',v)}
                 currency={priceCurrency}
+                baseCurrency={line.currency}
+                onBaseCurrencyChange={c=>setLine(index,'currency',c)}
                 rate={rate}
                 placeholder={priceCurrency==='USD'?'0.00':'0'}
               />
@@ -3920,6 +4210,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
                 valueUsd={line.minimum_sale_price_usd}
                 onChangeUsd={v=>setLine(index,'minimum_sale_price_usd',v)}
                 currency={priceCurrency}
+                baseCurrency={line.currency}
+                onBaseCurrencyChange={c=>setLine(index,'currency',c)}
                 rate={rate}
                 placeholder={priceCurrency==='USD'?'0.00':'0'}
               />

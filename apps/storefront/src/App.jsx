@@ -539,7 +539,7 @@ export default function App() {
       {route.view === 'qr' && (
         <>
           <Home {...{ go, add, toggleFavorite, favorites, catalog, cms, catalogState, cmsState, loadCatalog, loadCms, navigateTarget, references, mergeCatalogProducts }}/>
-          <QrResolver code={route.code} go={go} add={add} setToast={setToast}/>
+          <QrResolver code={route.code} go={go} add={add} setToast={setToast} mergeCatalogProducts={mergeCatalogProducts}/>
         </>
       )}
       {route.view === 'catalog' && <ServerCatalog {...{ go, add, toggleFavorite, favorites, query, setQuery, references, navigateTarget }} cmsBanners={safeArray(cms.banners)} onItemsLoaded={mergeCatalogProducts}/>} 
@@ -1168,10 +1168,32 @@ function ServerCatalog({go,add,toggleFavorite,favorites,query,setQuery,reference
   // --- Products view (after category selected or search) ---
   return <section className="container catalog-page"><CatalogTopBanner banners={cmsBanners} navigateTarget={navigateTarget}/><div className="breadcrumbs"><button onClick={()=>go('home')}>Bosh sahifa</button> <ChevronRight/> <button onClick={backToCategories}>Katalog</button>{selectedCategory&&<><ChevronRight/>{plainValue(selectedCategory.name)}</>}</div><div className="between catalog-title"><div><h1 className="title">{selectedCategory?plainValue(selectedCategory.name):title}</h1><span className="muted">{result.total} ta mahsulot topildi</span></div><div className="row"><button className="btn btn-outline mobile-filter" onClick={()=>setFiltersOpen(true)}><SlidersHorizontal/> Filtr</button><select className="select sort" value={filters.sort} onChange={e=>setFilters({...filters,sort:e.target.value})}><option value="name">Nomi bo'yicha</option><option value="new">Eng yangi</option><option value="cheap">Arzon narx</option><option value="expensive">Qimmat narx</option></select></div></div>{subcategories.length>0&&<div className="catalog-subcategory-chips"><button className={!filters.categoryIds.length?'active':''} onClick={()=>selectSubcategory('')}>Barchasi</button>{subcategories.map(sub=><button key={sub.id} className={filters.categoryIds.includes(String(sub.id))?'active':''} onClick={()=>selectSubcategory(String(sub.id))}>{sub.name}</button>)}</div>}<div className="catalog-layout">{renderFilter()}<div>{state.loading&&!result.items.length?<LoadingGrid/>:state.error?<StatePanel error={state.error} onRetry={()=>fetchPage(1,false)}/>:result.items.length?<><div className="product-grid catalog-products">{result.items.map(product=><ProductCard key={product.id} {...{product,go,add,toggleFavorite}} loved={favorites.includes(product.id)}/>)}</div>{result.items.length<result.total&&<div className="load-more"><button className="btn btn-outline" disabled={state.loading} onClick={()=>fetchPage(page+1,true)}>{state.loading?'Yuklanmoqda\u2026':'Yana yuklash'}</button></div>}</>:<div className="card"><Empty title="Mahsulot topilmadi" text="Qidiruv yoki filtrlarni o'zgartiring."/></div>}</div></div>{filtersOpen&&<div className="filter-overlay">{renderFilter()}</div>}</section>;
 }
-function QrResolver({ code, go, add, setToast }) {
+function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
   const [state, setState] = useState({ loading: true, error: '', product: null });
   const [selectedVariantId, setSelectedVariantId] = useState(null);
   const [added, setAdded] = useState(false);
+  const isClosingRef = useRef(false);
+
+  useEffect(() => {
+    // If opened directly via QR code from outside (camera app, scanner),
+    // ensure history has a base entry so the phone hardware / browser Back button
+    // navigates to the storefront home page instead of closing the browser tab.
+    if (!window.history.state?.fromQr) {
+      const currentPath = window.location.pathname + window.location.search;
+      window.history.replaceState({ fromQrBase: true }, '', '/');
+      window.history.pushState({ fromQr: true }, '', currentPath);
+    }
+
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   useEffect(() => {
     if (!code) {
@@ -1222,6 +1244,7 @@ function QrResolver({ code, go, add, setToast }) {
           adapted.price = numberOf(rpcData.retail_price);
           if (rpcData.batch_id) adapted.batchId = rpcData.batch_id;
         }
+        mergeCatalogProducts?.([adapted]);
         setState({ loading: false, error: '', product: adapted });
         if (variantId) {
           setSelectedVariantId(String(variantId));
@@ -1237,8 +1260,13 @@ function QrResolver({ code, go, add, setToast }) {
   }, [code]);
 
   const handleClose = () => {
-    window.history.replaceState({}, '', '/');
-    go('home');
+    if (isClosingRef.current) return;
+    isClosingRef.current = true;
+    if (window.history.state?.fromQr) {
+      window.history.back();
+    } else {
+      go('home', null, { replace: true });
+    }
   };
 
   const handleAddToCart = () => {
@@ -1251,8 +1279,8 @@ function QrResolver({ code, go, add, setToast }) {
 
   const handleGoProduct = () => {
     if (!state.product) return;
-    window.history.replaceState({}, '', `/product/${encodeURIComponent(state.product.slug)}`);
-    go('product', state.product);
+    const toPass = selectedVariantId ? { ...state.product, selectedVariantId } : state.product;
+    go('product', toPass, { replace: true });
   };
 
   const activeVariant = state.product?.variants?.find(v => String(v.id) === String(selectedVariantId)) || state.product?.variants?.[0];
@@ -1260,7 +1288,7 @@ function QrResolver({ code, go, add, setToast }) {
   const displayPrice = activeVariant?.price || state.product?.price || 0;
 
   return (
-    <div className="overlay" style={{ display: 'grid', placeItems: 'center', zIndex: 1200, padding: 16 }} onClick={handleClose}>
+    <div className="overlay" style={{ display: 'grid', placeItems: 'center', zIndex: 1200, padding: 16 }}>
       <div className="card" style={{ maxWidth: 460, width: '100%', padding: 0, overflow: 'hidden', borderRadius: 20, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', animation: 'toastIn 0.25s ease' }} onClick={e => e.stopPropagation()}>
         {/* Modal Header */}
         <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', background: 'var(--surface-2, #f8fafc)' }}>
@@ -1268,7 +1296,15 @@ function QrResolver({ code, go, add, setToast }) {
             <QrCode size={18} />
             <span style={{ color: 'var(--text-1)' }}>QR kod bo‘yicha topildi</span>
           </div>
-          <button type="button" className="icon-btn" onClick={handleClose} aria-label="Yopish"><X size={18} /></button>
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={handleClose}
+            aria-label="Yopish"
+            style={{ width: 34, height: 34, display: 'grid', placeItems: 'center', borderRadius: '50%', cursor: 'pointer' }}
+          >
+            <X size={18} />
+          </button>
         </div>
 
         {/* Modal Body */}
@@ -1289,8 +1325,41 @@ function QrResolver({ code, go, add, setToast }) {
           </div>
         ) : state.product ? (
           <div style={{ padding: '20px 20px 24px' }}>
-            {/* Image & Main Info */}
-            <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start', marginBottom: 16 }}>
+            {/* Image & Main Info - Mahsulot sahifasiga o'tish uchun bosiladigan blok */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={handleGoProduct}
+              onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && handleGoProduct()}
+              title="Mahsulot sahifasiga o‘tish"
+              style={{
+                display: 'flex',
+                gap: 16,
+                alignItems: 'flex-start',
+                marginBottom: 16,
+                cursor: 'pointer',
+                padding: 6,
+                margin: '-6px -6px 10px -6px',
+                borderRadius: 14,
+                border: '1px solid transparent',
+                transition: 'background 0.15s ease, border-color 0.15s ease',
+                userSelect: 'none'
+              }}
+              onMouseEnter={e => {
+                e.currentTarget.style.background = 'var(--surface-2, #f8fafc)';
+                e.currentTarget.style.borderColor = 'var(--border, #e2e8f0)';
+              }}
+              onMouseLeave={e => {
+                e.currentTarget.style.background = 'transparent';
+                e.currentTarget.style.borderColor = 'transparent';
+              }}
+              onTouchStart={e => {
+                e.currentTarget.style.background = 'var(--surface-2, #f8fafc)';
+              }}
+              onTouchEnd={e => {
+                e.currentTarget.style.background = 'transparent';
+              }}
+            >
               <div style={{ width: 105, height: 105, borderRadius: 14, overflow: 'hidden', background: '#f1f5f9', flexShrink: 0, border: '1px solid var(--border)', display: 'grid', placeItems: 'center' }}>
                 <ImageWithFallback src={displayImage} alt={state.product.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
               </div>
@@ -1307,6 +1376,10 @@ function QrResolver({ code, go, add, setToast }) {
                 {state.product.oldPrice > displayPrice && (
                   <del style={{ fontSize: 12, color: 'var(--muted)' }}>{money(state.product.oldPrice)}</del>
                 )}
+                <div style={{ marginTop: 6, display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--orange)', fontWeight: 700 }}>
+                  <span>Batafsil ma’lumot</span>
+                  <ArrowRight size={12} />
+                </div>
               </div>
             </div>
 
@@ -1430,15 +1503,18 @@ function ProductReviews({ productId, session, setToast, setAuthOpen }) {
 function Product({ product, go, add, toggleFavorite, loved, related, favorites, session, setToast, setAuthOpen }) {
   const variants = product.variants || [];
   const priceTiers = product.priceTiers || [];
-  const [variantId, setVariantId] = useState(variants[0]?.id || null);
+  const initialVariantId = (product.selectedVariantId && variants.some(v => String(v.id) === String(product.selectedVariantId)))
+    ? product.selectedVariantId
+    : (variants[0]?.id || null);
+  const [variantId, setVariantId] = useState(initialVariantId);
   const [selectedTierId, setSelectedTierId] = useState(() => {
     if (product.id && product.id.includes('_')) return product.id;
     return priceTiers[0]?.id || null;
   });
   useEffect(() => {
-    setVariantId(variants[0]?.id || null);
+    setVariantId((product.selectedVariantId && variants.some(v => String(v.id) === String(product.selectedVariantId))) ? product.selectedVariantId : (variants[0]?.id || null));
     setSelectedTierId(product.id && product.id.includes('_') ? product.id : (priceTiers[0]?.id || null));
-  }, [product.id, priceTiers.length]);
+  }, [product.id, product.selectedVariantId, priceTiers.length]);
   const activeVariant = variantId ? variants.find(v => v.id === variantId) : null;
   const activeTier = selectedTierId ? priceTiers.find(t => t.id === selectedTierId) : (priceTiers[0] || null);
   const displayPrice = activeVariant?.price || activeTier?.price || product.price;

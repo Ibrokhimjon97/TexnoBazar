@@ -27,13 +27,22 @@ export function formatDualMoney(value,rate,usdValue){
  * Ikki valyutali narx input — UZS kiritilganda USD avtomatik hisoblanadi va aksincha.
  * Props: label, valueUzs, onChangeUzs, valueUsd, onChangeUsd, rate (1 USD = X UZS), disabled
  */
-export function DualPriceInput({label,valueUzs='',onChangeUzs,valueUsd,onChangeUsd,rate,disabled=false}){
+export function DualPriceInput({label,valueUzs='',onChangeUzs,valueUsd,onChangeUsd,rate,disabled=false,currency,onCurrencyChange}){
   const[usd,setUsd]=useState(()=>{
     if(valueUsd!==undefined&&valueUsd!==null&&valueUsd!=='')return String(valueUsd);
     if(rate&&Number(valueUzs)>0)return (Number(valueUzs)/rate).toFixed(2);
     return '';
   });
-  const[source,setSource]=useState(valueUsd ? 'usd' : 'uzs');
+  const[source,setSource]=useState(() => {
+    if (currency) return currency.toLowerCase();
+    return (valueUsd !== undefined && valueUsd !== '' && Number(valueUsd) > 0) ? 'usd' : 'uzs';
+  });
+
+  useEffect(() => {
+    if (currency) {
+      setSource(currency.toLowerCase());
+    }
+  }, [currency]);
 
   useEffect(()=>{
     if(valueUsd!==undefined&&valueUsd!==null&&valueUsd!==''){
@@ -47,6 +56,7 @@ export function DualPriceInput({label,valueUzs='',onChangeUzs,valueUsd,onChangeU
     const v=e.target.value;
     onChangeUzs(v);
     setSource('uzs');
+    onCurrencyChange?.('UZS');
     if(rate&&Number(v)>0){
       const calculatedUsd=(Number(v)/rate).toFixed(2);
       setUsd(calculatedUsd);
@@ -61,6 +71,7 @@ export function DualPriceInput({label,valueUzs='',onChangeUzs,valueUsd,onChangeU
     const v=e.target.value;
     setUsd(v);
     setSource('usd');
+    onCurrencyChange?.('USD');
     onChangeUsd?.(v);
     if(rate&&Number(v)>0)onChangeUzs(String(Math.round(Number(v)*rate)));
     else onChangeUzs('');

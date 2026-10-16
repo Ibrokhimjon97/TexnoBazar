@@ -258,7 +258,8 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
       setForm({
         name: '', sku: '', barcode: '', category_id: '', brand_id: '',
         cost_price: '', retail_price: '', wholesale_price: '', promotion_price: '',
-        minimum_sale_price: '0', compare_at_price: '', slug: '', video_url: '', description: ''
+        minimum_sale_price: '0', compare_at_price: '', slug: '', video_url: '', description: '',
+        currency: 'UZS'
       });
       setExistingMedia([]);
       setVariants([]);
@@ -286,7 +287,8 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
       compare_at_price: prod.compare_at_price != null ? String(prod.compare_at_price) : '',
       slug: prod.slug || '',
       video_url: prod.video_url || prod.seo_image_url || '',
-      description: prod.description || ''
+      description: prod.description || '',
+      currency: prod.currency || (prod.retail_price_usd && Number(prod.retail_price_usd) > 0 ? 'USD' : 'UZS')
     });
     setExistingMedia(prod.media || []);
     setVariants((prod.variants || []).map(v => ({ ...v, imageFiles: [] })));
@@ -351,7 +353,7 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
           compare_at_price: form.compare_at_price === '' ? null : Number(form.compare_at_price),
           description: form.description || null,
           video_url: form.video_url?.trim() || null,
-          currency: 'USD',
+          currency: form.currency || 'USD',
           status: 'active',
           is_published: false,
           track_individual_units: true,
@@ -376,7 +378,7 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
           promotion_price: form.promotion_price === '' ? null : Number(form.promotion_price),
           minimum_sale_price: Number(form.minimum_sale_price) || 0,
           minimum_sale_price_usd: form.minimum_sale_price_usd !== '' && form.minimum_sale_price_usd != null && !isNaN(Number(form.minimum_sale_price_usd)) ? Number(form.minimum_sale_price_usd) : (rate && Number(form.minimum_sale_price) ? Number((Number(form.minimum_sale_price)/rate).toFixed(2)) : null),
-          currency: 'USD',
+          currency: form.currency || 'USD',
           compare_at_price: form.compare_at_price === '' ? null : Number(form.compare_at_price),
           description: form.description || null,
           video_url: form.video_url?.trim() || null,
@@ -498,10 +500,10 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
             </div>
           </div>
 
-          <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v => setForm(f => ({ ...f, cost_price: v }))} valueUsd={form.cost_price_usd} onChangeUsd={v => setForm(f => ({ ...f, cost_price_usd: v }))} rate={rate} />
-          <DualPriceInput label="Sotish narxi" valueUzs={form.retail_price} onChangeUzs={v => setForm(f => ({ ...f, retail_price: v }))} valueUsd={form.retail_price_usd} onChangeUsd={v => setForm(f => ({ ...f, retail_price_usd: v }))} rate={rate} />
-          <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v => setForm(f => ({ ...f, wholesale_price: v }))} valueUsd={form.wholesale_price_usd} onChangeUsd={v => setForm(f => ({ ...f, wholesale_price_usd: v }))} rate={rate} />
-          <DualPriceInput label="Minimal sotuv narxi" valueUzs={form.minimum_sale_price} onChangeUzs={v => setForm(f => ({ ...f, minimum_sale_price: v }))} valueUsd={form.minimum_sale_price_usd} onChangeUsd={v => setForm(f => ({ ...f, minimum_sale_price_usd: v }))} rate={rate} />
+          <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v => setForm(f => ({ ...f, cost_price: v }))} valueUsd={form.cost_price_usd} onChangeUsd={v => setForm(f => ({ ...f, cost_price_usd: v }))} rate={rate} currency={form.currency} onCurrencyChange={c => setForm(f => ({ ...f, currency: c }))} />
+          <DualPriceInput label="Sotish narxi" valueUzs={form.retail_price} onChangeUzs={v => setForm(f => ({ ...f, retail_price: v }))} valueUsd={form.retail_price_usd} onChangeUsd={v => setForm(f => ({ ...f, retail_price_usd: v }))} rate={rate} currency={form.currency} onCurrencyChange={c => setForm(f => ({ ...f, currency: c }))} />
+          <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v => setForm(f => ({ ...f, wholesale_price: v }))} valueUsd={form.wholesale_price_usd} onChangeUsd={v => setForm(f => ({ ...f, wholesale_price_usd: v }))} rate={rate} currency={form.currency} onCurrencyChange={c => setForm(f => ({ ...f, currency: c }))} />
+          <DualPriceInput label="Minimal sotuv narxi" valueUzs={form.minimum_sale_price} onChangeUzs={v => setForm(f => ({ ...f, minimum_sale_price: v }))} valueUsd={form.minimum_sale_price_usd} onChangeUsd={v => setForm(f => ({ ...f, minimum_sale_price_usd: v }))} rate={rate} currency={form.currency} onCurrencyChange={c => setForm(f => ({ ...f, currency: c }))} />
 
           <label>
             <span className="label">Aksiya narxi</span>

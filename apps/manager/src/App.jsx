@@ -1,5 +1,5 @@
 import React,{useCallback,useEffect,useRef,useState}from'react';
-import{AlertTriangle,Archive,ArrowLeftRight,Bell,CalendarCheck,Sparkles,Boxes,ClipboardCheck,DollarSign,FileX2,Home,Landmark,Menu,PackagePlus,QrCode,RotateCcw,ShoppingBag,Truck,WalletCards,Warehouse,Wrench,X}from'lucide-react';
+import{AlertTriangle,Archive,ArrowLeftRight,Bell,CalendarCheck,Check,Sparkles,Boxes,ClipboardCheck,DollarSign,FileX2,Home,Landmark,Menu,PackagePlus,QrCode,RotateCcw,ShoppingBag,Truck,WalletCards,Warehouse,Wrench,X}from'lucide-react';
 import{AccountMenu,AiChat,Status,ThemeToggle,Toast,formatMoney,useAuth}from'@texnobazar/ui';
 import{formatUzDate,getManagementDashboard,listCourierPerformance,listNotifications,listPosPendingSales,markNotificationsRead,subscribeNotifications}from'@texnobazar/data';
 
@@ -181,7 +181,10 @@ function Overview({branchId,go,scan,batch,name}){
 
 function NotificationCenter({profileId,onAlert,onOpenItem}){
   const[open,setOpen]=useState(false),[items,setItems]=useState([]),[unread,setUnread]=useState(0),[loading,setLoading]=useState(false),[error,setError]=useState('');
+  const[showAll,setShowAll]=useState(false);
   const seen=useRef(null);
+  const wrapRef=useRef(null);
+
   const load=useCallback(async()=>{
     if(!profileId)return;
     setLoading(true);setError('');
@@ -195,17 +198,161 @@ function NotificationCenter({profileId,onAlert,onOpenItem}){
     }catch(e){setError(String(e?.message||'Bildirishnomalar yuklanmadi.'));}
     finally{setLoading(false);}
   },[profileId,onAlert]);
+
   useEffect(()=>{load();},[load]);
   useEffect(()=>{if(!profileId)return;return subscribeNotifications(load,e=>setError(String(e?.message||e)),profileId);},[profileId,load]);
   useEffect(()=>{if(!profileId)return;const timer=setInterval(load,20000);return()=>clearInterval(timer)},[profileId,load]);
-  const mark=async ids=>{try{await markNotificationsRead(ids);seen.current=null;await load();}catch(e){setError(String(e?.message||e));}};
+
+  // Tashqariga bosilganda bildirishnoma panelini yopish
+  useEffect(()=>{
+    if(!open)return;
+    const handleOutside=(e)=>{
+      if(wrapRef.current&&!wrapRef.current.contains(e.target)){
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown',handleOutside);
+    document.addEventListener('touchstart',handleOutside);
+    return()=>{
+      document.removeEventListener('mousedown',handleOutside);
+      document.removeEventListener('touchstart',handleOutside);
+    };
+  },[open]);
+
+  const mark=async ids=>{
+    try{
+      await markNotificationsRead(ids);
+      seen.current=null;
+      await load();
+      if(!ids){
+        // Barchasini o'qish bosilganda bildirishnomalar yashiriladi va qisqa vaqtdan so'ng oyna yopiladi
+        setTimeout(()=>setOpen(false),800);
+      }
+    }catch(e){setError(String(e?.message||e));}
+  };
+
   const openItem=item=>{
     if(!item.read_at)mark([item.id]);
     setOpen(false);
     const data=item?.data;
     if(data?.order_id||data?.transfer_id||data?.pending_sale_id)onOpenItem?.(item);
   };
-  return <div className="notification-wrap"><button className="icon-btn notification-bell" onClick={()=>{setOpen(!open);if(!open)load();}} aria-label={`Bildirishnomalar${unread?`: ${unread} ta yangi`:''}`}><Bell/>{unread>0&&<em className="notification-count">{unread>99?'99+':unread}</em>}</button>{open&&<div className="notification-panel"><header><div><b>Bildirishnomalar</b><small>{unread} ta o‘qilmagan</small></div><button onClick={()=>mark(null)} disabled={!unread}>Barchasini o‘qish</button></header>{loading?<div className="notification-state">Yuklanmoqda…</div>:error?<div className="notification-state error">{error}<button onClick={load}>Qayta urinish</button></div>:items.length===0?<div className="notification-state">Bildirishnoma yo‘q</div>:<div className="notification-list">{items.map(item=><button key={item.id} className={item.read_at?'':'unread'} onClick={()=>openItem(item)}><span><b>{item.title}</b><small>{item.body}</small><time>{new Date(item.created_at).toLocaleString('uz-UZ')}</time></span>{!item.read_at&&<Status type="orange">Yangi</Status>}</button>)}</div>}</div>}</div>;
+
+  const displayItems=showAll?items:items.filter(item=>!item.read_at);
+
+  return (
+    <div className="notification-wrap" ref={wrapRef}>
+      <button
+        type="button"
+        className="icon-btn notification-bell"
+        onClick={()=>{setOpen(!open);if(!open)load();}}
+        aria-label={`Bildirishnomalar${unread?`: ${unread} ta yangi`:''}`}
+      >
+        <Bell/>
+        {unread>0&&<em className="notification-count">{unread>99?'99+':unread}</em>}
+      </button>
+      {open&&(
+        <div className="notification-panel">
+          <header style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',borderBottom:'1px solid var(--line)'}}>
+            <div>
+              <b>Bildirishnomalar</b>
+              <small>{unread} ta o‘qilmagan</small>
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              {items.length>0&&(
+                <button
+                  type="button"
+                  onClick={()=>setShowAll(v=>!v)}
+                  style={{
+                    border:'1px solid var(--line)',
+                    background:showAll?'var(--surface-2, #f1f5f9)':'transparent',
+                    borderRadius:6,
+                    padding:'3px 8px',
+                    fontSize:10,
+                    cursor:'pointer',
+                    color:'var(--text)',
+                    fontWeight:600
+                  }}
+                >
+                  {showAll?'Faqat yangilar':`Barchasi (${items.length})`}
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={()=>mark(null)}
+                disabled={!unread}
+                style={{
+                  border:0,
+                  background:'none',
+                  color:unread?'var(--orange)':'var(--muted)',
+                  fontSize:11,
+                  fontWeight:700,
+                  cursor:unread?'pointer':'default',
+                  padding:'4px 6px'
+                }}
+              >
+                Barchasini o‘qish
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                onClick={()=>setOpen(false)}
+                aria-label="Yopish"
+                style={{width:26,height:26,display:'grid',placeItems:'center',borderRadius:'50%',cursor:'pointer',border:0,padding:0,color:'var(--muted)'}}
+              >
+                <X size={15}/>
+              </button>
+            </div>
+          </header>
+          {loading?(
+            <div className="notification-state">Yuklanmoqda…</div>
+          ):error?(
+            <div className="notification-state error">{error}<button onClick={load}>Qayta urinish</button></div>
+          ):displayItems.length===0?(
+            <div className="notification-state" style={{padding:'28px 16px'}}>
+              <Check size={28} style={{color:'#16a34a',margin:'0 auto 6px',display:'block'}}/>
+              <b style={{color:'var(--text)'}}>{showAll?'Bildirishnoma yo‘q':'O‘qilmagan bildirishnoma yo‘q'}</b>
+              <p style={{margin:'4px 0 0',fontSize:11,color:'var(--muted)'}}>
+                {showAll?'Hozircha hech qanday bildirishnoma mavjud emas.':'Barcha bildirishnomalar o‘qilgan.'}
+              </p>
+              {!showAll&&items.length>0&&(
+                <button
+                  type="button"
+                  style={{
+                    margin:'12px auto 0',
+                    fontSize:11,
+                    padding:'5px 12px',
+                    border:'1px solid var(--line)',
+                    borderRadius:8,
+                    background:'var(--surface-2, #f8fafc)',
+                    color:'var(--text)',
+                    cursor:'pointer',
+                    display:'block'
+                  }}
+                  onClick={()=>setShowAll(true)}
+                >
+                  O‘qilganlarni ko‘rish ({items.length})
+                </button>
+              )}
+            </div>
+          ):(
+            <div className="notification-list">
+              {displayItems.map(item=>(
+                <button key={item.id} className={item.read_at?'':'unread'} onClick={()=>openItem(item)}>
+                  <span>
+                    <b>{item.title}</b>
+                    <small>{item.body}</small>
+                    <time>{new Date(item.created_at).toLocaleString('uz-UZ')}</time>
+                  </span>
+                  {!item.read_at&&<Status type="orange">Yangi</Status>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function OverviewState({error,retry}){return <div className={'ops-state '+(error?'ops-error':'')}>{error?<><AlertTriangle/><b>Dashboard yuklanmadi</b><p>{error}</p>{retry&&<button className="btn" onClick={retry}>Qayta urinish</button>}</>:<>Dashboard yuklanmoqda…</>}</div>;}
