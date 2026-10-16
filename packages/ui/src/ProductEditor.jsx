@@ -438,6 +438,18 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
 
       const namedComponents = components.filter(c => c.name?.trim());
       if (namedComponents.length > 0 || (product?.components?.length > 0)) {
+        // Yangi tanlangan qismlar rasmlarini R2 ga yuklash
+        for (const c of namedComponents) {
+          if (c.imageFile) {
+            try {
+              const uploaded = await uploadProductMedia(currentId, c.imageFile, `${cleanName} - ${c.name}`);
+              c.image_url = uploaded?.publicUrl || uploaded?.url || c.image_url;
+            } catch (imgErr) {
+              failed.push(`${c.name} rasmi: ${imgErr.message || 'Yuklanmadi'}`);
+            }
+          }
+        }
+
         const componentsPayload = namedComponents.map((c, idx) => ({
           id: c.id || null,
           name: c.name.trim(),
@@ -452,7 +464,7 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
           is_default: Boolean(c.is_default),
           is_required: Boolean(c.is_required),
           can_buy_standalone: c.can_buy_standalone !== false,
-          image_url: c.image_url || null,
+          image_url: (c.image_url && !c.image_url.startsWith('blob:')) ? c.image_url : null,
           sort_order: idx,
           is_active: c.is_active !== false,
         }));

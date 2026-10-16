@@ -76,7 +76,8 @@ function OrderDetail({order,refs,close,busy,error,transition,cancel,assign,onDel
                       {line.selected_components?.length > 0 && (
                         <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
                           {line.selected_components.map((c, i) => (
-                            <span key={i} style={{ background: '#f1f5f9', color: '#334155', padding: '1px 6px', borderRadius: 4, fontWeight: 600, fontSize: 11 }}>
+                            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 4, background: '#f1f5f9', color: '#334155', padding: '1px 6px', borderRadius: 4, fontWeight: 600, fontSize: 11 }}>
+                              {(c.image_url || c.imageUrl) && <img src={c.image_url || c.imageUrl} alt="" style={{ width: 14, height: 14, borderRadius: 2, objectFit: 'cover' }} />}
                               + {c.name || c.name_uz}{c.color ? ` (${c.color})` : ''}
                             </span>
                           ))}

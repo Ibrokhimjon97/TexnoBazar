@@ -1770,6 +1770,21 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
                         disabled={comp.isRequired}
                         onChange={() => toggleComponent(comp.id)}
                       />
+                      {comp.imageUrl && (
+                        <img
+                          src={comp.imageUrl}
+                          alt={comp.name}
+                          style={{
+                            width: 38,
+                            height: 38,
+                            borderRadius: 6,
+                            objectFit: 'cover',
+                            border: '1px solid #cbd5e1',
+                            flexShrink: 0,
+                            background: '#f1f5f9'
+                          }}
+                        />
+                      )}
                       {comp.colorHex && (
                         <span
                           style={{
@@ -1778,7 +1793,8 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
                             borderRadius: '50%',
                             background: comp.colorHex,
                             display: 'inline-block',
-                            border: '1px solid #cbd5e1'
+                            border: '1px solid #cbd5e1',
+                            flexShrink: 0
                           }}
                           title={comp.colorName}
                         />
@@ -1895,7 +1911,14 @@ function Cart({ cartItems, go, updateCart }) {
                   <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--orange, #ea580c)' }}>Tarkibiy qismlar:</span>
                     {product.selectedComponents.map((c, i) => (
-                      <span key={c.id || i} style={{ fontSize: 11, color: '#64748b' }}>
+                      <span key={c.id || i} style={{ fontSize: 11, color: '#64748b', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                        {(c.imageUrl || c.image_url) && (
+                          <img
+                            src={c.imageUrl || c.image_url}
+                            alt=""
+                            style={{ width: 14, height: 14, borderRadius: 3, objectFit: 'cover', border: '1px solid #e2e8f0', flexShrink: 0 }}
+                          />
+                        )}
                         • {c.name} {c.color_name || c.colorName ? `(${c.color_name || c.colorName})` : ''} (+{money(c.retail_price || c.price || 0)})
                       </span>
                     ))}

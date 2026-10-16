@@ -487,8 +487,13 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onDelete, rat
                   <b>{line.product_name}</b>
                   <small>{line.sku} · {line.qr_code}</small>
                   {line.selected_components?.length > 0 && (
-                    <small style={{ display: 'block', color: 'var(--muted, #64748b)', marginTop: 2 }}>
-                      Qismlar: {line.selected_components.map(c => `${c.name}${c.color ? ` (${c.color})` : ''}`).join(', ')}
+                    <small style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, color: 'var(--muted, #64748b)', marginTop: 2 }}>
+                      Qismlar: {line.selected_components.map((c, i) => (
+                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          {(c.image_url || c.imageUrl) && <img src={c.image_url || c.imageUrl} alt="" style={{ width: 14, height: 14, borderRadius: 2, objectFit: 'cover' }} />}
+                          {c.name}{c.color ? ` (${c.color})` : ''}{i < line.selected_components.length - 1 ? ', ' : ''}
+                        </span>
+                      ))}
                     </small>
                   )}
                 </div>
@@ -726,8 +731,13 @@ function Receipt({ receipt, close, rate }) {
                   <b>{line.product_name}</b>
                   <small>{line.qr_code}</small>
                   {line.selected_components?.length > 0 && (
-                    <small style={{ display: 'block', color: 'var(--muted, #64748b)', marginTop: 2 }}>
-                      Qismlar: {line.selected_components.map(c => `${c.name}${c.color ? ` (${c.color})` : ''}`).join(', ')}
+                    <small style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, color: 'var(--muted, #64748b)', marginTop: 2 }}>
+                      Qismlar: {line.selected_components.map((c, i) => (
+                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                          {(c.image_url || c.imageUrl) && <img src={c.image_url || c.imageUrl} alt="" style={{ width: 14, height: 14, borderRadius: 2, objectFit: 'cover' }} />}
+                          {c.name}{c.color ? ` (${c.color})` : ''}{i < line.selected_components.length - 1 ? ', ' : ''}
+                        </span>
+                      ))}
                     </small>
                   )}
                 </span>

@@ -1,5 +1,5 @@
-import React from 'react';
-import { Plus, Trash2, Check, Layers } from 'lucide-react';
+import React, { useState } from 'react';
+import { Plus, Trash2, Check, Layers, Upload, Image as ImageIcon, X, Link as LinkIcon } from 'lucide-react';
 import { DualPriceInput, useExchangeRate } from './DualPriceInput.jsx';
 import { BASE_COLOR_PALETTE } from './ColorVariantEditor.jsx';
 
@@ -32,6 +32,9 @@ export function ProductComponentEditor({ components = [], onChange, rate }) {
       is_default: true,
       is_required: false,
       can_buy_standalone: true,
+      image_url: null,
+      imageFile: null,
+      previewUrl: null,
       currency: 'UZS',
     };
     if (typeof onChange === 'function') {
@@ -73,7 +76,7 @@ export function ProductComponentEditor({ components = [], onChange, rate }) {
             <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700 }}>Tarkibiy va qo‘shimcha qismlar (Modulli tovar)</h3>
           </div>
           <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted, #64748b)' }}>
-            Masalan: Beshik (karkas, sumak, yostiqcha, to‘shak). Mijoz saytda yoki seller POS-da kerakli qismlarni tanlab sotishi yoki alohida qismini xarid qilishi mumkin.
+            Masalan: Beshik (karkas, sumak, yostiqcha, to‘shak). Har bir qismga rasm, rang va narx biriktiriladi.
           </p>
         </div>
         <button
@@ -111,6 +114,8 @@ export function ProductComponentEditor({ components = [], onChange, rate }) {
 }
 
 function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
+  const [showUrlInput, setShowUrlInput] = useState(false);
+
   const set = (key, value) => {
     onUpdate({ [key]: value });
   };
@@ -121,6 +126,34 @@ function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
       color_name: component.color_name || name,
     });
   };
+
+  const handleImageFile = (e) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) {
+        alert('Rasm hajmi 10 MB dan oshmasligi kerak');
+        return;
+      }
+      const previewUrl = URL.createObjectURL(file);
+      onUpdate({
+        imageFile: file,
+        previewUrl,
+        image_url: previewUrl,
+      });
+    }
+    e.target.value = '';
+  };
+
+  const removeImage = (e) => {
+    e?.stopPropagation?.();
+    onUpdate({
+      imageFile: null,
+      previewUrl: null,
+      image_url: null,
+    });
+  };
+
+  const currentImg = component.previewUrl || component.image_url;
 
   return (
     <article
@@ -135,11 +168,87 @@ function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
         padding: 16
       }}
     >
-      {/* Head row: Name, color picker, delete button */}
+      {/* Head row: Index, Image upload, Color picker, Name, Color Name, Delete */}
       <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--muted, #64748b)', minWidth: 20 }}>
           #{index + 1}
         </span>
+
+        {/* Component Image Picker */}
+        {currentImg ? (
+          <div
+            style={{
+              position: 'relative',
+              width: 42,
+              height: 42,
+              borderRadius: 8,
+              overflow: 'hidden',
+              border: '2px solid var(--orange, #f97316)',
+              boxShadow: '0 2px 4px rgba(0,0,0,0.06)',
+              flexShrink: 0,
+              background: '#f1f5f9'
+            }}
+            title="Qism rasmi (o‘zgartirish uchun bosing yoki ✕ bilan o‘chiring)"
+          >
+            <img
+              src={currentImg}
+              alt=""
+              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+            <button
+              type="button"
+              onClick={removeImage}
+              style={{
+                position: 'absolute',
+                top: 2,
+                right: 2,
+                width: 16,
+                height: 16,
+                background: 'rgba(0,0,0,0.7)',
+                color: '#fff',
+                border: 0,
+                borderRadius: 4,
+                fontSize: 10,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: 0
+              }}
+              title="Rasmni o‘chirish"
+            >
+              ✕
+            </button>
+          </div>
+        ) : (
+          <label
+            style={{
+              width: 42,
+              height: 42,
+              borderRadius: 8,
+              border: '1px dashed #cbd5e1',
+              background: '#f8fafc',
+              display: 'inline-flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              flexShrink: 0,
+              color: '#64748b',
+              transition: 'all 0.15s ease'
+            }}
+            title="Qism uchun rasm yuklash"
+          >
+            <Upload size={14} style={{ color: 'var(--orange, #f97316)' }} />
+            <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text, #1e293b)' }}>Rasm</span>
+            <input
+              type="file"
+              accept="image/*"
+              hidden
+              onChange={handleImageFile}
+            />
+          </label>
+        )}
 
         {/* Color swatch picker */}
         <label
@@ -185,6 +294,17 @@ function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
           style={{ flex: '1 1 140px' }}
         />
 
+        {/* Toggle URL input */}
+        <button
+          type="button"
+          className="btn btn-outline btn-xs"
+          onClick={() => setShowUrlInput(v => !v)}
+          title="Rasm URL havolasini kiritish"
+          style={{ padding: '5px 8px', fontSize: 11, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+        >
+          <LinkIcon size={12} /> {showUrlInput ? 'URL yopish' : 'Rasm URL'}
+        </button>
+
         {/* Delete button */}
         <button
           type="button"
@@ -196,6 +316,24 @@ function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
           <Trash2 size={16} />
         </button>
       </div>
+
+      {/* Optional Direct Image URL Input */}
+      {showUrlInput && (
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', padding: '6px 10px', background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+          <LinkIcon size={14} style={{ color: 'var(--muted)' }} />
+          <input
+            className="input"
+            type="url"
+            value={component.image_url || ''}
+            onChange={e => {
+              const url = e.target.value;
+              onUpdate({ image_url: url, previewUrl: url, imageFile: null });
+            }}
+            placeholder="Rasm URL havolasi (https://...)"
+            style={{ fontSize: 12, flex: 1 }}
+          />
+        </div>
+      )}
 
       {/* Quick Color Palette */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', paddingLeft: 30 }}>

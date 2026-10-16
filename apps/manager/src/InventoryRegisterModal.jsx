@@ -114,6 +114,16 @@ export default function CreateProductModal({open,close,branchId,created}){
 
       const namedComponents=(components||[]).filter(c=>c.name?.trim());
       if(namedComponents.length){
+        for(const c of namedComponents){
+          if(c.imageFile){
+            try{
+              const uploaded=await uploadProductMedia(data.id,c.imageFile,`${name.trim()} - ${c.name}`);
+              c.image_url=uploaded?.publicUrl||uploaded?.url||c.image_url;
+            }catch(imgErr){
+              failed.push(`${c.name} rasmi: ${err(imgErr)}`);
+            }
+          }
+        }
         const componentsPayload=namedComponents.map((c,idx)=>({
           name:c.name.trim(),
           color_name:c.color_name?.trim()||null,
@@ -127,7 +137,7 @@ export default function CreateProductModal({open,close,branchId,created}){
           is_default:Boolean(c.is_default),
           is_required:Boolean(c.is_required),
           can_buy_standalone:c.can_buy_standalone!==false,
-          image_url:c.image_url||null,
+          image_url:(c.image_url&&!c.image_url.startsWith('blob:'))?c.image_url:null,
           sort_order:idx,
           is_active:true
         }));
