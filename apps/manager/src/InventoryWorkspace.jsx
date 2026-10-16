@@ -1697,10 +1697,65 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
             minimum_sale_price_usd: mpUsd != null ? String(mpUsd) : '',
             minimum_sale_price_uzs: mpUzs != null ? String(mpUzs) : '',
             variant_color:l.variant_color||'',
-            qr_count:l.qr_count
+            qr_count:l.qr_count,
+            components:[],
+            _hadComponents:false
           };
         })
       });
+
+      const productIds = [...new Set((receipt.lines || []).map(l => l.product_id).filter(Boolean))];
+      if (productIds.length > 0) {
+        getBrowserClient()
+          .from('product_components')
+          .select('*')
+          .in('product_id', productIds)
+          .eq('is_active', true)
+          .order('sort_order')
+          .then(({ data: comps, error: compErr }) => {
+            if (compErr) {
+              console.warn('Receipt components fetch error:', compErr);
+              return;
+            }
+            if (comps && comps.length > 0) {
+              const compsByProd = {};
+              comps.forEach(c => {
+                if (!compsByProd[c.product_id]) compsByProd[c.product_id] = [];
+                compsByProd[c.product_id].push({
+                  ...c,
+                  quantity: c.quantity || 1,
+                  cost_price: c.cost_price != null ? String(c.cost_price) : '',
+                  cost_price_usd: c.cost_price_usd != null ? Number(c.cost_price_usd) : '',
+                  retail_price: c.retail_price != null ? String(c.retail_price) : '',
+                  retail_price_usd: c.retail_price_usd != null ? Number(c.retail_price_usd) : '',
+                  wholesale_price: c.wholesale_price != null ? String(c.wholesale_price) : '',
+                  wholesale_price_usd: c.wholesale_price_usd != null ? Number(c.wholesale_price_usd) : '',
+                  image_url: c.image_url || null,
+                  imageFile: null,
+                  previewUrl: c.image_url || null
+                });
+              });
+              setEditForm(prev => {
+                if (!prev.lines) return prev;
+                return {
+                  ...prev,
+                  lines: prev.lines.map(l => {
+                    const prodComps = compsByProd[l.product_id];
+                    if (prodComps && prodComps.length > 0) {
+                      return {
+                        ...l,
+                        components: prodComps.map(c => ({ ...c })),
+                        _hadComponents: true
+                      };
+                    }
+                    return l;
+                  })
+                };
+              });
+            }
+          })
+          .catch(err => console.warn('Components query failed:', err));
+      }
     }
   },[receipt?.id,initialEditing]);
 
@@ -2114,13 +2169,19 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
       const client=getBrowserClient();
       const batchIds=(receipt.lines||[]).filter(x=>x.product_name===line.product_name&&(x.variant_id||null)===(line.variant_id||null)).map(x=>x.id);
       const{data:units}=await client.from('inventory_units').select('id,qr_code,serial_number,status').in('batch_id',batchIds).order('unit_sequence');
-      const{data:prod}=await client.from('products').select('*').eq('id',line.product_id||units?.[0]?.product_id).single();
+      const prodId = line.product_id||units?.[0]?.product_id;
+      const{data:prod}=await client.from('products').select('*').eq('id',prodId).single();
       const canonicalQr = units?.[0]?.qr_code || '';
       const normalizedUnits = (units||[]).map(u => ({
         ...u,
         qr_code: canonicalQr || u.qr_code
       }));
-      setLineUnits(normalizedUnits);setLineProduct(prod?{...prod,variant_color:line.variant_color}:prod);
+      let comps = [];
+      if (prodId) {
+        const { data: cData } = await client.from('product_components').select('*').eq('product_id', prodId).eq('is_active', true).order('sort_order');
+        comps = cData || [];
+      }
+      setLineUnits(normalizedUnits);setLineProduct(prod?{...prod,variant_color:line.variant_color,components:comps}:prod);
     }catch(e){}finally{setLoadingLine(false)}
   };
 
@@ -2306,6 +2367,13 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
           cur.minimum_sale_price_usd = rate && num > 0 ? String(Number((num / rate).toFixed(2))) : '';
         }
       }
+      if (field === 'components' && cur.product_id) {
+        for (let j = 0; j < lines.length; j++) {
+          if (j !== idx && lines[j].product_id === cur.product_id) {
+            lines[j] = { ...lines[j], components: val };
+          }
+        }
+      }
       lines[idx] = cur;
       return{...prev,lines};
     });
@@ -2363,6 +2431,82 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
         setError("Partiyada kamida 1 ta tovar qolishi kerak.");
         setSaving(false);
         return;
+      }
+
+      // Save components for modular products if any
+      const processedProductIds = new Set();
+      for (const line of activeLines) {
+        if (!line.product_id || processedProductIds.has(line.product_id)) continue;
+        if (!line._hadComponents && (!line.components || line.components.length === 0)) continue;
+
+        processedProductIds.add(line.product_id);
+
+        try {
+          const compsPayload = [];
+          const compsList = line.components || [];
+          for (let cIdx = 0; cIdx < compsList.length; cIdx++) {
+            const c = compsList[cIdx];
+            let cImageUrl = c.image_url || null;
+
+            if (c.imageFile) {
+              try {
+                const compLabel = `${line.product_name || 'Mahsulot'} qismi: ${c.name || 'Qism'}`;
+                const uploadRes = await uploadProductMedia(line.product_id, c.imageFile, compLabel, null);
+                if (uploadRes?.publicUrl || uploadRes?.url) {
+                  cImageUrl = uploadRes.publicUrl || uploadRes.url;
+                }
+              } catch (cImgErr) {
+                console.warn('Modul qismi rasmini yuklashda xatolik:', cImgErr);
+              }
+            }
+
+            let cCost = Number(c.cost_price) || 0;
+            let cRetail = Number(c.retail_price) || 0;
+            let cWholesale = Number(c.wholesale_price) || 0;
+            let cCostUsd = c.cost_price_usd !== undefined && c.cost_price_usd !== '' && c.cost_price_usd !== null ? Number(c.cost_price_usd) : null;
+            let cRetailUsd = c.retail_price_usd !== undefined && c.retail_price_usd !== '' && c.retail_price_usd !== null ? Number(c.retail_price_usd) : null;
+            let cWholesaleUsd = c.wholesale_price_usd !== undefined && c.wholesale_price_usd !== '' && c.wholesale_price_usd !== null ? Number(c.wholesale_price_usd) : null;
+
+            if (isUsd) {
+              if (cCostUsd == null && cCost > 0) cCostUsd = cCost < 20000 ? cCost : (rate ? Number((cCost / rate).toFixed(2)) : cCost);
+              if (cRetailUsd == null && cRetail > 0) cRetailUsd = cRetail < 20000 ? cRetail : (rate ? Number((cRetail / rate).toFixed(2)) : cRetail);
+              if (cWholesaleUsd == null && cWholesale > 0) cWholesaleUsd = cWholesale < 20000 ? cWholesale : (rate ? Number((cWholesale / rate).toFixed(2)) : cWholesale);
+              if (rate && cCostUsd != null && cCostUsd > 0) cCost = Math.round(cCostUsd * rate);
+              if (rate && cRetailUsd != null && cRetailUsd > 0) cRetail = Math.round(cRetailUsd * rate);
+              if (rate && cWholesaleUsd != null && cWholesaleUsd > 0) cWholesale = Math.round(cWholesaleUsd * rate);
+            } else {
+              cCost = Math.round(cCost);
+              cRetail = Math.round(cRetail);
+              cWholesale = Math.round(cWholesale);
+              if (rate && cCost > 0 && cCostUsd == null) cCostUsd = Number((cCost / rate).toFixed(2));
+              if (rate && cRetail > 0 && cRetailUsd == null) cRetailUsd = Number((cRetail / rate).toFixed(2));
+              if (rate && cWholesale > 0 && cWholesaleUsd == null) cWholesaleUsd = Number((cWholesale / rate).toFixed(2));
+            }
+
+            compsPayload.push({
+              ...(c.id && !String(c.id).startsWith('temp_') ? { id: c.id } : {}),
+              name: c.name?.trim() || `Qism ${cIdx + 1}`,
+              color_name: c.color_name || null,
+              color_hex: c.color_hex || null,
+              quantity: Math.max(1, Number(c.quantity) || 1),
+              cost_price: cCost,
+              cost_price_usd: cCostUsd,
+              retail_price: cRetail,
+              retail_price_usd: cRetailUsd,
+              wholesale_price: cWholesale,
+              wholesale_price_usd: cWholesaleUsd,
+              is_default: c.is_default !== false,
+              is_required: Boolean(c.is_required),
+              can_buy_standalone: c.can_buy_standalone !== false,
+              sort_order: cIdx,
+              image_url: cImageUrl
+            });
+          }
+
+          await saveProductComponents(line.product_id, compsPayload);
+        } catch (compErr) {
+          console.warn('Partiya tahrirlashda qismlarni saqlash xatoligi:', compErr);
+        }
       }
 
       const payload={
@@ -2575,6 +2719,26 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
                       <input className="input" style={{width:'100%',padding:'6px 8px'}} type="number" min="0" step="any" value={l.minimum_sale_price} onChange={e=>updateLineField(idx,'minimum_sale_price',e.target.value)}/>
                     </label>
                   </div>
+
+                  {/* Tarkibiy va qo'shimcha qismlar (Modulli tovar) tahrirlash */}
+                  <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed #cbd5e1' }}>
+                    <ProductComponentEditor
+                      components={l.components || []}
+                      onChange={updated => {
+                        const nextComps = typeof updated === 'function' ? updated(l.components || []) : updated;
+                        updateLineField(idx, 'components', nextComps);
+                      }}
+                      rate={rate}
+                      showQuantity={true}
+                    />
+                    {Array.isArray(l.components) && l.components.length > 0 && (
+                      <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', background: '#f8fafc', padding: '8px 12px', borderRadius: 8, fontSize: 12, color: 'var(--muted, #64748b)', marginTop: 8, border: '1px solid #e2e8f0' }}>
+                        <span>Jami tarkibiy qismlar: <b style={{ color: '#1e293b' }}>{l.components.reduce((sum, c) => sum + (Number(c.quantity) || 1), 0)} dona</b> ({l.components.length} xil qism)</span>
+                        <span>Qismlar umumiy tannarxi: <b style={{ color: '#1e293b' }}>{formatDualMoney(l.components.reduce((sum, c) => sum + ((Number(c.cost_price) || 0) * (Number(c.quantity) || 1)), 0), rate)}</b></span>
+                        <span>Qismlar umumiy sotish narxi: <b style={{ color: '#1e293b' }}>{formatDualMoney(l.components.reduce((sum, c) => sum + ((Number(c.retail_price) || 0) * (Number(c.quantity) || 1)), 0), rate)}</b></span>
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -2626,6 +2790,60 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
                     </div>
                   ):(
                     <button type="button" className="btn" style={{fontSize:11,marginBottom:8}} onClick={()=>startEditLine(x,lineProduct)}>Narxlarni tahrirlash</button>
+                  )}
+                  {Array.isArray(lineProduct?.components) && lineProduct.components.length > 0 && (
+                    <div style={{
+                      background: '#ffffff',
+                      border: '1px solid #e2e8f0',
+                      borderRadius: 10,
+                      padding: '10px 12px',
+                      marginBottom: 10
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <Layers size={14} color="#f97316" />
+                          <b style={{ fontSize: 12, color: '#0f172a' }}>Tarkibiy qismlar ({lineProduct.components.length} xil)</b>
+                        </div>
+                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+                          Jami: <b style={{ color: '#1e293b' }}>{lineProduct.components.reduce((sum, c) => sum + (Number(c.quantity) || 1), 0)} dona</b>
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
+                        {lineProduct.components.map((c, cIdx) => (
+                          <div key={c.id || cIdx} style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: 8,
+                            background: '#f8fafc',
+                            border: '1px solid #e2e8f0',
+                            borderRadius: 8,
+                            padding: '6px 8px',
+                            fontSize: 11
+                          }}>
+                            {c.image_url ? (
+                              <img src={c.image_url} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover' }} />
+                            ) : (
+                              <div style={{ width: 28, height: 28, borderRadius: 6, background: c.color_hex || '#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <Layers size={12} color="#fff" />
+                              </div>
+                            )}
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 700, color: '#1e293b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {c.name}
+                              </div>
+                              <div style={{ color: 'var(--muted)', fontSize: 10 }}>
+                                {c.color_name ? `${c.color_name} · ` : ''}{c.quantity || 1} dona
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                              <div style={{ fontWeight: 700, color: 'var(--navy)' }}>
+                                <DualPrice value={Number(c.retail_price || 0)} usdValue={c.retail_price_usd != null ? Number(c.retail_price_usd) : undefined} rate={rate} />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
                   )}
                   {(() => {
                     const canonicalQr = lineUnits?.[0]?.qr_code || x.qr_code || '';
@@ -4407,6 +4625,7 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
               setLine(index, 'components', nextComps);
             }}
             rate={rate}
+            showQuantity={true}
           />
           {Array.isArray(line.components) && line.components.length > 0 && (
             <div style={{ display: 'flex', gap: 14, flexWrap: 'wrap', alignItems: 'center', background: '#f8fafc', padding: '10px 14px', borderRadius: 8, fontSize: 12, color: 'var(--muted, #64748b)', marginTop: 8, border: '1px solid #e2e8f0' }}>

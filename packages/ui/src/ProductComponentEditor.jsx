@@ -13,7 +13,7 @@ import { BASE_COLOR_PALETTE } from './ColorVariantEditor.jsx';
  * - onChange: (updatedComponents | functional updater) => void
  * - rate: exchange rate for UZS/USD conversion
  */
-export function ProductComponentEditor({ components = [], onChange, rate }) {
+export function ProductComponentEditor({ components = [], onChange, rate, showQuantity = false }) {
   const fallbackRate = useExchangeRate();
   const activeRate = rate || fallbackRate;
 
@@ -106,6 +106,7 @@ export function ProductComponentEditor({ components = [], onChange, rate }) {
               onUpdate={patch => updateComponent(idx, patch)}
               onRemove={() => removeComponent(idx)}
               rate={activeRate}
+              showQuantity={showQuantity}
             />
           ))}
         </div>
@@ -114,7 +115,7 @@ export function ProductComponentEditor({ components = [], onChange, rate }) {
   );
 }
 
-function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
+function ComponentCard({ index, component, onUpdate, onRemove, rate, showQuantity = false }) {
   const [showUrlInput, setShowUrlInput] = useState(false);
 
   const set = (key, value) => {
@@ -189,13 +190,21 @@ function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
               flexShrink: 0,
               background: '#f1f5f9'
             }}
-            title="Qism rasmi (o‘zgartirish uchun bosing yoki ✕ bilan o‘chiring)"
+            title="Qism rasmi (rasmni almashtirish uchun bosing yoki ✕ bilan o‘chiring)"
           >
-            <img
-              src={currentImg}
-              alt=""
-              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-            />
+            <label style={{ width: '100%', height: '100%', display: 'block', cursor: 'pointer' }} title="Rasmni almashtirish">
+              <img
+                src={currentImg}
+                alt=""
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+              />
+              <input
+                type="file"
+                accept="image/*"
+                hidden
+                onChange={handleImageFile}
+              />
+            </label>
             <button
               type="button"
               onClick={removeImage}
@@ -214,7 +223,8 @@ function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                padding: 0
+                padding: 0,
+                zIndex: 2
               }}
               title="Rasmni o‘chirish"
             >
@@ -295,28 +305,30 @@ function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
           style={{ flex: '1 1 140px' }}
         />
 
-        {/* Quantity (Soni) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: '#f8fafc', padding: '2px 8px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted, #64748b)' }}>Soni:</span>
-          <input
-            className="input"
-            type="number"
-            min="1"
-            value={component.quantity !== undefined && component.quantity !== null ? component.quantity : 1}
-            onChange={e => {
-              const val = e.target.value;
-              set('quantity', val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
-            }}
-            onBlur={() => {
-              if (!component.quantity || Number(component.quantity) < 1) {
-                set('quantity', 1);
-              }
-            }}
-            style={{ width: 60, padding: '2px 4px', textAlign: 'center', fontWeight: 700, height: 28 }}
-            title="Ushbu tarkibiy qism soni (dona)"
-          />
-          <span style={{ fontSize: 11, color: 'var(--muted)' }}>dona</span>
-        </div>
+        {/* Quantity (Soni) - Ko'rinishi faqat partiya/inventarizatsiya jarayonida kerak bo'ladi */}
+        {showQuantity && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, background: '#f8fafc', padding: '2px 8px', borderRadius: 8, border: '1px solid #e2e8f0' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted, #64748b)' }}>Soni:</span>
+            <input
+              className="input"
+              type="number"
+              min="1"
+              value={component.quantity !== undefined && component.quantity !== null ? component.quantity : 1}
+              onChange={e => {
+                const val = e.target.value;
+                set('quantity', val === '' ? '' : Math.max(1, parseInt(val, 10) || 1));
+              }}
+              onBlur={() => {
+                if (!component.quantity || Number(component.quantity) < 1) {
+                  set('quantity', 1);
+                }
+              }}
+              style={{ width: 60, padding: '2px 4px', textAlign: 'center', fontWeight: 700, height: 28 }}
+              title="Ushbu tarkibiy qism soni (dona)"
+            />
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>dona</span>
+          </div>
+        )}
 
         {/* Toggle URL input */}
         <button

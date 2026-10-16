@@ -321,6 +321,7 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
         components={components}
         onChange={setComponents}
         rate={rate}
+        showQuantity={false}
       />
     </div>
     <div className="wide" style={{display:'flex',gap:10,marginTop:10,flexWrap:'wrap'}}>

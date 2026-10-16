@@ -663,6 +663,7 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
               components={components}
               onChange={setComponents}
               rate={rate}
+              showQuantity={false}
             />
           </div>
 
