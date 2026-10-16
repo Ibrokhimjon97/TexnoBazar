@@ -184,8 +184,10 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
     };
 
     const cleanupScanner = async (scanner) => {
-      stopTracks();
-      if (!scanner) return;
+      if (!scanner) {
+        stopTracks();
+        return;
+      }
       try {
         const state = scanner.getState?.();
         if (state === 2 || state === 3) {
@@ -197,33 +199,19 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
       try {
         scanner.clear();
       } catch {}
+      stopTracks();
     };
 
     const start = async () => {
       try {
-        const { Html5Qrcode } = await import('html5-qrcode');
-        if (stopped) return;
-
-        // Qurilmadagi barcha kameralarni olish
-        let availableCameras = cameras;
-        if (!availableCameras.length) {
-          try {
-            const rawDevices = await Html5Qrcode.getCameras();
-            availableCameras = classifyAndScoreCameras(rawDevices);
-            setCameras(availableCameras);
-          } catch (camErr) {
-            console.warn('Kameralar ro‘yxatini olishda ogohlantirish:', camErr);
-          }
+        if (!navigator?.mediaDevices?.getUserMedia) {
+          setError('Kameradan foydalanish uchun sayt xavfsiz (HTTPS) ulanishda ochilishi kerak yoki brauzeringiz kamerani qo‘llab-quvvatlamaydi.');
+          setStarting(false);
+          return;
         }
 
+        const { Html5Qrcode } = await import('html5-qrcode');
         if (stopped) return;
-
-        // Qaysi kamerani tanlash: mavjud bo'lsa activeCameraId, aks holda Asosiy (1x) kamera
-        const targetCamera = activeCameraId
-          ? availableCameras.find(c => c.id === activeCameraId)
-          : (availableCameras[0] || null);
-
-        const targetId = targetCamera?.id || activeCameraId;
 
         const elementId = regionIdRef.current;
         const domEl = document.getElementById(elementId);
@@ -236,44 +224,79 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
         });
         scannerRef.current = html5QrCode;
 
-        // Yuqori aniqlikdagi va tezkor skaner sozlamalari
-        const config = {
+        // Aniq va universal skaner sozlamalari (overconstrained xatoliklaridan xoli)
+        const qrConfig = {
           fps: 25,
           qrbox: (viewfinderWidth, viewfinderHeight) => {
             const minEdge = Math.min(viewfinderWidth, viewfinderHeight);
-            const size = Math.max(200, Math.floor(minEdge * 0.82));
+            const size = Math.max(180, Math.floor(minEdge * 0.8));
             return { width: size, height: size };
           },
-          aspectRatio: 1.0,
-          disableFlip: false,
-          videoConstraints: targetId ? {
-            deviceId: { exact: targetId },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          } : {
-            facingMode: { ideal: 'environment' },
-            width: { ideal: 1920 },
-            height: { ideal: 1080 }
-          }
+          disableFlip: false
         };
 
-        const cameraArg = targetId || { facingMode: 'environment' };
+        const onScanSuccess = (decodedText) => {
+          if (stopped || scannedRef.current) return;
+          // Dastlabki 350ms ichida eskirgan kadr / keshni qabul qilmaslik
+          if (Date.now() - startedAt < 350) return;
 
-        await html5QrCode.start(
-          cameraArg,
-          config,
-          (decodedText) => {
-            if (stopped || scannedRef.current) return;
-            // Dastlabki 350ms ichida eskirgan kadr / keshni qabul qilmaslik
-            if (Date.now() - startedAt < 350) return;
+          scannedRef.current = true;
+          cleanupScanner(html5QrCode);
+          onScan?.(decodedText);
+          onClose?.();
+        };
 
-            scannedRef.current = true;
-            stopTracks();
-            onScan?.(decodedText);
-            onClose?.();
-          },
-          () => {} // no-op for non-matching frames
-        );
+        const onScanFailure = () => {};
+
+        // 1-urinish: tanlangan activeCameraId yoki orqa kamera ({ facingMode: 'environment' })
+        const primaryChoice = activeCameraId ? activeCameraId : { facingMode: 'environment' };
+
+        let startedSuccessfully = false;
+
+        try {
+          await html5QrCode.start(primaryChoice, qrConfig, onScanSuccess, onScanFailure);
+          startedSuccessfully = true;
+        } catch (err1) {
+          console.warn('Kamera 1-urinishda ochilmadi, fallback qo‘llanilmoqda:', err1);
+          if (stopped) return;
+
+          // Agar tanlangan activeCameraId ochilmasa, umumiy orqa kamerani sinab ko'ramiz
+          if (activeCameraId) {
+            try {
+              await html5QrCode.start({ facingMode: 'environment' }, qrConfig, onScanSuccess, onScanFailure);
+              startedSuccessfully = true;
+            } catch (err2) {
+              console.warn('{ facingMode: environment } ochilmadi:', err2);
+            }
+          }
+
+          // Agar hali ham ochilmasa (noutbuk yoki orqa kamerasi yo'q qurilmalar), { facingMode: 'user' } sinab ko'ramiz
+          if (!startedSuccessfully && !stopped) {
+            try {
+              await html5QrCode.start({ facingMode: 'user' }, qrConfig, onScanSuccess, onScanFailure);
+              startedSuccessfully = true;
+            } catch (err3) {
+              console.warn('{ facingMode: user } ochilmadi:', err3);
+            }
+          }
+
+          // Agar u ham ochilmasa, mavjud birinchi video qurilmani sinab ko'ramiz
+          if (!startedSuccessfully && !stopped) {
+            try {
+              const devices = await Html5Qrcode.getCameras();
+              if (devices && devices[0]) {
+                await html5QrCode.start(devices[0].id, qrConfig, onScanSuccess, onScanFailure);
+                startedSuccessfully = true;
+              }
+            } catch (err4) {
+              console.warn('Mavjud qurilma ID orqali ham ochilmadi:', err4);
+            }
+          }
+        }
+
+        if (!startedSuccessfully) {
+          throw new Error('Kamera oqimini ochib bo‘lmadi. Kameraga ruxsat berilganligini tekshiring.');
+        }
 
         if (stopped) {
           cleanupScanner(html5QrCode);
@@ -281,6 +304,18 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
         }
 
         setStarting(false);
+        setError('');
+
+        // Kamera muvaffaqiyatli ochilgandan so'ng (ruxsat allaqachon mavjud), kameralar ro'yxatini olamiz
+        try {
+          const rawDevices = await Html5Qrcode.getCameras();
+          if (rawDevices && rawDevices.length) {
+            const classified = classifyAndScoreCameras(rawDevices);
+            setCameras(classified);
+          }
+        } catch (camErr) {
+          console.warn('Kameralar ro‘yxatini olishda ogohlantirish:', camErr);
+        }
 
         // Kamera imkoniyatlarini tekshirish va doimiy fokusni yoqish
         setTimeout(() => {
@@ -292,21 +327,18 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
               const capabilities = track.getCapabilities?.() || {};
               const advanced = [];
 
-              // Avtofokusni har doim faol (continuous) qilish
-              if ('focusMode' in capabilities && Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes('continuous')) {
+              if (capabilities.focusMode && Array.isArray(capabilities.focusMode) && capabilities.focusMode.includes('continuous')) {
                 advanced.push({ focusMode: 'continuous' });
               }
-              if ('exposureMode' in capabilities && Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes('continuous')) {
+              if (capabilities.exposureMode && Array.isArray(capabilities.exposureMode) && capabilities.exposureMode.includes('continuous')) {
                 advanced.push({ exposureMode: 'continuous' });
               }
               if (advanced.length) {
                 track.applyConstraints({ advanced }).catch(() => {});
               }
 
-              // Chiroq borligini tekshirish
               setHasTorch(Boolean(capabilities.torch));
 
-              // Zoom oralig'ini o'rnatish
               if (capabilities.zoom) {
                 setZoomRange({
                   min: capabilities.zoom.min || 1,
@@ -319,6 +351,7 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
             // ignore
           }
         }, 350);
+
       } catch (err) {
         if (!stopped) {
           setStarting(false);
@@ -326,11 +359,6 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
           if (msg.includes('NotAllowed') || msg.includes('Permission')) {
             setError('Kameraga ruxsat berilmadi. Brauzer sozlamalaridan kameraga ruxsat bering.');
           } else if (msg.includes('NotFound') || msg.includes('Requested device not found') || msg.includes('Overconstrained')) {
-            // Agar tanlangan kamera ochilmasa, umumiy orqa kameraga o'tish
-            if (activeCameraId) {
-              setActiveCameraId('');
-              return;
-            }
             setError('Kamera topilmadi. Qurilmangizda kamera mavjudligini tekshiring.');
           } else {
             setError('Kamerani ishga tushirib bo‘lmadi: ' + msg);
@@ -363,7 +391,7 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
         </div>
 
         <div className="qr-scanner-body" onClick={handleTapToFocus} title="Fokusni to‘g‘rilash uchun bosing">
-          <div id={regionIdRef.current} ref={containerRef} />
+          <div id={regionIdRef.current} className="qr-scanner-region" ref={containerRef} />
           
           {/* Kamera nomi nishoni */}
           {!starting && !error && (

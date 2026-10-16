@@ -57,10 +57,11 @@ html[data-theme="dark"] .badge.gray{background:#263348;color:#c8d3e2}html[data-t
 .qr-scanner-header{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border)}
 .qr-scanner-header b{flex:1;font-size:15px}
 .qr-scanner-header .icon-btn{width:34px;height:34px}
-.qr-scanner-body{position:relative;min-height:300px;background:#0a0f18;display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer}
-.qr-scanner-body #qr-scanner-region{width:100%;max-width:100%}
-.qr-scanner-body #qr-scanner-region video{width:100%!important;height:auto!important;border-radius:0!important;object-fit:cover}
-.qr-scanner-body #qr-scanner-region img{display:none}
+.qr-scanner-body .qr-scanner-region,
+.qr-scanner-body #qr-scanner-region,
+.qr-scanner-body > div:first-child{width:100%;max-width:100%;display:flex;align-items:center;justify-content:center}
+.qr-scanner-body video{width:100%!important;height:100%!important;min-height:280px;border-radius:0!important;object-fit:cover!important}
+.qr-scanner-body img{display:none!important}
 .qr-scanner-badge{position:absolute;top:10px;left:10px;z-index:10;display:inline-flex;align-items:center;gap:6px;background:rgba(15,23,42,0.82);backdrop-filter:blur(6px);color:#38bdf8;padding:4px 11px;border-radius:20px;font-size:11.5px;font-weight:600;border:1px solid rgba(255,255,255,0.14);pointer-events:none}
 .qr-scanner-tap-hint{position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:10;background:rgba(0,0,0,0.65);backdrop-filter:blur(4px);color:#e2e8f0;padding:3px 10px;border-radius:12px;font-size:11px;pointer-events:none;white-space:nowrap}
 .qr-scanner-focus-ring{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);z-index:15;color:#38bdf8;pointer-events:none;animation:qr-focus-pop .5s ease forwards}
