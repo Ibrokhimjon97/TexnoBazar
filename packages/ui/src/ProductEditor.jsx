@@ -296,7 +296,15 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
     });
     setExistingMedia(prod.media || []);
     setVariants((prod.variants || []).map(v => ({ ...v, imageFiles: [] })));
-    setComponents(prod.components || []);
+    setComponents((prod.components || []).map(c => ({
+      ...c,
+      cost_price: c.cost_price != null ? String(c.cost_price) : (c.cost_price_uzs != null ? String(c.cost_price_uzs) : ''),
+      cost_price_usd: c.cost_price_usd != null ? String(c.cost_price_usd) : '',
+      retail_price: c.retail_price != null ? String(c.retail_price) : (c.retail_price_uzs != null ? String(c.retail_price_uzs) : ''),
+      retail_price_usd: c.retail_price_usd != null ? String(c.retail_price_usd) : '',
+      wholesale_price: c.wholesale_price != null ? String(c.wholesale_price) : (c.wholesale_price_uzs != null ? String(c.wholesale_price_uzs) : ''),
+      wholesale_price_usd: c.wholesale_price_usd != null ? String(c.wholesale_price_usd) : '',
+    })));
     setAttributes(Object.fromEntries((prod.attributes || []).map(x => [x.attribute_id, x.value])));
   };
 
@@ -435,11 +443,11 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
           name: c.name.trim(),
           color_name: c.color_name?.trim() || null,
           color_hex: c.color_hex || null,
-          cost_price: c.cost_price === '' || c.cost_price == null ? null : Number(c.cost_price),
+          cost_price: (c.cost_price !== '' && c.cost_price != null) ? Number(c.cost_price) : ((c.cost_price_uzs !== '' && c.cost_price_uzs != null) ? Number(c.cost_price_uzs) : null),
           cost_price_usd: c.cost_price_usd === '' || c.cost_price_usd == null ? null : Number(c.cost_price_usd),
-          retail_price: c.retail_price === '' || c.retail_price == null ? null : Number(c.retail_price),
+          retail_price: (c.retail_price !== '' && c.retail_price != null) ? Number(c.retail_price) : ((c.retail_price_uzs !== '' && c.retail_price_uzs != null) ? Number(c.retail_price_uzs) : null),
           retail_price_usd: c.retail_price_usd === '' || c.retail_price_usd == null ? null : Number(c.retail_price_usd),
-          wholesale_price: c.wholesale_price === '' || c.wholesale_price == null ? null : Number(c.wholesale_price),
+          wholesale_price: (c.wholesale_price !== '' && c.wholesale_price != null) ? Number(c.wholesale_price) : ((c.wholesale_price_uzs !== '' && c.wholesale_price_uzs != null) ? Number(c.wholesale_price_uzs) : null),
           wholesale_price_usd: c.wholesale_price_usd === '' || c.wholesale_price_usd == null ? null : Number(c.wholesale_price_usd),
           is_default: Boolean(c.is_default),
           is_required: Boolean(c.is_required),

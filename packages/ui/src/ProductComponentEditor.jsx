@@ -1,6 +1,6 @@
 import React from 'react';
-import { Plus, Trash2, Check, Layers, Info } from 'lucide-react';
-import { DualPriceInput } from './DualPriceInput.jsx';
+import { Plus, Trash2, Check, Layers } from 'lucide-react';
+import { DualPriceInput, useExchangeRate } from './DualPriceInput.jsx';
 import { BASE_COLOR_PALETTE } from './ColorVariantEditor.jsx';
 
 /**
@@ -10,10 +10,13 @@ import { BASE_COLOR_PALETTE } from './ColorVariantEditor.jsx';
  *
  * Props:
  * - components: Array of component objects
- * - onChange: (updatedComponents) => void
+ * - onChange: (updatedComponents | functional updater) => void
  * - rate: exchange rate for UZS/USD conversion
  */
 export function ProductComponentEditor({ components = [], onChange, rate }) {
+  const fallbackRate = useExchangeRate();
+  const activeRate = rate || fallbackRate;
+
   const addComponent = () => {
     const newComponent = {
       id: null,
@@ -31,23 +34,34 @@ export function ProductComponentEditor({ components = [], onChange, rate }) {
       can_buy_standalone: true,
       currency: 'UZS',
     };
-    onChange([...components, newComponent]);
+    if (typeof onChange === 'function') {
+      onChange(prev => {
+        const list = Array.isArray(prev) ? prev : (components || []);
+        return [...list, newComponent];
+      });
+    }
   };
 
-  const updateComponent = (index, key, value) => {
-    const next = [...components];
-    next[index] = { ...next[index], [key]: value };
-    onChange(next);
-  };
-
-  const updateMultiple = (index, updates) => {
-    const next = [...components];
-    next[index] = { ...next[index], ...updates };
-    onChange(next);
+  const updateComponent = (index, patch) => {
+    if (typeof onChange === 'function') {
+      onChange(prev => {
+        const list = Array.isArray(prev) ? prev : (components || []);
+        return list.map((c, i) => {
+          if (i !== index) return c;
+          const updates = typeof patch === 'function' ? patch(c) : patch;
+          return { ...c, ...updates };
+        });
+      });
+    }
   };
 
   const removeComponent = index => {
-    onChange(components.filter((_, i) => i !== index));
+    if (typeof onChange === 'function') {
+      onChange(prev => {
+        const list = Array.isArray(prev) ? prev : (components || []);
+        return list.filter((_, i) => i !== index);
+      });
+    }
   };
 
   return (
@@ -85,10 +99,9 @@ export function ProductComponentEditor({ components = [], onChange, rate }) {
               key={comp.id || `comp-${idx}`}
               index={idx}
               component={comp}
-              onUpdate={(key, val) => updateComponent(idx, key, val)}
-              onUpdateMultiple={updates => updateMultiple(idx, updates)}
+              onUpdate={patch => updateComponent(idx, patch)}
               onRemove={() => removeComponent(idx)}
-              rate={rate}
+              rate={activeRate}
             />
           ))}
         </div>
@@ -97,9 +110,13 @@ export function ProductComponentEditor({ components = [], onChange, rate }) {
   );
 }
 
-function ComponentCard({ index, component, onUpdate, onUpdateMultiple, onRemove, rate }) {
+function ComponentCard({ index, component, onUpdate, onRemove, rate }) {
+  const set = (key, value) => {
+    onUpdate({ [key]: value });
+  };
+
   const pickPalette = (hex, name) => {
-    onUpdateMultiple({
+    onUpdate({
       color_hex: hex,
       color_name: component.color_name || name,
     });
@@ -143,7 +160,7 @@ function ComponentCard({ index, component, onUpdate, onUpdateMultiple, onRemove,
           <input
             type="color"
             value={component.color_hex || '#8B5A2B'}
-            onChange={e => onUpdate('color_hex', e.target.value)}
+            onChange={e => set('color_hex', e.target.value)}
             style={{ position: 'absolute', top: -10, left: -10, width: 60, height: 60, opacity: 0, cursor: 'pointer' }}
           />
           <span style={{ display: 'block', width: '100%', height: '100%', background: component.color_hex || '#8B5A2B' }} />
@@ -153,7 +170,7 @@ function ComponentCard({ index, component, onUpdate, onUpdateMultiple, onRemove,
         <input
           className="input"
           value={component.name || ''}
-          onChange={e => onUpdate('name', e.target.value)}
+          onChange={e => set('name', e.target.value)}
           placeholder="Qism nomi (masalan: Beshik taxtasi, Sumak, Yostiq...)"
           required
           style={{ flex: '1 1 200px', fontWeight: 600 }}
@@ -163,7 +180,7 @@ function ComponentCard({ index, component, onUpdate, onUpdateMultiple, onRemove,
         <input
           className="input"
           value={component.color_name || ''}
-          onChange={e => onUpdate('color_name', e.target.value)}
+          onChange={e => set('color_name', e.target.value)}
           placeholder="Rangi (masalan: Yong‘oq, Oq, Qizil)"
           style={{ flex: '1 1 140px' }}
         />
@@ -211,33 +228,33 @@ function ComponentCard({ index, component, onUpdate, onUpdateMultiple, onRemove,
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginTop: 4 }}>
         <DualPriceInput
           label="Tannarxi"
-          valueUzs={component.cost_price}
-          onChangeUzs={val => onUpdate('cost_price', val)}
-          valueUsd={component.cost_price_usd}
-          onChangeUsd={val => onUpdate('cost_price_usd', val)}
+          valueUzs={component.cost_price != null ? String(component.cost_price) : (component.cost_price_uzs != null ? String(component.cost_price_uzs) : '')}
+          onChangeUzs={val => onUpdate({ cost_price: val, cost_price_uzs: val, cost_price_currency: 'UZS' })}
+          valueUsd={component.cost_price_usd != null ? String(component.cost_price_usd) : ''}
+          onChangeUsd={val => onUpdate({ cost_price_usd: val, cost_price_currency: 'USD' })}
           rate={rate}
-          currency={component.currency || 'UZS'}
-          onCurrencyChange={curr => onUpdate('currency', curr)}
+          currency={component.cost_price_currency || component.currency || 'UZS'}
+          onCurrencyChange={curr => onUpdate({ cost_price_currency: curr })}
         />
         <DualPriceInput
           label="Sotish narxi *"
-          valueUzs={component.retail_price}
-          onChangeUzs={val => onUpdate('retail_price', val)}
-          valueUsd={component.retail_price_usd}
-          onChangeUsd={val => onUpdate('retail_price_usd', val)}
+          valueUzs={component.retail_price != null ? String(component.retail_price) : (component.retail_price_uzs != null ? String(component.retail_price_uzs) : '')}
+          onChangeUzs={val => onUpdate({ retail_price: val, retail_price_uzs: val, retail_price_currency: 'UZS' })}
+          valueUsd={component.retail_price_usd != null ? String(component.retail_price_usd) : ''}
+          onChangeUsd={val => onUpdate({ retail_price_usd: val, retail_price_currency: 'USD' })}
           rate={rate}
-          currency={component.currency || 'UZS'}
-          onCurrencyChange={curr => onUpdate('currency', curr)}
+          currency={component.retail_price_currency || component.currency || 'UZS'}
+          onCurrencyChange={curr => onUpdate({ retail_price_currency: curr })}
         />
         <DualPriceInput
           label="Ulgurji narxi"
-          valueUzs={component.wholesale_price}
-          onChangeUzs={val => onUpdate('wholesale_price', val)}
-          valueUsd={component.wholesale_price_usd}
-          onChangeUsd={val => onUpdate('wholesale_price_usd', val)}
+          valueUzs={component.wholesale_price != null ? String(component.wholesale_price) : (component.wholesale_price_uzs != null ? String(component.wholesale_price_uzs) : '')}
+          onChangeUzs={val => onUpdate({ wholesale_price: val, wholesale_price_uzs: val, wholesale_price_currency: 'UZS' })}
+          valueUsd={component.wholesale_price_usd != null ? String(component.wholesale_price_usd) : ''}
+          onChangeUsd={val => onUpdate({ wholesale_price_usd: val, wholesale_price_currency: 'USD' })}
           rate={rate}
-          currency={component.currency || 'UZS'}
-          onCurrencyChange={curr => onUpdate('currency', curr)}
+          currency={component.wholesale_price_currency || component.currency || 'UZS'}
+          onCurrencyChange={curr => onUpdate({ wholesale_price_currency: curr })}
         />
       </div>
 
@@ -247,7 +264,7 @@ function ComponentCard({ index, component, onUpdate, onUpdateMultiple, onRemove,
           <input
             type="checkbox"
             checked={Boolean(component.is_default)}
-            onChange={e => onUpdate('is_default', e.target.checked)}
+            onChange={e => set('is_default', e.target.checked)}
           />
           <span>To‘plamga kiritilgan (Default tanlangan)</span>
         </label>
@@ -256,7 +273,7 @@ function ComponentCard({ index, component, onUpdate, onUpdateMultiple, onRemove,
           <input
             type="checkbox"
             checked={Boolean(component.is_required)}
-            onChange={e => onUpdate('is_required', e.target.checked)}
+            onChange={e => set('is_required', e.target.checked)}
           />
           <span>Majburiy qism (Mijoz to‘plamdan o‘chira olmaydi)</span>
         </label>
@@ -265,7 +282,7 @@ function ComponentCard({ index, component, onUpdate, onUpdateMultiple, onRemove,
           <input
             type="checkbox"
             checked={component.can_buy_standalone !== false}
-            onChange={e => onUpdate('can_buy_standalone', e.target.checked)}
+            onChange={e => set('can_buy_standalone', e.target.checked)}
           />
           <span>Alohida (faqat o‘zi) xarid qilinishi mumkin</span>
         </label>
