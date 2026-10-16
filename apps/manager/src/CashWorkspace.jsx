@@ -486,6 +486,11 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onDelete, rat
                 <div>
                   <b>{line.product_name}</b>
                   <small>{line.sku} · {line.qr_code}</small>
+                  {line.selected_components?.length > 0 && (
+                    <small style={{ display: 'block', color: 'var(--muted, #64748b)', marginTop: 2 }}>
+                      Qismlar: {line.selected_components.map(c => `${c.name}${c.color ? ` (${c.color})` : ''}`).join(', ')}
+                    </small>
+                  )}
                 </div>
                 <dl>
                   <span>Narx <b><DualPrice value={Number(line.unit_price || 0)} rate={rate} /></b></span>
@@ -720,6 +725,11 @@ function Receipt({ receipt, close, rate }) {
                 <span>
                   <b>{line.product_name}</b>
                   <small>{line.qr_code}</small>
+                  {line.selected_components?.length > 0 && (
+                    <small style={{ display: 'block', color: 'var(--muted, #64748b)', marginTop: 2 }}>
+                      Qismlar: {line.selected_components.map(c => `${c.name}${c.color ? ` (${c.color})` : ''}`).join(', ')}
+                    </small>
+                  )}
                 </span>
                 <strong><DualPrice value={Number(line.line_total || 0)} rate={rate} /></strong>
               </article>

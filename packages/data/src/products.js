@@ -14,6 +14,9 @@ export const archiveCatalogProduct=id=>rpc('archive_catalog_product',{p_product_
 export const setPrimaryProductMedia=(productId,mediaId)=>rpc('set_primary_product_media',{p_product_id:productId,p_media_id:mediaId});
 // Rang variantlari: har bir variant o'zining narxi (ixtiyoriy), zaxirasi va rasmlariga ega bo'ladi.
 export const saveProductVariants=(productId,variants=[])=>rpc('save_product_variants',{p_product_id:productId,p_variants:variants});
+// Tarkibiy va qo'shimcha qismlar (Beshik taxtasi, sumak, yostiqcha va h.k.)
+export const saveProductComponents=(productId,components=[])=>rpc('save_product_components',{p_product_id:productId,p_components:components});
+export const getProductComponents=productId=>rpc('get_product_components',{p_product_id:productId});
 export const bulkDeleteProducts=productIds=>rpc('delete_products_cascade',{p_product_ids:productIds});
 export const deleteCategoryProducts=(categoryId,includeChildren=true)=>rpc('delete_category_products_cascade',{p_category_id:categoryId,p_include_children:includeChildren});
 

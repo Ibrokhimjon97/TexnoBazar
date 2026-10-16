@@ -3,6 +3,7 @@ import { AlertTriangle, Boxes, CheckCircle2, Package, Pencil, Plus, Trash2, Uplo
 import { Modal } from './index.jsx';
 import { DualPriceInput, useExchangeRate } from './DualPriceInput.jsx';
 import { ColorVariantEditor } from './ColorVariantEditor.jsx';
+import { ProductComponentEditor } from './ProductComponentEditor.jsx';
 import {
   SearchableCategoryPicker,
   SearchableBrandPicker,
@@ -15,6 +16,7 @@ import {
   getCatalogProduct,
   saveCatalogProduct,
   saveProductVariants,
+  saveProductComponents,
   uploadProductMedia,
   deleteProductMedia,
   setPrimaryProductMedia
@@ -206,6 +208,7 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
   const [images, setImages] = useState([]);
   const [existingMedia, setExistingMedia] = useState([]);
   const [variants, setVariants] = useState([]);
+  const [components, setComponents] = useState([]);
   const [categories, setCategories] = useState(refs?.categories || []);
   const [brands, setBrands] = useState(refs?.brands || []);
   const [attributes, setAttributes] = useState({});
@@ -263,6 +266,7 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
       });
       setExistingMedia([]);
       setVariants([]);
+      setComponents([]);
       setAttributes({});
     }
   }, [open, targetProductId]);
@@ -292,6 +296,7 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
     });
     setExistingMedia(prod.media || []);
     setVariants((prod.variants || []).map(v => ({ ...v, imageFiles: [] })));
+    setComponents(prod.components || []);
     setAttributes(Object.fromEntries((prod.attributes || []).map(x => [x.attribute_id, x.value])));
   };
 
@@ -420,6 +425,33 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
               failed.push(`${namedVariants[i].color_name}: ${err.message || 'Yuklanmadi'}`);
             }
           }
+        }
+      }
+
+      const namedComponents = components.filter(c => c.name?.trim());
+      if (namedComponents.length > 0 || (product?.components?.length > 0)) {
+        const componentsPayload = namedComponents.map((c, idx) => ({
+          id: c.id || null,
+          name: c.name.trim(),
+          color_name: c.color_name?.trim() || null,
+          color_hex: c.color_hex || null,
+          cost_price: c.cost_price === '' || c.cost_price == null ? null : Number(c.cost_price),
+          cost_price_usd: c.cost_price_usd === '' || c.cost_price_usd == null ? null : Number(c.cost_price_usd),
+          retail_price: c.retail_price === '' || c.retail_price == null ? null : Number(c.retail_price),
+          retail_price_usd: c.retail_price_usd === '' || c.retail_price_usd == null ? null : Number(c.retail_price_usd),
+          wholesale_price: c.wholesale_price === '' || c.wholesale_price == null ? null : Number(c.wholesale_price),
+          wholesale_price_usd: c.wholesale_price_usd === '' || c.wholesale_price_usd == null ? null : Number(c.wholesale_price_usd),
+          is_default: Boolean(c.is_default),
+          is_required: Boolean(c.is_required),
+          can_buy_standalone: c.can_buy_standalone !== false,
+          image_url: c.image_url || null,
+          sort_order: idx,
+          is_active: c.is_active !== false,
+        }));
+        try {
+          await saveProductComponents(currentId, componentsPayload);
+        } catch (compErr) {
+          failed.push(`Tarkibiy qismlar: ${compErr.message || 'Saqlanmadi'}`);
         }
       }
 
@@ -602,6 +634,14 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
               rate={rate}
               basePriceHint={form.retail_price ? `${form.retail_price} so'm` : ''}
               baseCostHint={form.cost_price ? `${form.cost_price} so'm` : ''}
+            />
+          </div>
+
+          <div className="wide">
+            <ProductComponentEditor
+              components={components}
+              onChange={setComponents}
+              rate={rate}
             />
           </div>
 

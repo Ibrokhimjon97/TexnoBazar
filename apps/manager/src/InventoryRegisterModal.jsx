@@ -1,7 +1,7 @@
 import React,{useEffect,useState}from'react';
 import{AlertTriangle,Boxes,Plus,X}from'lucide-react';
-import{ColorVariantEditor,DualPriceInput,Modal,Status,formatMoney,SearchableCategoryPicker,SearchableBrandPicker,saveStoredRecent,RECENT_CATS_KEY,RECENT_BRANDS_KEY}from'@texnobazar/ui';
-import{getBrowserClient,getInventoryReferences,getLatestExchangeRate,saveProductVariants,uploadProductMedia}from'@texnobazar/data';
+import{ColorVariantEditor,ProductComponentEditor,DualPriceInput,Modal,Status,formatMoney,SearchableCategoryPicker,SearchableBrandPicker,saveStoredRecent,RECENT_CATS_KEY,RECENT_BRANDS_KEY}from'@texnobazar/ui';
+import{getBrowserClient,getInventoryReferences,getLatestExchangeRate,saveProductVariants,saveProductComponents,uploadProductMedia}from'@texnobazar/data';
 import RichTextEditor from'./RichTextEditor';
 
 const err=e=>String(e?.message||'Amalni bajarib bo\'lmadi.');
@@ -33,7 +33,7 @@ export default function CreateProductModal({open,close,branchId,created}){
     }).catch(e=>setError(err(e)));
   },[open]);
 
-  const handleProductCreate=async(form,images=[],variants=[])=>{
+  const handleProductCreate=async(form,images=[],variants=[],components=[])=>{
     setBusy(true);
     setError('');
     try{
@@ -112,6 +112,32 @@ export default function CreateProductModal({open,close,branchId,created}){
         }
       }
 
+      const namedComponents=(components||[]).filter(c=>c.name?.trim());
+      if(namedComponents.length){
+        const componentsPayload=namedComponents.map((c,idx)=>({
+          name:c.name.trim(),
+          color_name:c.color_name?.trim()||null,
+          color_hex:c.color_hex||null,
+          cost_price:c.cost_price===''||c.cost_price==null?null:Number(c.cost_price),
+          cost_price_usd:c.cost_price_usd===''||c.cost_price_usd==null?null:Number(c.cost_price_usd),
+          retail_price:c.retail_price===''||c.retail_price==null?null:Number(c.retail_price),
+          retail_price_usd:c.retail_price_usd===''||c.retail_price_usd==null?null:Number(c.retail_price_usd),
+          wholesale_price:c.wholesale_price===''||c.wholesale_price==null?null:Number(c.wholesale_price),
+          wholesale_price_usd:c.wholesale_price_usd===''||c.wholesale_price_usd==null?null:Number(c.wholesale_price_usd),
+          is_default:Boolean(c.is_default),
+          is_required:Boolean(c.is_required),
+          can_buy_standalone:c.can_buy_standalone!==false,
+          image_url:c.image_url||null,
+          sort_order:idx,
+          is_active:true
+        }));
+        try{
+          await saveProductComponents(data.id,componentsPayload);
+        }catch(compErr){
+          failed.push(`Tarkibiy qismlar: ${err(compErr)}`);
+        }
+      }
+
       await created?.(data);
       close();
     }catch(e){
@@ -182,6 +208,7 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
   });
   const[images,setImages]=useState([]);
   const[variants,setVariants]=useState([]);
+  const[components,setComponents]=useState([]);
   const[submitting,setSubmitting]=useState(false);
   const[formError,setFormError]=useState('');
 
@@ -194,7 +221,7 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
     setSubmitting(true);
     setFormError('');
     try{
-      await onSave(form,images,variants);
+      await onSave(form,images,variants,components);
     }catch(e){
       setFormError(err(e));
     }finally{
@@ -276,6 +303,13 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
         rate={rate}
         basePriceHint={form.retail_price?`${form.retail_price} so'm`:''}
         baseCostHint={form.cost_price?`${form.cost_price} so'm`:''}
+      />
+    </div>
+    <div className="wide">
+      <ProductComponentEditor
+        components={components}
+        onChange={setComponents}
+        rate={rate}
       />
     </div>
     <div className="wide" style={{display:'flex',gap:10,marginTop:10,flexWrap:'wrap'}}>

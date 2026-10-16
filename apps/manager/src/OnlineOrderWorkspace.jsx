@@ -73,6 +73,15 @@ function OrderDetail({order,refs,close,busy,error,transition,cancel,assign,onDel
                           🎨 {line.variant_color}
                         </span>
                       )}
+                      {line.selected_components?.length > 0 && (
+                        <span style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+                          {line.selected_components.map((c, i) => (
+                            <span key={i} style={{ background: '#f1f5f9', color: '#334155', padding: '1px 6px', borderRadius: 4, fontWeight: 600, fontSize: 11 }}>
+                              + {c.name || c.name_uz}{c.color ? ` (${c.color})` : ''}
+                            </span>
+                          ))}
+                        </span>
+                      )}
                       <span>·</span>
                       <span>{Number(line.quantity)} dona × <DualPrice value={Number(line.unit_price || 0)} rate={rate} /></span>
                     </div>

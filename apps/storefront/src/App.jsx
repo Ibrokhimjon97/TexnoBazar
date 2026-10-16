@@ -51,8 +51,14 @@ const storageWrite = (key, value) => {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* Storage can be unavailable. */ }
 };
 const createKey = () => globalThis.crypto?.randomUUID?.() || `web-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-// Savatcha kaliti: mahsulot + (ixtiyoriy) rang varianti birgalikda noyob qatorni belgilaydi.
-const cartKey = item => `${item.id}::${item.variantId || ''}`;
+// Savatcha kaliti: mahsulot + (ixtiyoriy) rang varianti + (ixtiyoriy) tarkibiy qismlar birgalikda noyob qatorni belgilaydi.
+const cartKey = item => {
+  if (item?.isStandaloneComponent && item?.componentId) {
+    return `${item.id}::comp::${item.componentId}`;
+  }
+  const compKey = (item?.selectedComponents || []).map(c => c.id || c.name).sort().join(',');
+  return `${item?.id}::${item?.variantId || ''}::${compKey}`;
+};
 const normalizePhone = value => String(value || '').replace(/[\s()-]/g, '');
 const plainValue = value => {
   if (value == null) return '';
@@ -125,6 +131,25 @@ const adaptProduct = raw => {
       stock: Math.max(0, Math.trunc(numberOf(v.stock))),
       image: v.image || v.media?.[0]?.url || null,
       media: safeArray(v.media),
+    })),
+    // Tarkibiy va qo'shimcha qismlar (Beshik taxtasi, sumak, yostiqcha va h.k.)
+    components: safeArray(raw.components).map(c => ({
+      id: String(c.id),
+      name: String(c.name || ''),
+      colorName: String(c.color_name || c.colorName || ''),
+      colorHex: c.color_hex || c.colorHex || null,
+      costPrice: numberOf(c.cost_price || c.costPrice),
+      costPriceUsd: numberOf(c.cost_price_usd || c.costPriceUsd),
+      price: numberOf(c.retail_price || c.price),
+      retailPrice: numberOf(c.retail_price || c.price),
+      retailPriceUsd: numberOf(c.retail_price_usd || c.retailPriceUsd),
+      wholesalePrice: numberOf(c.wholesale_price || c.wholesalePrice),
+      wholesalePriceUsd: numberOf(c.wholesale_price_usd || c.wholesalePriceUsd),
+      isDefault: Boolean(c.is_default ?? c.isDefault),
+      isRequired: Boolean(c.is_required ?? c.isRequired),
+      canBuyStandalone: (c.can_buy_standalone ?? c.canBuyStandalone) !== false,
+      imageUrl: c.image_url || c.imageUrl || null,
+      sortOrder: numberOf(c.sort_order ?? c.sortOrder),
     })),
   };
 };
@@ -416,15 +441,44 @@ export default function App() {
   const cartItems = useMemo(() => cart.map(item => {
     const product = productsById.get(item.id) || productsById.get(String(item.id).split('_')[0]);
     if (!product) return { id: item.id, variantId: item.variantId, qty: item.qty };
+
+    // Standalone tarkibiy qism (masalan faqat sumak yoki yostiqcha sotib olinayotganda)
+    if (item.isStandaloneComponent && item.componentId) {
+      const comp = (product.components || []).find(c => String(c.id) === String(item.componentId)) || item.component;
+      const compPrice = comp?.price || comp?.retailPrice || 0;
+      return {
+        ...product,
+        id: item.id,
+        cartKey: cartKey(item),
+        isStandaloneComponent: true,
+        componentId: item.componentId,
+        component: comp,
+        name: `${product.name} — ${comp?.name || 'Qism'}${comp?.colorName ? ` (${comp.colorName})` : ''}`,
+        price: compPrice,
+        qty: item.qty,
+        stock: product.stock,
+        image: comp?.imageUrl || product.image,
+      };
+    }
+
+    // Asosiy tovar + tanlangan qo'shimcha tarkibiy qismlar
     const variant = item.variantId ? product.variants?.find(v => v.id === item.variantId) : null;
+    const basePrice = variant ? variant.price || product.price : product.price;
+    const selectedComps = safeArray(item.selectedComponents);
+    const compsTotal = selectedComps.reduce((sum, c) => sum + (Number(c.price || c.retailPrice) || 0), 0);
+    const totalPrice = basePrice + compsTotal;
+
     return {
       ...product,
       id: item.id,
+      cartKey: cartKey(item),
       productId: product.productId || String(item.id).split('_')[0],
       batchId: product.batchId || null,
       variantId: item.variantId || null,
+      selectedComponents: selectedComps,
       qty: item.qty,
-      price: variant ? variant.price || product.price : product.price,
+      basePrice,
+      price: totalPrice,
       stock: variant ? variant.stock : product.stock,
       variantColorName: variant?.colorName || '',
       image: variant?.image || product.image,
@@ -493,27 +547,51 @@ export default function App() {
     } catch { /* Ignore malformed CMS destinations. */ }
   };
 
-  const updateCart = async (product, nextQuantity, message = '', variantId = product.selectedVariantId || null) => {
+  const updateCart = async (product, nextQuantity, message = '', variantId = product.selectedVariantId || null, extra = {}) => {
     if (!customerStateReady) { setToast('Hisob ma’lumotlari sinxronlanmoqda. Biroz kuting.'); return; }
     const variant = variantId ? product.variants?.find(v => v.id === variantId) : null;
     const stockLimit = variant ? variant.stock : product.stock;
     const quantity = Math.max(0, Math.min(Math.trunc(nextQuantity), stockLimit));
+    const targetKey = product.cartKey || cartKey({
+      id: product.id,
+      variantId,
+      isStandaloneComponent: extra.isStandaloneComponent ?? product.isStandaloneComponent,
+      componentId: extra.componentId ?? product.componentId,
+      selectedComponents: extra.selectedComponents ?? product.selectedComponents
+    });
     setCart(current => {
-      const filtered = current.filter(item => !(item.id === product.id && (item.variantId || null) === (variantId || null)));
-      return quantity ? [...filtered, { id: product.id, variantId: variantId || null, qty: quantity }] : filtered;
+      const filtered = current.filter(item => cartKey(item) !== targetKey);
+      if (!quantity) return filtered;
+      const newItem = {
+        id: product.id,
+        variantId: variantId || null,
+        qty: quantity,
+        isStandaloneComponent: Boolean(extra.isStandaloneComponent ?? product.isStandaloneComponent),
+        componentId: extra.componentId ?? product.componentId ?? null,
+        component: extra.component ?? product.component ?? null,
+        selectedComponents: extra.selectedComponents ?? product.selectedComponents ?? []
+      };
+      return [...filtered, newItem];
     });
     try {
       if (session) await setCustomerCartItem(product.productId || String(product.id).split('_')[0], quantity, variantId || null);
       if (message) setToast(message);
     } catch (error) { setToast(errorText(error)); refreshAccount(); }
   };
-  const add = (product, variantId = product.selectedVariantId || null) => {
+  const add = (product, variantId = product.selectedVariantId || null, extra = {}) => {
     const variant = variantId ? product.variants?.find(v => v.id === variantId) : null;
     const stockLimit = variant ? variant.stock : product.stock;
     if (stockLimit < 1) return;
-    const existing = cart.find(item => item.id === product.id && (item.variantId || null) === (variantId || null))?.qty || 0;
+    const targetKey = cartKey({
+      id: product.id,
+      variantId,
+      isStandaloneComponent: extra.isStandaloneComponent,
+      componentId: extra.componentId,
+      selectedComponents: extra.selectedComponents
+    });
+    const existing = cart.find(item => cartKey(item) === targetKey)?.qty || 0;
     if (existing >= stockLimit) { setToast('Ombordagi mavjud miqdordan oshirib bo‘lmaydi.'); return; }
-    updateCart(product, existing + 1, 'Mahsulot savatchaga qo‘shildi', variantId);
+    updateCart(product, existing + 1, 'Mahsulot savatchaga qo‘shildi', variantId, extra);
   };
   const toggleFavorite = async product => {
     if (!customerStateReady) { setToast('Hisob ma’lumotlari sinxronlanmoqda. Biroz kuting.'); return; }
@@ -1503,6 +1581,8 @@ function ProductReviews({ productId, session, setToast, setAuthOpen }) {
 function Product({ product, go, add, toggleFavorite, loved, related, favorites, session, setToast, setAuthOpen }) {
   const variants = product.variants || [];
   const priceTiers = product.priceTiers || [];
+  const components = product.components || [];
+
   const initialVariantId = (product.selectedVariantId && variants.some(v => String(v.id) === String(product.selectedVariantId)))
     ? product.selectedVariantId
     : (variants[0]?.id || null);
@@ -1511,10 +1591,36 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
     if (product.id && product.id.includes('_')) return product.id;
     return priceTiers[0]?.id || null;
   });
+
+  const [selectedCompIds, setSelectedCompIds] = useState(() => {
+    return new Set(components.filter(c => c.isDefault || c.isRequired).map(c => c.id));
+  });
+
   useEffect(() => {
     setVariantId((product.selectedVariantId && variants.some(v => String(v.id) === String(product.selectedVariantId))) ? product.selectedVariantId : (variants[0]?.id || null));
     setSelectedTierId(product.id && product.id.includes('_') ? product.id : (priceTiers[0]?.id || null));
-  }, [product.id, product.selectedVariantId, priceTiers.length]);
+    setSelectedCompIds(new Set((product.components || []).filter(c => c.isDefault || c.isRequired).map(c => c.id)));
+  }, [product.id, product.selectedVariantId, priceTiers.length, (product.components || []).length]);
+
+  const toggleComponent = compId => {
+    const comp = components.find(c => c.id === compId);
+    if (comp?.isRequired) return;
+    setSelectedCompIds(prev => {
+      const next = new Set(prev);
+      if (next.has(compId)) next.delete(compId);
+      else next.add(compId);
+      return next;
+    });
+  };
+
+  const selectedComponentsList = useMemo(() => {
+    return components.filter(c => selectedCompIds.has(c.id));
+  }, [components, selectedCompIds]);
+
+  const componentsSum = useMemo(() => {
+    return selectedComponentsList.reduce((sum, c) => sum + (Number(c.price) || 0), 0);
+  }, [selectedComponentsList]);
+
   const activeVariant = variantId ? variants.find(v => v.id === variantId) : null;
   const activeTier = selectedTierId ? priceTiers.find(t => t.id === selectedTierId) : (priceTiers[0] || null);
   const displayPrice = activeVariant?.price || activeTier?.price || product.price;
@@ -1522,14 +1628,18 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
   const displayStock = activeVariant ? activeVariant.stock : (activeTier ? activeTier.stock : product.stock);
   const displayMedia = activeVariant?.media?.length ? activeVariant.media : (activeVariant?.image ? [{ url: activeVariant.image }] : product.media);
   const mediaProduct = { ...product, media: displayMedia, image: activeVariant?.image || product.image, selectedVariantId: variantId };
+
+  const finalBundlePrice = displayPrice + componentsSum;
+
   const cartProduct = {
     ...product,
     id: activeTier?.id || product.id,
     productId: product.productId || String(product.id).split('_')[0],
     batchId: activeTier?.batch_id || product.batchId || null,
-    price: displayPrice,
+    price: finalBundlePrice,
     stock: displayStock,
-    selectedVariantId: variantId
+    selectedVariantId: variantId,
+    selectedComponents: selectedComponentsList
   };
   const ytVideo = getYouTubeEmbedUrl(product.videoUrl || product.video_url || product.seoImage);
 
@@ -1622,15 +1732,112 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
             </div>
           </div>
         )}
+
+        {/* Modular Product Components / Tarkibiy va qo'shimcha qismlar */}
+        {components.length > 0 && (
+          <div className="product-components-buyer card pad" style={{ marginTop: 14, marginBottom: 14, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: '#1e293b' }}>
+                Tarkibiy va qo‘shimcha qismlar:
+              </span>
+              <span style={{ fontSize: 11, color: '#64748b' }}>
+                To‘plamga qo‘shish / ayirish
+              </span>
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              {components.map(comp => {
+                const isChecked = selectedCompIds.has(comp.id);
+                return (
+                  <div
+                    key={comp.id}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '8px 12px',
+                      borderRadius: 8,
+                      background: isChecked ? '#fff7ed' : '#ffffff',
+                      border: isChecked ? '1px solid #fdba74' : '1px solid #e2e8f0',
+                      transition: 'all 0.15s ease',
+                      flexWrap: 'wrap',
+                      gap: 8
+                    }}
+                  >
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: comp.isRequired ? 'default' : 'pointer', flex: '1 1 auto' }}>
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={comp.isRequired}
+                        onChange={() => toggleComponent(comp.id)}
+                      />
+                      {comp.colorHex && (
+                        <span
+                          style={{
+                            width: 14,
+                            height: 14,
+                            borderRadius: '50%',
+                            background: comp.colorHex,
+                            display: 'inline-block',
+                            border: '1px solid #cbd5e1'
+                          }}
+                          title={comp.colorName}
+                        />
+                      )}
+                      <span style={{ fontSize: 13, fontWeight: isChecked ? 600 : 400, color: '#1e293b' }}>
+                        {comp.name} {comp.colorName ? `(${comp.colorName})` : ''}
+                      </span>
+                      {comp.isRequired && (
+                        <span style={{ fontSize: 10, background: '#fee2e2', color: '#b91c1c', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                          Majburiy
+                        </span>
+                      )}
+                    </label>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginLeft: 'auto' }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: isChecked ? '#c2410c' : '#64748b' }}>
+                        +{money(comp.price)}
+                      </span>
+                      {comp.canBuyStandalone && (
+                        <button
+                          type="button"
+                          className="btn btn-outline btn-sm"
+                          style={{ fontSize: 11, padding: '3px 8px', whiteSpace: 'nowrap' }}
+                          onClick={e => {
+                            e.stopPropagation();
+                            add(product, null, { isStandaloneComponent: true, componentId: comp.id, component: comp });
+                          }}
+                          title="Faqat ushbu qismni alohida savatga qo‘shish"
+                        >
+                          Faqat qismni olish
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="divider" />
         {displayOldPrice > displayPrice && <div className="old-price">{money(displayOldPrice)}</div>}
-        <div className="detail-price">{money(displayPrice)}</div>
+        <div className="detail-price">
+          {money(finalBundlePrice)}
+          {componentsSum > 0 && (
+            <span style={{ fontSize: 13, color: '#64748b', fontWeight: 500, marginLeft: 8 }}>
+              (Asosiy: {money(displayPrice)} + Qismlar: {money(componentsSum)})
+            </span>
+          )}
+        </div>
         <div className={`stock ${displayStock ? '' : 'out'}`}>
           {displayStock ? <Check size={18} /> : <X size={18} />}
           {displayStock ? `Omborda ${displayStock} dona mavjud` : 'Omborda mavjud emas'}
         </div>
         <div className="detail-actions">
-          <button className="btn btn-primary" onClick={() => add(cartProduct, variantId)} disabled={!displayStock}>
+          <button
+            className="btn btn-primary"
+            onClick={() => add(cartProduct, variantId, { selectedComponents: selectedComponentsList })}
+            disabled={!displayStock}
+          >
             <ShoppingCart /> Savatchaga
           </button>
           <button className={`btn btn-outline ${loved ? 'loved' : ''}`} onClick={() => toggleFavorite(product)}>
@@ -1672,7 +1879,51 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
 
 function Cart({ cartItems, go, updateCart }) {
   const total = cartItems.reduce((sum, item) => sum + item.price * item.qty, 0);
-  return <section className="container cart-page"><div className="breadcrumbs"><button onClick={()=>go('home')}>Bosh sahifa</button> <ChevronRight/> Savatcha</div><h1 className="title">Savatcha</h1>{cartItems.length ? <div className="cart-layout"><div className="stack">{cartItems.map(product => <div className="cart-item card" key={`${product.id}::${product.variantId||''}`}><ProductMedia product={product}/><div className="cart-name"><b>{product.name}</b>{product.variantColorName && <em className="cart-variant-tag">{product.variantColorName}</em>}<span className="muted">Omborda: {product.stock} dona</span><button onClick={() => updateCart(product, 0, '', product.variantId)}><Trash2/> O‘chirish</button></div><div className="qty"><button onClick={() => updateCart(product, product.qty - 1, '', product.variantId)} aria-label="Miqdorni kamaytirish"><Minus/></button><b>{product.qty}</b><button onClick={() => updateCart(product, product.qty + 1, '', product.variantId)} disabled={product.qty >= product.stock} aria-label="Miqdorni oshirish"><Plus/></button></div><div className="price">{money(product.price * product.qty)}</div></div>)}</div><OrderTotal total={total} count={cartItems.reduce((sum, item) => sum + item.qty, 0)} onClick={() => go('checkout')}/></div> : <div className="card"><Empty title="Savatchangiz bo‘sh" text="Katalogdan o‘zingizga yoqqan texnikani tanlang."/><div className="center-action"><button className="btn btn-primary" onClick={() => go('catalog')}>Katalogga o‘tish</button></div></div>}</section>;
+  return <section className="container cart-page">
+    <div className="breadcrumbs"><button onClick={()=>go('home')}>Bosh sahifa</button> <ChevronRight/> Savatcha</div>
+    <h1 className="title">Savatcha</h1>
+    {cartItems.length ? (
+      <div className="cart-layout">
+        <div className="stack">
+          {cartItems.map(product => (
+            <div className="cart-item card" key={product.cartKey || `${product.id}::${product.variantId||''}`}>
+              <ProductMedia product={product}/>
+              <div className="cart-name">
+                <b>{product.name}</b>
+                {product.variantColorName && <em className="cart-variant-tag">{product.variantColorName}</em>}
+                {product.selectedComponents?.length > 0 && (
+                  <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--orange, #ea580c)' }}>Tarkibiy qismlar:</span>
+                    {product.selectedComponents.map((c, i) => (
+                      <span key={c.id || i} style={{ fontSize: 11, color: '#64748b' }}>
+                        • {c.name} {c.color_name || c.colorName ? `(${c.color_name || c.colorName})` : ''} (+{money(c.retail_price || c.price || 0)})
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <span className="muted">Omborda: {product.stock} dona</span>
+                <button onClick={() => updateCart(product, 0, '', product.variantId, { isStandaloneComponent: product.isStandaloneComponent, componentId: product.componentId, selectedComponents: product.selectedComponents })}>
+                  <Trash2/> O‘chirish
+                </button>
+              </div>
+              <div className="qty">
+                <button onClick={() => updateCart(product, product.qty - 1, '', product.variantId, { isStandaloneComponent: product.isStandaloneComponent, componentId: product.componentId, selectedComponents: product.selectedComponents })} aria-label="Miqdorni kamaytirish"><Minus/></button>
+                <b>{product.qty}</b>
+                <button onClick={() => updateCart(product, product.qty + 1, '', product.variantId, { isStandaloneComponent: product.isStandaloneComponent, componentId: product.componentId, selectedComponents: product.selectedComponents })} disabled={product.qty >= product.stock} aria-label="Miqdorni oshirish"><Plus/></button>
+              </div>
+              <div className="price">{money(product.price * product.qty)}</div>
+            </div>
+          ))}
+        </div>
+        <OrderTotal total={total} count={cartItems.reduce((sum, item) => sum + item.qty, 0)} onClick={() => go('checkout')}/>
+      </div>
+    ) : (
+      <div className="card">
+        <Empty title="Savatchangiz bo‘sh" text="Katalogdan o‘zingizga yoqqan texnikani tanlang."/>
+        <div className="center-action"><button className="btn btn-primary" onClick={() => go('catalog')}>Katalogga o‘tish</button></div>
+      </div>
+    )}
+  </section>;
 }
 function OrderTotal({ total, count, onClick, disabled, loading }) { return <aside className="order-total card"><h3>Buyurtmangiz</h3><div className="between"><span>Mahsulotlar ({count})</span><b>{money(total)}</b></div><div className="between"><span>Yetkazib berish</span><b className="orange">Buyurtmada aniqlanadi</b></div><div className="divider"/><div className="between grand"><span>Jami</span><b>{money(total)}</b></div><button className="btn btn-primary btn-block" onClick={onClick} disabled={disabled || loading}>{loading ? 'Yuborilmoqda…' : 'Rasmiylashtirish'}</button><small className="muted">Davom etish orqali ommaviy oferta shartlariga rozilik bildirasiz.</small></aside>; }
 
@@ -1757,7 +2008,21 @@ function Checkout({ cartItems, go, session, account, clearCart, setToast, custom
     if (!cartItems.length) return setToast('Savatcha bo‘sh.');
     if (cartItems.some(item => item.qty < 1 || item.qty > item.stock)) return setToast('Savatchadagi miqdor ombor qoldig‘iga mos emas.');
     if (!methods.some(item => item.code === payment)) return setToast('Faol to‘lov usulini tanlang.');
-    const payload = { customer: { name: form.name.trim(), phone, email: form.email.trim() || undefined }, shippingAddress: { address: form.address.trim() }, lines: cartItems.map(item => ({ product_id: item.productId || item.product_id || String(item.id).split('_')[0], variant_id: item.variantId || null, batch_id: item.batchId || null, quantity: item.qty })), paymentMethodCode: payment, notes: form.notes.trim() || null };
+    const payload = {
+      customer: { name: form.name.trim(), phone, email: form.email.trim() || undefined },
+      shippingAddress: { address: form.address.trim() },
+      lines: cartItems.map(item => ({
+        product_id: item.productId || item.product_id || String(item.id).split('_')[0],
+        variant_id: item.variantId || null,
+        batch_id: item.batchId || null,
+        quantity: item.qty,
+        is_standalone_component: Boolean(item.isStandaloneComponent),
+        component_id: item.componentId || null,
+        selected_components: item.selectedComponents || []
+      })),
+      paymentMethodCode: payment,
+      notes: form.notes.trim() || null
+    };
     const fingerprint = JSON.stringify(payload);
     if (attempt.current.fingerprint !== fingerprint) attempt.current = { fingerprint, key: createKey(), token: createCheckoutToken() };
     setSubmitting(true);

@@ -74,20 +74,71 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
   const[code,setCode]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const[context,setContext]=useState(null);
   const[quantity,setQuantity]=useState(1);
-  const cartLine=unit=>({id:unit.id,qr_code:unit.qr_code,serial_number:unit.serial_number,product_name:unit.product_name,sku:unit.sku,brand_name:unit.brand_name,image:unit.image,location_type:unit.location_type,retail_price:unit.prices.retail_price_uzs,minimum_sale_price:unit.prices.minimum_sale_price_uzs,unit_cost:unit.prices.unit_cost_uzs,tax_rate:unit.prices.tax_rate,available_branch_count:unit.branch_stock.store+unit.branch_stock.warehouse});
   const extractQr=value=>{const raw=String(value||'').trim();if(!raw)return'';try{const url=new URL(raw,STOREFRONT);const match=url.pathname.match(/^\/qr\/([^/]+)\/?$/i);return match?decodeURIComponent(match[1]).trim():raw}catch{return raw}};
   const applyResult=result=>{
     setContext(result);
   };
   const runLookup=async raw=>{const value=extractQr(raw);if(!value)return;setBusy(true);setError('');setContext(null);try{applyResult(await getPosUnitContext(branchId,value));setCode('')}catch(e){setError(msg(e))}finally{setBusy(false)}};
   const lookup=e=>{e?.preventDefault?.();if(!code.trim())return;runLookup(code)};
-  const addFromContext=async()=>{
+  const addFromContext=async(selectedComps=[],isStandalone=false,standaloneComp=null)=>{
     if(!context)return;
     const total=Math.max(1,Math.min(50,Number(quantity)||1));
     const alreadyInCartIds=(cart||[]).map(x=>x.id);
 
+    // Standalone tarkibiy qismni alohida sotish
+    if(isStandalone&&standaloneComp){
+      const compRetail=Number(standaloneComp.retail_price_uzs||0);
+      const compCost=Number(standaloneComp.cost_price_uzs||0);
+      const compLine={
+        id:context.id,
+        qr_code:context.qr_code,
+        serial_number:context.serial_number,
+        product_name:`${context.product_name} — ${standaloneComp.name}${standaloneComp.color?` (${standaloneComp.color})`:''}`,
+        sku:context.sku,
+        brand_name:context.brand_name,
+        image:context.image,
+        location_type:context.location_type,
+        retail_price:compRetail,
+        minimum_sale_price:compRetail,
+        unit_cost:compCost,
+        tax_rate:context.prices?.tax_rate||0,
+        available_branch_count:(context.branch_stock?.store||0)+(context.branch_stock?.warehouse||0),
+        selected_components:[standaloneComp],
+        is_standalone_component:true,
+      };
+      add(compLine);
+      setContext(null);
+      setQuantity(1);
+      return;
+    }
+
+    // Asosiy tovar + tanlangan tarkibiy qismlar
+    const compsRetail=(selectedComps||[]).reduce((s,c)=>s+(Number(c.retail_price_uzs)||0),0);
+    const compsCost=(selectedComps||[]).reduce((s,c)=>s+(Number(c.cost_price_uzs)||0),0);
+    const retailPrice=Number(context.prices?.retail_price_uzs||0)+compsRetail;
+    const unitCost=Number(context.prices?.unit_cost_uzs||0)+compsCost;
+    const minPrice=Number(context.prices?.minimum_sale_price_uzs||0)+compsRetail;
+
+    const buildLine=unit=>({
+      id:unit.id,
+      qr_code:unit.qr_code||context.qr_code,
+      serial_number:unit.serial_number,
+      product_name:context.product_name,
+      sku:context.sku,
+      brand_name:context.brand_name,
+      image:context.image,
+      location_type:unit.location_type||context.location_type,
+      retail_price:retailPrice,
+      minimum_sale_price:minPrice,
+      unit_cost:unitCost,
+      tax_rate:context.prices?.tax_rate||0,
+      available_branch_count:(context.branch_stock?.store||0)+(context.branch_stock?.warehouse||0),
+      selected_components:selectedComps||[],
+      is_standalone_component:false,
+    });
+
     if(total===1&&!alreadyInCartIds.includes(context.id)){
-      add(cartLine(context));
+      add(buildLine(context));
       setContext(null);
       setQuantity(1);
       return;
@@ -101,21 +152,7 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
         toast?.('Bu mahsulotdan boshqa qoldiq qolmagan yoki barchasi savdoga qo‘shilgan');
         return;
       }
-      const toAdd=batchUnits.map(unit=>({
-        id:unit.id,
-        qr_code:unit.qr_code||context.qr_code,
-        serial_number:unit.serial_number,
-        product_name:context.product_name,
-        sku:context.sku,
-        brand_name:context.brand_name,
-        image:context.image,
-        location_type:unit.location_type||context.location_type,
-        retail_price:context.prices.retail_price_uzs,
-        minimum_sale_price:context.prices.minimum_sale_price_uzs,
-        unit_cost:context.prices.unit_cost_uzs,
-        tax_rate:context.prices.tax_rate,
-        available_branch_count:(context.branch_stock?.store||0)+(context.branch_stock?.warehouse||0)
-      }));
+      const toAdd=batchUnits.map(unit=>buildLine(unit));
       addMultiple(toAdd);
       if(batchUnits.length<total){
         toast?.(`Faqat ${batchUnits.length} dona mavjud edi, barchasi savdoga qo‘shildi`);
@@ -124,7 +161,7 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
       setQuantity(1);
     }catch(err){
       if(total===1&&!alreadyInCartIds.includes(context.id)){
-        add(cartLine(context));
+        add(buildLine(context));
         setContext(null);
         setQuantity(1);
       }else{
@@ -149,8 +186,25 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
 // store/warehouse stock, stock in other branches, and a link to the storefront page.
 function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAddToRelocate,onClose,rate}){
   const p=context.prices,stock=context.branch_stock;
+  const components=Array.isArray(context.components)?context.components:[];
+  const[selectedCompIds,setSelectedCompIds]=useState(()=>{
+    return components.filter(c=>c.is_default||c.is_required).map(c=>c.id);
+  });
+  const selectedComponents=useMemo(()=>{
+    return components.filter(c=>selectedCompIds.includes(c.id));
+  },[components,selectedCompIds]);
+  const compsRetailTotal=useMemo(()=>{
+    return selectedComponents.reduce((sum,c)=>sum+(Number(c.retail_price_uzs)||0),0);
+  },[selectedComponents]);
+  const compsCostTotal=useMemo(()=>{
+    return selectedComponents.reduce((sum,c)=>sum+(Number(c.cost_price_uzs)||0),0);
+  },[selectedComponents]);
+
   const[showCost,setShowCost]=useState(false);
-  const costPrice=p?.unit_cost_uzs??context.unit_cost??context.cost_price;
+  const baseCost=p?.unit_cost_uzs??context.unit_cost??context.cost_price;
+  const effectiveCostPrice=baseCost!=null?Number(baseCost)+compsCostTotal:null;
+  const effectiveRetailPrice=Number(p?.retail_price_uzs||0)+compsRetailTotal;
+
   const productActive=context.product_status==='active';
   const inCurrentBranch=context.in_current_branch!==false;
   const free=context.is_sellable!==false&&context.status==='available';
@@ -183,19 +237,62 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
       {context.storefront_url&&<a className="btn btn-outline btn-sm pos-unit-context-link" href={STOREFRONT+context.storefront_url} target="_blank" rel="noopener"><ExternalLink size={13}/> Saytda ko‘rish</a>}
     </div>
     <div className="pos-unit-context-prices">
-      <span><small>Sotish narxi</small><b><DualPrice value={Number(p.retail_price_uzs||0)} rate={rate}/></b></span>
-      <span><small>Ulgurji narxi</small><b>{p.wholesale_price_uzs!=null?<DualPrice value={Number(p.wholesale_price_uzs||0)} rate={rate}/>:'—'}</b></span>
-      <span><small>Minimal narx</small><b><DualPrice value={Number(p.minimum_sale_price_uzs||0)} rate={rate}/></b></span>
+      <span>
+        <small>Sotish narxi{compsRetailTotal>0?' (qismlar bilan)':''}</small>
+        <b><DualPrice value={Number(effectiveRetailPrice||0)} rate={rate}/></b>
+        {compsRetailTotal>0&&<small style={{color:'var(--muted)',fontSize:'10px'}}>Asosiy: {formatDualMoney(Number(p?.retail_price_uzs||0),rate)}</small>}
+      </span>
+      <span>
+        <small>Ulgurji narxi</small>
+        <b>{p?.wholesale_price_uzs!=null?<DualPrice value={Number(p.wholesale_price_uzs||0)} rate={rate}/>:'—'}</b>
+      </span>
+      <span>
+        <small>Minimal narx</small>
+        <b><DualPrice value={Number(p?.minimum_sale_price_uzs||0)+compsRetailTotal} rate={rate}/></b>
+      </span>
       <span className="pos-unit-price-cost-cell" onClick={()=>setShowCost(v=>!v)} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>
         <small style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
-          Tannarx
+          Tannarx{compsCostTotal>0?' (qismlar bilan)':''}
           {showCost?<EyeOff size={12}/>:<Eye size={12}/>}
         </small>
         <button type="button" className="pos-masked-price" onClick={e=>{e.stopPropagation();setShowCost(v=>!v)}} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>
-          {showCost?<b>{costPrice!=null&&Number(costPrice)>0?<DualPrice value={Number(costPrice)} rate={rate}/>:'—'}</b>:<b style={{letterSpacing:'0.12em'}}>******</b>}
+          {showCost?<b>{effectiveCostPrice!=null&&Number(effectiveCostPrice)>0?<DualPrice value={Number(effectiveCostPrice)} rate={rate}/>:'—'}</b>:<b style={{letterSpacing:'0.12em'}}>******</b>}
         </button>
       </span>
     </div>
+
+    {components.length>0&&<div style={{margin:'10px 0',padding:'10px',background:'var(--surface-alt,#f8fafc)',borderRadius:'8px',border:'1px solid var(--line,#e2e8f0)'}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
+        <b style={{fontSize:'12px'}}>Tarkibiy / qo‘shimcha qismlar ({selectedComponents.length}/{components.length})</b>
+        {compsRetailTotal>0&&<span style={{fontSize:'11px',fontWeight:700,color:'var(--primary,#2563eb)'}}>+{formatDualMoney(compsRetailTotal,rate)}</span>}
+      </div>
+      <div style={{display:'flex',flexDirection:'column',gap:'6px'}}>
+        {components.map(comp=>{
+          const isChecked=selectedCompIds.includes(comp.id);
+          const compRetail=Number(comp.retail_price_uzs)||0;
+          return <div key={comp.id} style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:'8px',padding:'6px 8px',background:'#fff',borderRadius:'6px',border:'1px solid var(--line,#e2e8f0)'}}>
+            <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',fontSize:'12px',flex:1,userSelect:'none',margin:0}}>
+              <input
+                type="checkbox"
+                checked={isChecked}
+                disabled={comp.is_required}
+                onChange={e=>{
+                  if(comp.is_required)return;
+                  setSelectedCompIds(prev=>e.target.checked?[...prev,comp.id]:prev.filter(id=>id!==comp.id));
+                }}
+              />
+              {comp.color_hex&&<span style={{width:'12px',height:'12px',borderRadius:'50%',background:comp.color_hex,border:'1px solid #cbd5e1',display:'inline-block'}}/>}
+              <span><b>{comp.name}</b>{comp.color?` (${comp.color})`:''}{comp.is_required?<span style={{marginLeft:'4px',fontSize:'10px',color:'#d97706',fontWeight:700}}>(Majburiy)</span>:null}</span>
+            </label>
+            <div style={{display:'flex',alignItems:'center',gap:'8px'}}>
+              <span style={{fontSize:'11px',fontWeight:700}}>{compRetail>0?`+${formatDualMoney(compRetail,rate)}`:'0 so‘m'}</span>
+              {comp.can_buy_standalone&&canSell&&<button type="button" className="btn btn-outline btn-xs" style={{padding:'2px 6px',fontSize:'10px'}} onClick={()=>onAddToSale(null,true,comp)} title="Faqat shu qismni alohida sotish">Faqat buni sotish</button>}
+            </div>
+          </div>;
+        })}
+      </div>
+    </div>}
+
     <div className="pos-unit-context-stock">
       <span><Store size={15}/> Do‘konda: <b>{stock.store}</b> dona</span>
       <span><Warehouse size={15}/> Omborda: <b>{stock.warehouse}</b> dona</span>
@@ -240,7 +337,7 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
     </div>
     {canSell&&<label className="pos-unit-context-qty">Mahsulot soni<input type="text" inputMode="numeric" autoComplete="off" placeholder="1" value={quantity} onChange={event=>setQuantity(String(event.target.value).replace(/[^\d]/g,'').replace(/^0+(?=\d)/,'').slice(0,2))} onBlur={()=>setQuantity(String(Math.max(1,Math.min((stock.store||0)+(stock.warehouse||0)||50,Number(quantity)||1))))}/><small>Filialda mavjud qoldiq: <b>{(stock.store||0)+(stock.warehouse||0)}</b> dona (Do‘konda: {stock.store||0}, Omborda: {stock.warehouse||0})</small></label>}
     <div className="pos-unit-context-actions">
-      <button type="button" className="btn btn-primary" disabled={!canSell} onClick={onAddToSale}><ShoppingCart size={15}/> {Number(quantity)>1?`${quantity} dona — Savdoga qo‘shish`:saleLabel}</button>
+      <button type="button" className="btn btn-primary" disabled={!canSell} onClick={()=>onAddToSale(selectedComponents,false,null)}><ShoppingCart size={15}/> {Number(quantity)>1?`${quantity} dona — Savdoga qo‘shish`:saleLabel}</button>
       <button type="button" className="btn btn-outline" disabled={!canRelocate} onClick={onAddToRelocate}><ArrowLeftRight size={15}/> {canRelocate?'Joyini o‘zgartirish':'Boshqa filialda'}</button>
     </div>
   </article>;
@@ -282,7 +379,7 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate}
     setBusy(true);setError('');
     try{
       const customerPayload=customer.phone.trim()?{full_name:customer.full_name.trim()||null,phone:customer.phone.trim(),address:customer.address.trim()||null}:null;
-      const result=await createPosPendingSale({branchId,lines:cart.map(x=>({unit_id:x.id,unit_price:Number(x.unit_price),discount:Number(x.discount||0)})),payments:payments.map(x=>({method_code:x.method_code,amount:Number(x.amount),external_reference:x.external_reference||null})),notes,customer:customerPayload});
+      const result=await createPosPendingSale({branchId,lines:cart.map(x=>({unit_id:x.id,unit_price:Number(x.unit_price),discount:Number(x.discount||0),selected_components:x.selected_components||[]})),payments:payments.map(x=>({method_code:x.method_code,amount:Number(x.amount),external_reference:x.external_reference||null})),notes,customer:customerPayload});
       setCreated(result);setCart([]);setNotes('');setCustomer({full_name:'',phone:'',address:''});setShowCustomer(false);
       toast?.('Savdo menejer kassasiga yuborildi');await refresh();
     }catch(e){setError(msg(e))}finally{setBusy(false)}
@@ -295,7 +392,20 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate}
         const currentTotal=lineTotal(line)-lineTax(line);
         const isBelowMinimum=currentTotal<Number(line.minimum_sale_price||0);
         return <article key={line.id}>
-          <div className="pos-real-cart-head"><div><b>{line.product_name}</b><small>{line.qr_code}{line.serial_number?` · ${line.serial_number}`:''}</small>{line.location_type&&<Status type={line.location_type==='store'?'green':'blue'}>{line.location_type==='store'?'Do‘kondan':'Ombordan'}</Status>}</div><button type="button" onClick={()=>setCart(x=>x.filter(y=>y.id!==line.id))}><Trash2/></button></div>
+          <div className="pos-real-cart-head">
+            <div>
+              <b>{line.product_name}</b>
+              <small>{line.qr_code}{line.serial_number?` · ${line.serial_number}`:''}</small>
+              {line.location_type&&<Status type={line.location_type==='store'?'green':'blue'}>{line.location_type==='store'?'Do‘kondan':'Ombordan'}</Status>}
+              {line.selected_components?.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:'4px',marginTop:'4px'}}>
+                {line.selected_components.map((c,i)=><span key={i} style={{display:'inline-flex',alignItems:'center',gap:'4px',fontSize:'11px',padding:'2px 6px',borderRadius:'4px',background:'var(--surface-alt,#f1f5f9)',color:'var(--text)',border:'1px solid var(--line,#e2e8f0)'}}>
+                  {c.color_hex&&<span style={{width:'8px',height:'8px',borderRadius:'50%',background:c.color_hex}}/>}
+                  + {c.name}{c.color?` (${c.color})`:''}
+                </span>)}
+              </div>}
+            </div>
+            <button type="button" onClick={()=>setCart(x=>x.filter(y=>y.id!==line.id))}><Trash2/></button>
+          </div>
           <div className="pos-real-line-grid">
             <label>Sotuv narxi<input type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={line.unit_price} onChange={e=>editLine(line.id,'unit_price',e.target.value)} onBlur={()=>normalizeLine(line.id,'unit_price')}/></label>
             <label>Chegirma<input type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={line.discount} onChange={e=>editLine(line.id,'discount',e.target.value)} onBlur={()=>normalizeLine(line.id,'discount')}/></label>
@@ -361,7 +471,7 @@ function Kpi({branchId,openReceipt,rate}){
   return <section><div className="pos-real-title"><div><h2>KPI</h2><small>Filial vaqt mintaqasi bo‘yicha tanlangan kun</small></div></div><form className="pos-real-kpi-filters" onSubmit={apply}><DateFilter value={date} onChange={setDate}/><label className="pos-real-search"><Search/><input value={draft} onChange={event=>setDraft(event.target.value)} placeholder="Chek, mahsulot, SKU, QR yoki seriya"/><button type="submit">Qidirish</button></label>{query&&<button type="button" className="btn btn-outline" onClick={()=>{setDraft('');setQuery('')}}>Filtrni tozalash</button>}</form>{error?<div className="pos-real-inline-error">{error}</div>:loading?<State text="KPI yuklanmoqda…"/>:<><KpiCards kpi={sales.today||{}} rate={rate}/><div className="pos-real-kpi-wide"><span>Berilgan chegirma<b><DualPrice value={Number(sales.today?.discount||0)} rate={rate}/></b></span><span>Sof foyda<b><DualPrice value={Number(sales.today?.profit||0)} rate={rate}/></b></span></div><Sales title="Filtrlangan savdolar" rows={sales.items} openReceipt={openReceipt} rate={rate}/></>}</section>
 }
 function Sales({title,rows=[],openReceipt,rate}){return <><h3>{title}</h3>{rows.length?<div className="pos-real-sales">{rows.map(sale=><button type="button" key={sale.id} onClick={()=>openReceipt(sale.id)}><ReceiptText/><span><b>{sale.sale_no}</b><small>{when(sale.sold_at)} · {sale.unit_count} dona</small></span><strong>{<DualPrice value={Number(sale.total||0)} rate={rate}/>}</strong><ChevronRight/></button>)}</div>:<Empty title="Savdolar yo‘q" text="Tasdiqlangan savdolar shu yerda ko‘rinadi."/>}</>}
-function PendingDetail({sale,close,rate}){return <Modal open={Boolean(sale)} onClose={close} title={sale?.pending_no||'Kassa so‘rovi'}>{sale&&<div className="pos-real-pending-detail"><div className="between"><Status type={colors[sale.status]}>{labels[sale.status]||sale.status}</Status><small>{when(sale.created_at)}</small></div><p>Rezerv tugashi: <b>{when(sale.expires_at)}</b></p>{sale.rejection_reason&&<div className="pos-real-inline-error">Sabab: {sale.rejection_reason}</div>}<h3>Mahsulotlar</h3>{sale.lines?.map(line=><article key={line.id}><span><b>{line.product_name}</b><small>{line.sku} · {line.qr_code}</small></span><strong>{<DualPrice value={Number(line.line_total||0)} rate={rate}/>}</strong></article>)}<div className="pos-real-totals"><span>Chegirma<b>{<DualPrice value={Number(sale.discount||0)} rate={rate}/>}</b></span><span>Soliq<b>{<DualPrice value={Number(sale.tax||0)} rate={rate}/>}</b></span><strong>Jami<b>{<DualPrice value={Number(sale.total||0)} rate={rate}/>}</b></strong></div><h3>To‘lovlar</h3>{sale.payments?.map((payment,index)=><p key={index}>{payment.method_name}: <b>{<DualPrice value={Number(payment.amount||0)} rate={rate}/>}</b>{payment.external_reference?` · ${payment.external_reference}`:''}</p>)}</div>}</Modal>}
+function PendingDetail({sale,close,rate}){return <Modal open={Boolean(sale)} onClose={close} title={sale?.pending_no||'Kassa so‘rovi'}>{sale&&<div className="pos-real-pending-detail"><div className="between"><Status type={colors[sale.status]}>{labels[sale.status]||sale.status}</Status><small>{when(sale.created_at)}</small></div><p>Rezerv tugashi: <b>{when(sale.expires_at)}</b></p>{sale.rejection_reason&&<div className="pos-real-inline-error">Sabab: {sale.rejection_reason}</div>}<h3>Mahsulotlar</h3>{sale.lines?.map(line=><article key={line.id}><span><b>{line.product_name}</b><small>{line.sku} · {line.qr_code}</small>{line.selected_components?.length>0&&<small style={{display:'block',color:'var(--muted)'}}>Qismlar: {line.selected_components.map(c=>`${c.name}${c.color?` (${c.color})`:''}`).join(', ')}</small>}</span><strong>{<DualPrice value={Number(line.line_total||0)} rate={rate}/>}</strong></article>)}<div className="pos-real-totals"><span>Chegirma<b>{<DualPrice value={Number(sale.discount||0)} rate={rate}/>}</b></span><span>Soliq<b>{<DualPrice value={Number(sale.tax||0)} rate={rate}/>}</b></span><strong>Jami<b>{<DualPrice value={Number(sale.total||0)} rate={rate}/>}</b></strong></div><h3>To‘lovlar</h3>{sale.payments?.map((payment,index)=><p key={index}>{payment.method_name}: <b>{<DualPrice value={Number(payment.amount||0)} rate={rate}/>}</b>{payment.external_reference?` · ${payment.external_reference}`:''}</p>)}</div>}</Modal>}
 function Receipt({receipt,close,rate}){
   const[email,setEmail]=useState(''),[delivery,setDelivery]=useState(null),[busy,setBusy]=useState(false),[deliveryError,setDeliveryError]=useState(''),[idempotencyKey,setIdempotencyKey]=useState(()=>crypto.randomUUID());
   const[printMode,setPrintMode]=useState('per_item'),[previewIndex,setPreviewIndex]=useState(0);
@@ -412,7 +522,7 @@ function Receipt({receipt,close,rate}){
         <div className="pos-real-receipt" style={{marginTop:10}}>
           <header><h2>{receipt.branch_name}</h2><p>{address(receipt.branch_address)}{receipt.branch_phone?` · ${receipt.branch_phone}`:''}</p><b>{receipt.sale_no}</b><small>{when(receipt.sold_at)}</small></header>
           <div><span>Sotuvchi <b>{receipt.seller_name}</b></span><span>Menejer <b>{receipt.manager_name||'—'}</b></span></div>
-          <section>{receipt.lines?.map((line,i)=><article key={`${line.sku}-${line.serial_number||i}`}><span><b>{line.product_name}</b><small>{line.sku}{line.serial_number?` · S/N: ${line.serial_number}`:''}</small></span><strong>{<DualPrice value={Number(line.line_total||0)} rate={rate}/>}</strong><small>Narx {<DualPrice value={Number(line.unit_price||0)} rate={rate}/>} · Chegirma {<DualPrice value={Number(line.discount||0)} rate={rate}/>} · Soliq {<DualPrice value={Number(line.tax||0)} rate={rate}/>}</small></article>)}</section>
+          <section>{receipt.lines?.map((line,i)=><article key={`${line.sku}-${line.serial_number||i}`}><span><b>{line.product_name}</b><small>{line.sku}{line.serial_number?` · S/N: ${line.serial_number}`:''}</small>{line.selected_components?.length>0&&<small style={{display:'block',color:'var(--muted)'}}>Qismlar: {line.selected_components.map(c=>`${c.name}${c.color?` (${c.color})`:''}`).join(', ')}</small>}</span><strong>{<DualPrice value={Number(line.line_total||0)} rate={rate}/>}</strong><small>Narx {<DualPrice value={Number(line.unit_price||0)} rate={rate}/>} · Chegirma {<DualPrice value={Number(line.discount||0)} rate={rate}/>} · Soliq {<DualPrice value={Number(line.tax||0)} rate={rate}/>}</small></article>)}</section>
           <dl><div><dt>Subtotal</dt><dd>{<DualPrice value={Number(receipt.subtotal||0)} rate={rate}/>}</dd></div><div><dt>Chegirma</dt><dd>{<DualPrice value={Number(receipt.discount||0)} rate={rate}/>}</dd></div><div><dt>Soliq</dt><dd>{<DualPrice value={Number(receipt.tax||0)} rate={rate}/>}</dd></div><div><dt>Jami</dt><dd>{<DualPrice value={Number(receipt.total||0)} rate={rate}/>}</dd></div></dl>
           <h3>To‘lovlar</h3>{receipt.payments?.map((p,i)=><p key={i}>{p.method_name}: <b>{<DualPrice value={Number(p.amount||0)} rate={rate}/>}</b></p>)}
           <div className="receipt-delivery">
