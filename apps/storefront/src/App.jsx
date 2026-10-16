@@ -84,6 +84,69 @@ const getYouTubeEmbedUrl = url => {
   if (str.includes('youtube.com/embed/')) return str;
   return null;
 };
+
+const COLOR_HEX_MAP = {
+  'qora': '#111827',
+  'black': '#111827',
+  'kulrang': '#64748b',
+  'seriy': '#64748b',
+  'gray': '#64748b',
+  'grey': '#64748b',
+  'oq': '#ffffff',
+  'white': '#ffffff',
+  'qizil': '#ef4444',
+  'red': '#ef4444',
+  'ko‘k': '#2563eb',
+  "ko'k": '#2563eb',
+  'kok': '#2563eb',
+  'moviy': '#38bdf8',
+  'havorang': '#38bdf8',
+  'blue': '#2563eb',
+  'yashil': '#10b981',
+  'green': '#10b981',
+  'sariq': '#f59e0b',
+  'yellow': '#f59e0b',
+  'tilla': '#d97706',
+  'oltin': '#d97706',
+  'gold': '#d97706',
+  'jigarrang': '#78350f',
+  'brown': '#78350f',
+  'pushti': '#ec4899',
+  'pink': '#ec4899',
+  'siyohrang': '#8b5cf6',
+  'binafsha': '#8b5cf6',
+  'purple': '#8b5cf6',
+  'zangori': '#06b6d4',
+  'alyuminiy': '#94a3b8',
+  'kumush': '#cbd5e1',
+  'silver': '#cbd5e1',
+  'standart': '#94a3b8',
+  'standard': '#94a3b8'
+};
+
+const getColorHex = (name = '', currentHex = null) => {
+  if (currentHex && typeof currentHex === 'string' && currentHex.startsWith('#') && currentHex.length >= 4) {
+    return currentHex;
+  }
+  const clean = String(name || '').toLowerCase().trim();
+  if (!clean) return '#94a3b8';
+  for (const [key, val] of Object.entries(COLOR_HEX_MAP)) {
+    if (clean.includes(key)) return val;
+  }
+  return '#94a3b8';
+};
+
+const isLightColor = (hex = '') => {
+  if (!hex || typeof hex !== 'string') return false;
+  const clean = hex.replace('#', '');
+  if (clean.length !== 6 && clean.length !== 3) return false;
+  const r = parseInt(clean.length === 3 ? clean[0] + clean[0] : clean.slice(0, 2), 16);
+  const g = parseInt(clean.length === 3 ? clean[1] + clean[1] : clean.slice(2, 4), 16);
+  const b = parseInt(clean.length === 3 ? clean[2] + clean[2] : clean.slice(4, 6), 16);
+  const brightness = (r * 299 + g * 587 + b * 114) / 1000;
+  return brightness > 180;
+};
+
 const adaptProduct = raw => {
   const primaryImg = raw.primary_media_url || raw.seo_image_url || raw.media?.[0]?.url || raw.image || '';
   const mediaList = safeArray(raw.media).length > 0
@@ -91,6 +154,47 @@ const adaptProduct = raw => {
     : primaryImg
       ? [{ id: raw.id, url: primaryImg, alt: raw.name }]
       : [];
+
+  const rawVariants = safeArray(raw.variants).map(v => ({
+    id: String(v.id),
+    colorName: String(v.color_name || v.colorName || ''),
+    colorHex: getColorHex(v.color_name || v.colorName, v.color_hex || v.colorHex),
+    price: numberOf(v.price),
+    retailPrice: numberOf(v.retail_price || v.retailPrice || v.price),
+    compareAtPrice: numberOf(v.compare_at_price || v.compareAtPrice),
+    costPrice: numberOf(v.cost_price || v.costPrice),
+    stock: Math.max(0, Math.trunc(numberOf(v.stock))),
+    image: v.image || v.media?.[0]?.url || null,
+    media: safeArray(v.media),
+  }));
+
+  // Fallback defense-in-depth: agar tovarning variantlari mavjud bo'lsa-yu, lekin 'standart' varianti ro'yxatda bo'lmasa
+  // va mavjud zaxira variantlar yig'indisidan ortiq bo'lsa (ya'ni dastlabki variant_id=NULL bo'lgan qoldiq bor):
+  let finalVariants = rawVariants;
+  if (rawVariants.length > 0) {
+    const hasStandart = rawVariants.some(v => v.id === 'standard' || ['standart', 'standard', 'baza', 'asosiy'].includes(v.colorName.toLowerCase().trim()));
+    const variantsStockSum = rawVariants.reduce((sum, v) => sum + v.stock, 0);
+    const totalAvail = Math.max(0, Math.trunc(numberOf(raw.available_stock)));
+    if (!hasStandart && totalAvail > variantsStockSum) {
+      const stdStock = totalAvail - variantsStockSum;
+      finalVariants = [
+        {
+          id: 'standard',
+          colorName: 'Standart',
+          colorHex: '#94a3b8',
+          price: numberOf(raw.promotion_price || raw.effective_price || raw.retail_price),
+          retailPrice: numberOf(raw.retail_price),
+          compareAtPrice: numberOf(raw.compare_at_price),
+          costPrice: numberOf(raw.cost_price),
+          stock: stdStock,
+          image: primaryImg || null,
+          media: mediaList,
+        },
+        ...rawVariants
+      ];
+    }
+  }
+
   return {
     ...raw,
     id: String(raw.id),
@@ -119,19 +223,7 @@ const adaptProduct = raw => {
     brandId: raw.brand_id ? String(raw.brand_id) : '',
     avgRating: numberOf(raw.avg_rating),
     reviewCount: Math.max(0, Math.trunc(numberOf(raw.review_count))),
-    // Rang variantlari: har biri o'z narxi, zaxirasi va (ixtiyoriy) rasmiga ega bo'lishi mumkin.
-    variants: safeArray(raw.variants).map(v => ({
-      id: String(v.id),
-      colorName: String(v.color_name || ''),
-      colorHex: v.color_hex || null,
-      price: numberOf(v.price),
-      retailPrice: numberOf(v.retail_price || v.price),
-      compareAtPrice: numberOf(v.compare_at_price),
-      costPrice: numberOf(v.cost_price),
-      stock: Math.max(0, Math.trunc(numberOf(v.stock))),
-      image: v.image || v.media?.[0]?.url || null,
-      media: safeArray(v.media),
-    })),
+    variants: finalVariants,
     // Tarkibiy va qo'shimcha qismlar (Beshik taxtasi, sumak, yostiqcha va h.k.)
     components: safeArray(raw.components).map(c => ({
       id: String(c.id),
@@ -1815,18 +1907,26 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
           <div className="product-color-picker">
             <span className="label">Rang: {activeVariant ? <b>{activeVariant.colorName}</b> : ''}</span>
             <div className="product-color-options">
-              {variants.map(v => (
-                <button
-                  key={v.id}
-                  type="button"
-                  className={v.id === variantId ? 'product-color-option active' : 'product-color-option'}
-                  style={{ background: v.colorHex || '#ccc' }}
-                  title={v.colorName}
-                  onClick={() => setVariantId(v.id)}
-                >
-                  {v.id === variantId && <Check size={13} />}
-                </button>
-              ))}
+              {variants.map(v => {
+                const isSelected = String(v.id) === String(variantId);
+                const light = isLightColor(v.colorHex);
+                return (
+                  <button
+                    key={v.id}
+                    type="button"
+                    className={isSelected ? 'product-color-option active' : 'product-color-option'}
+                    style={{
+                      background: v.colorHex || '#94a3b8',
+                      color: light ? '#0f172a' : '#ffffff',
+                      border: light ? '2px solid rgba(0,0,0,0.2)' : undefined
+                    }}
+                    title={`${v.colorName} (${v.stock} dona)`}
+                    onClick={() => setVariantId(v.id)}
+                  >
+                    {isSelected && <Check size={13} strokeWidth={3} />}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -2166,12 +2266,13 @@ function Checkout({ cartItems, go, session, account, clearCart, setToast, custom
       shippingAddress: { address: form.address.trim() },
       lines: cartItems.map(item => ({
         product_id: item.productId || item.product_id || String(item.id).split('_')[0],
-        variant_id: item.variantId || null,
+        variant_id: (item.variantId && item.variantId !== 'standard' && item.variantId !== 'default') ? item.variantId : null,
         batch_id: item.batchId || null,
         quantity: item.qty,
         is_standalone_component: Boolean(item.isStandaloneComponent),
         component_id: item.componentId || null,
-        selected_components: item.selectedComponents || []
+        selected_components: item.selectedComponents || [],
+        variant_color: item.variantColorName || (item.variantId === 'standard' ? 'Standart' : null)
       })),
       paymentMethodCode: payment,
       notes: form.notes.trim() || null

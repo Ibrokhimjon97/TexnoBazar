@@ -35,7 +35,10 @@ export const saveCustomerProfile=profile=>rpc('save_customer_profile',{p_profile
 export const saveCustomerAddress=address=>rpc('save_customer_address',{p_address:address});
 export const removeCustomerAddress=id=>rpc('delete_customer_address',{p_address_id:id});
 export const setCustomerFavorite=(productId,favorite)=>rpc('set_customer_favorite',{p_product_id:productId,p_favorite:favorite});
-export const setCustomerCartItem=(productId,quantity,variantId=null)=>rpc('set_customer_cart_item',{p_product_id:productId,p_quantity:quantity,p_variant_id:variantId||null});
+export const setCustomerCartItem=(productId,quantity,variantId=null)=>{
+  const safeVariantId = (variantId && variantId !== 'standard' && variantId !== 'default') ? variantId : null;
+  return rpc('set_customer_cart_item',{p_product_id:productId,p_quantity:quantity,p_variant_id:safeVariantId});
+};
 export function loadCustomerOrders({page=1,pageSize=20}={}){return rpc('customer_order_history',{p_limit:pageSize,p_offset:(page-1)*pageSize})}
 export async function getStorefrontSession(){const{data,error}=await getBrowserClient().auth.getSession();if(error)throw error;return data.session}
 export async function signInCustomer(email,password){const{data,error}=await getBrowserClient().auth.signInWithPassword({email,password});if(error)throw error;return data}
