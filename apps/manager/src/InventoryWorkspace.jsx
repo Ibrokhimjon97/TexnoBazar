@@ -1727,11 +1727,14 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
                   ...c,
                   quantity: c.quantity || 1,
                   cost_price: c.cost_price != null ? String(c.cost_price) : '',
-                  cost_price_usd: c.cost_price_usd != null ? Number(c.cost_price_usd) : '',
+                  cost_price_uzs: c.cost_price != null ? String(c.cost_price) : '',
+                  cost_price_usd: c.cost_price_usd != null ? String(c.cost_price_usd) : '',
                   retail_price: c.retail_price != null ? String(c.retail_price) : '',
-                  retail_price_usd: c.retail_price_usd != null ? Number(c.retail_price_usd) : '',
+                  retail_price_uzs: c.retail_price != null ? String(c.retail_price) : '',
+                  retail_price_usd: c.retail_price_usd != null ? String(c.retail_price_usd) : '',
                   wholesale_price: c.wholesale_price != null ? String(c.wholesale_price) : '',
-                  wholesale_price_usd: c.wholesale_price_usd != null ? Number(c.wholesale_price_usd) : '',
+                  wholesale_price_uzs: c.wholesale_price != null ? String(c.wholesale_price) : '',
+                  wholesale_price_usd: c.wholesale_price_usd != null ? String(c.wholesale_price_usd) : '',
                   image_url: c.image_url || null,
                   imageFile: null,
                   previewUrl: c.image_url || null
@@ -2337,42 +2340,45 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
   const updateLineField=(idx,field,val)=>{
     setEditForm(prev=>{
       const lines=[...(prev.lines||[])];
-      const cur = { ...lines[idx], [field]: val };
+      if (!lines[idx]) return prev;
+      const currentVal = lines[idx][field];
+      const resolvedVal = typeof val === 'function' ? val(currentVal) : val;
+      const cur = { ...lines[idx], [field]: resolvedVal };
       const isUsd = (prev.currency || 'USD') === 'USD';
-      const num = Number(val);
+      const num = Number(resolvedVal);
       if (isUsd) {
         if (field === 'unit_cost') {
-          cur.unit_cost_usd = val;
+          cur.unit_cost_usd = resolvedVal;
           cur.unit_cost_uzs = rate && num > 0 ? String(Math.round(num * rate)) : '';
         } else if (field === 'retail_price') {
-          cur.retail_price_usd = val;
+          cur.retail_price_usd = resolvedVal;
           cur.retail_price_uzs = rate && num > 0 ? String(Math.round(num * rate)) : '';
         } else if (field === 'wholesale_price') {
-          cur.wholesale_price_usd = val;
+          cur.wholesale_price_usd = resolvedVal;
           cur.wholesale_price_uzs = rate && num > 0 ? String(Math.round(num * rate)) : '';
         } else if (field === 'minimum_sale_price') {
-          cur.minimum_sale_price_usd = val;
+          cur.minimum_sale_price_usd = resolvedVal;
           cur.minimum_sale_price_uzs = rate && num > 0 ? String(Math.round(num * rate)) : '';
         }
       } else {
         if (field === 'unit_cost') {
-          cur.unit_cost_uzs = val;
+          cur.unit_cost_uzs = resolvedVal;
           cur.unit_cost_usd = rate && num > 0 ? String(Number((num / rate).toFixed(2))) : '';
         } else if (field === 'retail_price') {
-          cur.retail_price_uzs = val;
+          cur.retail_price_uzs = resolvedVal;
           cur.retail_price_usd = rate && num > 0 ? String(Number((num / rate).toFixed(2))) : '';
         } else if (field === 'wholesale_price') {
-          cur.wholesale_price_uzs = val;
+          cur.wholesale_price_uzs = resolvedVal;
           cur.wholesale_price_usd = rate && num > 0 ? String(Number((num / rate).toFixed(2))) : '';
         } else if (field === 'minimum_sale_price') {
-          cur.minimum_sale_price_uzs = val;
+          cur.minimum_sale_price_uzs = resolvedVal;
           cur.minimum_sale_price_usd = rate && num > 0 ? String(Number((num / rate).toFixed(2))) : '';
         }
       }
       if (field === 'components' && cur.product_id) {
         for (let j = 0; j < lines.length; j++) {
           if (j !== idx && lines[j].product_id === cur.product_id) {
-            lines[j] = { ...lines[j], components: val };
+            lines[j] = { ...lines[j], components: resolvedVal };
           }
         }
       }
@@ -2727,8 +2733,7 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
                     <ProductComponentEditor
                       components={l.components || []}
                       onChange={updated => {
-                        const nextComps = typeof updated === 'function' ? updated(l.components || []) : updated;
-                        updateLineField(idx, 'components', nextComps);
+                        updateLineField(idx, 'components', updated);
                       }}
                       rate={rate}
                       showQuantity={true}
@@ -3281,10 +3286,14 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
   const setLine = (i, keyOrPatch, value) => {
     setLines(prev => prev.map((x, j) => {
       if (j !== i) return x;
+      if (typeof keyOrPatch === 'function') {
+        return keyOrPatch(x);
+      }
       if (typeof keyOrPatch === 'object' && keyOrPatch !== null) {
         return { ...x, ...keyOrPatch };
       }
-      return { ...x, [keyOrPatch]: value };
+      const resolvedVal = typeof value === 'function' ? value(x[keyOrPatch]) : value;
+      return { ...x, [keyOrPatch]: resolvedVal };
     }));
   };
 
@@ -4623,8 +4632,7 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
           <ProductComponentEditor
             components={line.components || []}
             onChange={updated => {
-              const nextComps = typeof updated === 'function' ? updated(line.components || []) : updated;
-              setLine(index, 'components', nextComps);
+              setLine(index, 'components', updated);
             }}
             rate={rate}
             showQuantity={true}

@@ -403,32 +403,59 @@ function ComponentCard({ index, component, onUpdate, onRemove, rate, showQuantit
         <DualPriceInput
           label="Tannarxi"
           valueUzs={component.cost_price != null ? String(component.cost_price) : (component.cost_price_uzs != null ? String(component.cost_price_uzs) : '')}
-          onChangeUzs={val => onUpdate({ cost_price: val, cost_price_uzs: val, cost_price_currency: 'UZS' })}
           valueUsd={component.cost_price_usd != null ? String(component.cost_price_usd) : ''}
-          onChangeUsd={val => onUpdate({ cost_price_usd: val, cost_price_currency: 'USD' })}
-          rate={rate}
+          rate={rate || undefined}
           currency={component.cost_price_currency || component.currency || 'UZS'}
-          onCurrencyChange={curr => onUpdate({ cost_price_currency: curr })}
+          onDualChange={({ uzs, usd, currency: cur }) => {
+            onUpdate(prev => ({
+              ...prev,
+              cost_price: uzs,
+              cost_price_uzs: uzs,
+              cost_price_usd: usd,
+              cost_price_currency: cur
+            }));
+          }}
+          onChangeUzs={val => onUpdate(prev => ({ ...prev, cost_price: val, cost_price_uzs: val }))}
+          onChangeUsd={val => onUpdate(prev => ({ ...prev, cost_price_usd: val }))}
+          onCurrencyChange={curr => onUpdate(prev => ({ ...prev, cost_price_currency: curr }))}
         />
         <DualPriceInput
           label="Sotish narxi *"
           valueUzs={component.retail_price != null ? String(component.retail_price) : (component.retail_price_uzs != null ? String(component.retail_price_uzs) : '')}
-          onChangeUzs={val => onUpdate({ retail_price: val, retail_price_uzs: val, retail_price_currency: 'UZS' })}
           valueUsd={component.retail_price_usd != null ? String(component.retail_price_usd) : ''}
-          onChangeUsd={val => onUpdate({ retail_price_usd: val, retail_price_currency: 'USD' })}
-          rate={rate}
+          rate={rate || undefined}
           currency={component.retail_price_currency || component.currency || 'UZS'}
-          onCurrencyChange={curr => onUpdate({ retail_price_currency: curr })}
+          onDualChange={({ uzs, usd, currency: cur }) => {
+            onUpdate(prev => ({
+              ...prev,
+              retail_price: uzs,
+              retail_price_uzs: uzs,
+              retail_price_usd: usd,
+              retail_price_currency: cur
+            }));
+          }}
+          onChangeUzs={val => onUpdate(prev => ({ ...prev, retail_price: val, retail_price_uzs: val }))}
+          onChangeUsd={val => onUpdate(prev => ({ ...prev, retail_price_usd: val }))}
+          onCurrencyChange={curr => onUpdate(prev => ({ ...prev, retail_price_currency: curr }))}
         />
         <DualPriceInput
           label="Ulgurji narxi"
           valueUzs={component.wholesale_price != null ? String(component.wholesale_price) : (component.wholesale_price_uzs != null ? String(component.wholesale_price_uzs) : '')}
-          onChangeUzs={val => onUpdate({ wholesale_price: val, wholesale_price_uzs: val, wholesale_price_currency: 'UZS' })}
           valueUsd={component.wholesale_price_usd != null ? String(component.wholesale_price_usd) : ''}
-          onChangeUsd={val => onUpdate({ wholesale_price_usd: val, wholesale_price_currency: 'USD' })}
-          rate={rate}
+          rate={rate || undefined}
           currency={component.wholesale_price_currency || component.currency || 'UZS'}
-          onCurrencyChange={curr => onUpdate({ wholesale_price_currency: curr })}
+          onDualChange={({ uzs, usd, currency: cur }) => {
+            onUpdate(prev => ({
+              ...prev,
+              wholesale_price: uzs,
+              wholesale_price_uzs: uzs,
+              wholesale_price_usd: usd,
+              wholesale_price_currency: cur
+            }));
+          }}
+          onChangeUzs={val => onUpdate(prev => ({ ...prev, wholesale_price: val, wholesale_price_uzs: val }))}
+          onChangeUsd={val => onUpdate(prev => ({ ...prev, wholesale_price_usd: val }))}
+          onCurrencyChange={curr => onUpdate(prev => ({ ...prev, wholesale_price_currency: curr }))}
         />
       </div>
 

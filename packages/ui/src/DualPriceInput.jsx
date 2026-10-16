@@ -27,7 +27,7 @@ export function formatDualMoney(value,rate,usdValue){
  * Ikki valyutali narx input — UZS kiritilganda USD avtomatik hisoblanadi va aksincha.
  * Props: label, valueUzs, onChangeUzs, valueUsd, onChangeUsd, rate (1 USD = X UZS), disabled
  */
-export function DualPriceInput({label,valueUzs='',onChangeUzs,valueUsd,onChangeUsd,rate,disabled=false,currency,onCurrencyChange}){
+export function DualPriceInput({label,valueUzs='',onChangeUzs,valueUsd,onChangeUsd,rate,disabled=false,currency,onCurrencyChange,onDualChange}){
   const[usd,setUsd]=useState(()=>{
     if(valueUsd!==undefined&&valueUsd!==null&&valueUsd!=='')return String(valueUsd);
     if(rate&&Number(valueUzs)>0)return (Number(valueUzs)/rate).toFixed(2);
@@ -54,16 +54,15 @@ export function DualPriceInput({label,valueUzs='',onChangeUzs,valueUsd,onChangeU
 
   const handleUzs=e=>{
     const v=e.target.value;
-    onChangeUzs(v);
     setSource('uzs');
-    onCurrencyChange?.('UZS');
-    if(rate&&Number(v)>0){
-      const calculatedUsd=(Number(v)/rate).toFixed(2);
-      setUsd(calculatedUsd);
-      onChangeUsd?.(calculatedUsd);
+    const calculatedUsd=(rate&&Number(v)>0)?(Number(v)/rate).toFixed(2):'';
+    setUsd(calculatedUsd);
+    if(onDualChange){
+      onDualChange({uzs:v,usd:calculatedUsd,currency:'UZS'});
     }else{
-      setUsd('');
-      onChangeUsd?.('');
+      onCurrencyChange?.('UZS');
+      onChangeUzs?.(v);
+      onChangeUsd?.(calculatedUsd);
     }
   };
 
@@ -71,10 +70,14 @@ export function DualPriceInput({label,valueUzs='',onChangeUzs,valueUsd,onChangeU
     const v=e.target.value;
     setUsd(v);
     setSource('usd');
-    onCurrencyChange?.('USD');
-    onChangeUsd?.(v);
-    if(rate&&Number(v)>0)onChangeUzs(String(Math.round(Number(v)*rate)));
-    else onChangeUzs('');
+    const calculatedUzs=(rate&&Number(v)>0)?String(Math.round(Number(v)*rate)):'';
+    if(onDualChange){
+      onDualChange({uzs:calculatedUzs,usd:v,currency:'USD'});
+    }else{
+      onCurrencyChange?.('USD');
+      onChangeUsd?.(v);
+      onChangeUzs?.(calculatedUzs);
+    }
   };
 
   return <div className="dual-price">
