@@ -144,7 +144,7 @@ BEGIN
 END;
 $function$;
 
--- 3. Update get_pos_unit_context to include quantity
+-- 3. Update get_pos_unit_context to include quantity and full POS context
 CREATE OR REPLACE FUNCTION public.get_pos_unit_context(p_branch_id uuid, p_code text)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -153,95 +153,155 @@ SECURITY DEFINER
 SET search_path TO ''
 AS $$
 DECLARE
-  v_unit public.inventory_units%rowtype;
+  v_code text := nullif(btrim(p_code), '');
+  v_unit record;
+  v_rate numeric;
+  v_sale jsonb := null;
   v_result jsonb;
-  v_clean text := upper(btrim(p_code));
-  v_latest_sale record;
-  v_sold_seller_name text;
-  v_sold_manager_name text;
-  v_details_visible boolean := false;
-  v_role public.app_role;
-  v_operator_branch uuid;
 BEGIN
-  SELECT * INTO v_unit
+  PERFORM public.require_pos_seller(p_branch_id);
+  IF v_code IS NULL THEN
+    RAISE EXCEPTION 'QR, seriya, shtrix-kod yoki SKU talab qilinadi' USING errcode = '22023';
+  END IF;
+
+  SELECT
+    u.id, u.qr_code, u.serial_number, u.status, u.location_id, u.active_transfer_id, u.sold_sale_id,
+    p.id as product_id, p.name as product_name, p.sku, p.barcode, p.slug,
+    p.status as product_status, p.is_published,
+    br.name as brand_name,
+    p.retail_price, p.wholesale_price, p.minimum_sale_price, p.tax_rate,
+    coalesce(sb.unit_cost, p.cost_price) as unit_cost,
+    l.name as location_name, l.type as location_type, l.is_active as location_active,
+    l.branch_id as unit_branch_id,
+    ub.name as unit_branch_name,
+    ub.code as unit_branch_code,
+    (l.branch_id = p_branch_id) as in_current_branch,
+    (l.branch_id = p_branch_id and l.is_active and l.type in ('store','warehouse')
+      and u.status = 'available' and u.active_transfer_id is null and p.status = 'active') as is_sellable,
+    (SELECT m.public_url FROM public.product_media m WHERE m.product_id = p.id ORDER BY m.is_primary DESC, m.sort_order LIMIT 1) as image
+  INTO v_unit
   FROM public.inventory_units u
+  JOIN public.products p ON p.id = u.product_id
   JOIN public.locations l ON l.id = u.location_id
-  WHERE (upper(btrim(u.qr_code)) = v_clean OR upper(btrim(coalesce(u.serial_number, ''))) = v_clean)
-    AND l.branch_id = p_branch_id
+  JOIN public.branches ub ON ub.id = l.branch_id AND ub.is_active
+  LEFT JOIN public.brands br ON br.id = p.brand_id
+  LEFT JOIN public.stock_batches sb ON sb.id = u.batch_id
+  WHERE l.type IN ('store', 'warehouse')
+    AND (
+      upper(u.qr_code) = upper(v_code)
+      OR upper(coalesce(u.serial_number, '')) = upper(v_code)
+      OR (l.branch_id = p_branch_id AND l.is_active AND u.status = 'available' AND u.active_transfer_id IS NULL
+        AND (upper(coalesce(p.barcode, '')) = upper(v_code) OR upper(p.sku) = upper(v_code)))
+    )
+  ORDER BY
+    CASE WHEN l.branch_id = p_branch_id THEN 0 ELSE 1 END,
+    CASE WHEN u.status = 'available' AND u.active_transfer_id IS NULL THEN 0 ELSE 1 END,
+    CASE WHEN upper(u.qr_code) = upper(v_code) THEN 0
+         WHEN upper(coalesce(u.serial_number, '')) = upper(v_code) THEN 1
+         ELSE 2 END,
+    u.id
   LIMIT 1;
 
-  IF NOT FOUND THEN
-    SELECT * INTO v_unit
-    FROM public.inventory_units u
-    WHERE upper(btrim(u.qr_code)) = v_clean OR upper(btrim(coalesce(u.serial_number, ''))) = v_clean
-    LIMIT 1;
+  IF v_unit.id IS NULL THEN
+    RAISE EXCEPTION 'Bu kod bo‘yicha mahsulot birligi topilmadi' USING errcode = 'P0002';
   END IF;
 
-  IF NOT FOUND THEN
-    RAISE EXCEPTION 'Mahsulot topilmadi' USING errcode = 'P0002';
-  END IF;
-
-  SELECT role, branch_id INTO v_role, v_operator_branch
-  FROM public.profiles
-  WHERE id = auth.uid();
-
-  IF v_unit.status = 'sold' THEN
-    SELECT s.id AS sale_id, s.sale_no, s.sold_at, s.seller_id, s.manager_id,
-           sl.unit_price, sl.discount, sl.tax, sl.line_total, sl.branch_id,
-           b.name AS branch_name,
-           c.full_name AS customer_name, c.phone AS customer_phone
-    INTO v_latest_sale
-    FROM public.sale_lines sl
-    JOIN public.sales s ON s.id = sl.sale_id
-    JOIN public.branches b ON b.id = sl.branch_id
+  IF v_unit.sold_sale_id IS NOT NULL THEN
+    SELECT jsonb_build_object(
+      'sale_id', s.id,
+      'sale_no', s.sale_no,
+      'sold_at', s.sold_at,
+      'status', s.status,
+      'branch_id', s.branch_id,
+      'branch_name', b.name,
+      'in_current_branch', s.branch_id = p_branch_id,
+      'details_visible', s.branch_id = p_branch_id,
+      'seller_name', CASE WHEN s.branch_id = p_branch_id THEN seller.full_name END,
+      'manager_name', CASE WHEN s.branch_id = p_branch_id THEN manager.full_name END,
+      'customer_name', CASE WHEN s.branch_id = p_branch_id THEN c.full_name END,
+      'customer_phone', CASE WHEN s.branch_id = p_branch_id THEN c.phone END,
+      'unit_price', CASE WHEN s.branch_id = p_branch_id THEN x.unit_price END,
+      'discount', CASE WHEN s.branch_id = p_branch_id THEN x.discount END,
+      'tax', CASE WHEN s.branch_id = p_branch_id THEN x.tax END,
+      'line_total', CASE WHEN s.branch_id = p_branch_id THEN x.line_total END,
+      'sale_total', CASE WHEN s.branch_id = p_branch_id THEN s.total END,
+      'payments', CASE WHEN s.branch_id = p_branch_id THEN coalesce((
+        SELECT jsonb_agg(jsonb_build_object('method_name', pm.name, 'amount', sp.amount) ORDER BY sp.paid_at, sp.id)
+        FROM public.sale_payments sp JOIN public.payment_methods pm ON pm.id = sp.payment_method_id
+        WHERE sp.sale_id = s.id), '[]'::jsonb) END
+    )
+    INTO v_sale
+    FROM public.sales s
+    JOIN public.branches b ON b.id = s.branch_id
+    LEFT JOIN public.profiles seller ON seller.id = s.seller_id
+    LEFT JOIN public.profiles manager ON manager.id = s.manager_id
     LEFT JOIN public.customers c ON c.id = s.customer_id
-    WHERE sl.unit_id = v_unit.id
-    ORDER BY s.sold_at DESC
-    LIMIT 1;
-
-    IF FOUND THEN
-      v_details_visible := (
-        v_role IN ('superadmin', 'admin')
-        OR (v_role = 'manager' AND v_operator_branch = v_latest_sale.branch_id)
-        OR (v_role = 'seller' AND v_operator_branch = v_latest_sale.branch_id AND v_latest_sale.seller_id = auth.uid())
-      );
-
-      IF v_details_visible THEN
-        SELECT full_name INTO v_sold_seller_name FROM public.profiles WHERE id = v_latest_sale.seller_id;
-        SELECT full_name INTO v_sold_manager_name FROM public.profiles WHERE id = v_latest_sale.manager_id;
-      END IF;
-    END IF;
+    LEFT JOIN public.sale_lines x ON x.sale_id = s.id AND x.unit_id = v_unit.id
+    WHERE s.id = v_unit.sold_sale_id;
   END IF;
+
+  SELECT rate INTO v_rate
+  FROM public.exchange_rates
+  WHERE currency_from = 'USD' AND currency_to = 'UZS'
+  ORDER BY rate_date DESC
+  LIMIT 1;
 
   SELECT jsonb_build_object(
     'id', v_unit.id,
     'qr_code', v_unit.qr_code,
     'serial_number', v_unit.serial_number,
     'status', v_unit.status,
-    'product_id', p.id,
-    'product_name', p.name,
-    'sku', p.sku,
-    'brand_name', b.name,
-    'category_name', c.name,
-    'image', coalesce(pv.image_url, p.seo_image_url, (SELECT pm.public_url FROM public.product_media pm WHERE pm.product_id = p.id AND pm.is_primary LIMIT 1)),
-    'variant_id', v_unit.variant_id,
-    'variant_color', pv.color_name,
-    'variant_hex', pv.color_hex,
-    'location_id', l.id,
-    'location_name', l.name,
-    'location_type', l.type,
-    'branch_id', l.branch_id,
+    'is_sellable', v_unit.is_sellable,
+    'location_id', v_unit.location_id,
+    'location_name', v_unit.location_name,
+    'location_type', v_unit.location_type,
+    'location_active', v_unit.location_active,
+    'unit_branch_id', v_unit.unit_branch_id,
+    'unit_branch_name', v_unit.unit_branch_name,
+    'unit_branch_code', v_unit.unit_branch_code,
+    'requested_branch_id', p_branch_id,
+    'in_current_branch', v_unit.in_current_branch,
+    'product_id', v_unit.product_id,
+    'product_name', v_unit.product_name,
+    'product_status', v_unit.product_status,
+    'sku', v_unit.sku,
+    'barcode', v_unit.barcode,
+    'brand_name', v_unit.brand_name,
+    'image', v_unit.image,
+    'storefront_url', CASE WHEN v_unit.product_status = 'active' AND v_unit.is_published AND v_unit.slug IS NOT NULL
+      THEN '/product/' || v_unit.slug ELSE null END,
+    'sale', v_sale,
+    'exchange_rate', v_rate,
     'prices', jsonb_build_object(
-      'retail_price_uzs', coalesce(pv.retail_price, p.retail_price),
-      'retail_price_usd', coalesce(pv.retail_price_usd, p.retail_price_usd),
-      'wholesale_price_uzs', coalesce(pv.wholesale_price, p.wholesale_price),
-      'wholesale_price_usd', coalesce(pv.wholesale_price_usd, p.wholesale_price_usd),
-      'minimum_sale_price_uzs', coalesce(pv.minimum_sale_price, p.minimum_sale_price),
-      'minimum_sale_price_usd', coalesce(pv.minimum_sale_price_usd, p.minimum_sale_price_usd),
-      'unit_cost_uzs', coalesce(pv.cost_price, p.cost_price),
-      'unit_cost_usd', coalesce(pv.cost_price_usd, p.cost_price_usd),
-      'tax_rate', coalesce(p.tax_rate, 0)
+      'retail_price_uzs', v_unit.retail_price,
+      'retail_price_usd', CASE WHEN v_rate > 0 THEN round(v_unit.retail_price / v_rate, 2) ELSE null END,
+      'wholesale_price_uzs', v_unit.wholesale_price,
+      'wholesale_price_usd', CASE WHEN v_rate > 0 AND v_unit.wholesale_price IS NOT NULL THEN round(v_unit.wholesale_price / v_rate, 2) ELSE null END,
+      'minimum_sale_price_uzs', v_unit.minimum_sale_price,
+      'minimum_sale_price_usd', CASE WHEN v_rate > 0 THEN round(v_unit.minimum_sale_price / v_rate, 2) ELSE null END,
+      'unit_cost_uzs', v_unit.unit_cost,
+      'tax_rate', v_unit.tax_rate
     ),
+    'branch_stock', jsonb_build_object(
+      'store', (SELECT count(*) FROM public.inventory_units a JOIN public.locations al ON al.id = a.location_id
+        WHERE a.product_id = v_unit.product_id AND al.branch_id = v_unit.unit_branch_id AND al.type = 'store'
+          AND al.is_active AND a.status = 'available' AND a.active_transfer_id IS NULL),
+      'warehouse', (SELECT count(*) FROM public.inventory_units a JOIN public.locations al ON al.id = a.location_id
+        WHERE a.product_id = v_unit.product_id AND al.branch_id = v_unit.unit_branch_id AND al.type = 'warehouse'
+          AND al.is_active AND a.status = 'available' AND a.active_transfer_id IS NULL)
+    ),
+    'other_branches', coalesce((
+      SELECT jsonb_agg(jsonb_build_object('branch_id', b.id, 'branch_name', b.name, 'quantity', q.qty) ORDER BY q.qty DESC)
+      FROM (
+        SELECT al.branch_id, count(*) as qty
+        FROM public.inventory_units a
+        JOIN public.locations al ON al.id = a.location_id
+        WHERE a.product_id = v_unit.product_id AND al.is_active AND al.type in ('store', 'warehouse')
+          AND a.status = 'available' AND a.active_transfer_id is null AND al.branch_id <> v_unit.unit_branch_id
+        GROUP BY al.branch_id
+      ) q
+      JOIN public.branches b ON b.id = q.branch_id
+    ), '[]'::jsonb),
     'components', coalesce((
       SELECT jsonb_agg(jsonb_build_object(
         'id', pc.id,
@@ -266,16 +326,16 @@ BEGIN
       FROM public.product_components pc
       WHERE pc.product_id = v_unit.product_id AND pc.is_active = true
     ), '[]'::jsonb)
-  ) INTO v_result
-  FROM public.products p
-  LEFT JOIN public.brands b ON b.id = p.brand_id
-  LEFT JOIN public.categories c ON c.id = p.category_id
-  JOIN public.locations l ON l.id = v_unit.location_id
-  LEFT JOIN public.product_variants pv ON pv.id = v_unit.variant_id
-  WHERE p.id = v_unit.product_id;
+  ) INTO v_result;
 
   RETURN v_result;
 END;
 $$;
 
+REVOKE ALL ON FUNCTION public.get_pos_unit_context(uuid, text) FROM public, anon;
+GRANT EXECUTE ON FUNCTION public.get_pos_unit_context(uuid, text) TO authenticated, service_role;
+
+NOTIFY pgrst, 'reload schema';
+
 COMMIT;
+
