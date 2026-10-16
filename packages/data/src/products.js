@@ -123,7 +123,7 @@ export async function uploadProductMedia(productId, file, altText = '', variantI
         let attached = false;
         try {
           const user = (await client.auth.getUser())?.data?.user;
-          const { error: rpcErr } = await client.rpc('attach_product_media', {
+          const { data: attachRes, error: rpcErr } = await client.rpc('attach_product_media', {
             p_actor_id: user?.id || null,
             p_product_id: productId,
             p_r2_key: path,
@@ -134,15 +134,27 @@ export async function uploadProductMedia(productId, file, altText = '', variantI
             p_alt_text: altText || null,
             p_variant_id: variantId || null,
           });
-          if (!rpcErr) attached = true;
-          else console.warn('attach_product_media RPC error:', rpcErr);
+          if (!rpcErr) {
+            attached = true;
+            return { url: publicUrl, publicUrl, key: path, mediaId: attachRes };
+          } else {
+            console.warn('attach_product_media RPC error:', rpcErr);
+          }
         } catch (rpcErr) {
           console.warn('attach_product_media RPC call failed:', rpcErr);
         }
 
         if (!attached) {
           try {
-            await client.from('product_media').insert({
+            const { data: existingRows } = await client.from('product_media')
+              .select('id')
+              .eq('product_id', productId)
+              .is('variant_id', variantId || null)
+              .eq('is_primary', true)
+              .limit(1);
+            const isFirst = !existingRows || existingRows.length === 0;
+
+            const { data: insertedMedia } = await client.from('product_media').insert({
               product_id: productId,
               variant_id: variantId || null,
               r2_key: path,
@@ -150,18 +162,20 @@ export async function uploadProductMedia(productId, file, altText = '', variantI
               mime_type: contentType,
               bytes: Math.max(1, compressed.size || 1024),
               alt_text: altText || null,
-              is_primary: true,
+              is_primary: isFirst,
               sort_order: 0,
-            });
+            }).select('id').maybeSingle();
+
+            if (isFirst && !variantId) {
+              const { data: currentProd } = await client.from('products').select('seo_image_url').eq('id', productId).maybeSingle();
+              if (!currentProd?.seo_image_url) {
+                await client.from('products').update({ seo_image_url: publicUrl }).eq('id', productId).catch(()=>{});
+              }
+            }
+            return { url: publicUrl, publicUrl, key: path, mediaId: insertedMedia?.id };
           } catch (insertErr) {
             console.warn('Direct product_media insert failed:', insertErr);
           }
-        }
-
-        try {
-          await client.from('products').update({ seo_image_url: publicUrl }).eq('id', productId);
-        } catch (seoErr) {
-          console.warn('Failed to update product seo_image_url:', seoErr);
         }
 
         return { url: publicUrl, publicUrl, key: path };
@@ -192,7 +206,7 @@ export const deleteProductMedia = async mediaId => {
     return { success: true };
   }
 };
-export const updateProductTextFields=(productId,{description,seoImageUrl}={})=>rpc('update_product_text_fields',{p_product_id:productId,p_description:description??null,p_seo_image_url:seoImageUrl??null});
+export const updateProductTextFields=(productId,{description,seoImageUrl,videoUrl}={})=>rpc('update_product_text_fields',{p_product_id:productId,p_description:description??null,p_seo_image_url:seoImageUrl??null,p_video_url:videoUrl??null});
 
 export const listInventoryCatalogCandidates=({query=null,onlyUnpublished=true,page=1,pageSize=50}={})=>rpc('list_inventory_catalog_candidates',{p_query:query||null,p_only_unpublished:onlyUnpublished,p_limit:pageSize,p_offset:(page-1)*pageSize});
 export const bulkPublishInventoryProducts=productIds=>rpc('bulk_publish_inventory_products',{p_product_ids:[...new Set(productIds||[])]});

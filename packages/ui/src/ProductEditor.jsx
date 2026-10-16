@@ -207,6 +207,8 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
   });
   const [images, setImages] = useState([]);
   const [existingMedia, setExistingMedia] = useState([]);
+  const [primaryMediaId, setPrimaryMediaId] = useState(null);
+  const [primaryNewImageIndex, setPrimaryNewImageIndex] = useState(null);
   const [variants, setVariants] = useState([]);
   const [components, setComponents] = useState([]);
   const [categories, setCategories] = useState(refs?.categories || []);
@@ -265,6 +267,8 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
         currency: 'UZS'
       });
       setExistingMedia([]);
+      setPrimaryMediaId(null);
+      setPrimaryNewImageIndex(null);
       setVariants([]);
       setComponents([]);
       setAttributes({});
@@ -290,11 +294,15 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
       minimum_sale_price_usd: prod.minimum_sale_price_usd != null ? String(prod.minimum_sale_price_usd) : (prod.minimum_sale_price && rate ? String(Number((Number(prod.minimum_sale_price)/rate).toFixed(2))) : '0'),
       compare_at_price: prod.compare_at_price != null ? String(prod.compare_at_price) : '',
       slug: prod.slug || '',
-      video_url: prod.video_url || prod.seo_image_url || '',
+      video_url: prod.video_url || '',
       description: prod.description || '',
       currency: prod.currency || (prod.retail_price_usd && Number(prod.retail_price_usd) > 0 ? 'USD' : 'UZS')
     });
-    setExistingMedia(prod.media || []);
+    const mediaList = prod.media || [];
+    setExistingMedia(mediaList);
+    const prim = mediaList.find(m => m.is_primary);
+    setPrimaryMediaId(prim ? prim.id : (mediaList[0]?.id || null));
+    setPrimaryNewImageIndex(null);
     setVariants((prod.variants || []).map(v => ({ ...v, imageFiles: [] })));
     setComponents((prod.components || []).map(c => ({
       ...c,
@@ -317,22 +325,67 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
     if (!window.confirm('Rasmni o‘chirasizmi?')) return;
     try {
       await deleteProductMedia(mediaId);
-      setExistingMedia(prev => prev.filter(m => m.id !== mediaId));
+      setExistingMedia(prev => {
+        const remaining = prev.filter(m => m.id !== mediaId);
+        if (primaryMediaId === mediaId) {
+          if (remaining.length > 0) {
+            setPrimaryMediaId(remaining[0].id);
+            setPrimaryNewImageIndex(null);
+            if (targetProductId) {
+              setPrimaryProductMedia(targetProductId, remaining[0].id).catch(() => {});
+            }
+          } else if (images.length > 0) {
+            setPrimaryMediaId(null);
+            setPrimaryNewImageIndex(0);
+          } else {
+            setPrimaryMediaId(null);
+            setPrimaryNewImageIndex(null);
+          }
+        }
+        return remaining;
+      });
       if (toast) toast('Rasm o‘chirildi');
     } catch (e) {
       setError(errorText(e));
     }
   };
 
+  const removeNewImage = i => {
+    setImages(imgs => {
+      const next = imgs.filter((_, j) => j !== i);
+      if (primaryNewImageIndex === i) {
+        if (existingMedia.length > 0) {
+          setPrimaryMediaId(existingMedia[0].id);
+          setPrimaryNewImageIndex(null);
+        } else if (next.length > 0) {
+          setPrimaryNewImageIndex(0);
+        } else {
+          setPrimaryNewImageIndex(null);
+        }
+      } else if (primaryNewImageIndex !== null && primaryNewImageIndex > i) {
+        setPrimaryNewImageIndex(primaryNewImageIndex - 1);
+      }
+      return next;
+    });
+  };
+
   const makePrimary = async mediaId => {
+    setPrimaryMediaId(mediaId);
+    setPrimaryNewImageIndex(null);
+    setExistingMedia(prev => prev.map(m => ({ ...m, is_primary: m.id === mediaId })));
     if (!targetProductId) return;
     try {
       await setPrimaryProductMedia(targetProductId, mediaId);
-      setExistingMedia(prev => prev.map(m => ({ ...m, is_primary: m.id === mediaId })));
       if (toast) toast('Asosiy rasm belgilandi');
     } catch (e) {
       setError(errorText(e));
     }
+  };
+
+  const makeNewImagePrimary = i => {
+    setPrimaryNewImageIndex(i);
+    setPrimaryMediaId(null);
+    setExistingMedia(prev => prev.map(m => ({ ...m, is_primary: false })));
   };
 
   const submit = async e => {
@@ -400,11 +453,34 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
       }
 
       const failed = [];
-      for (const file of images) {
+      const uploadedMediaList = [];
+      for (let i = 0; i < images.length; i++) {
+        const file = images[i];
         try {
-          await uploadProductMedia(currentId, file, cleanName);
+          const res = await uploadProductMedia(currentId, file, cleanName);
+          if (res?.mediaId) {
+            uploadedMediaList.push({ index: i, mediaId: res.mediaId });
+          }
         } catch (err) {
           failed.push(`${file.name}: ${err.message || 'Yuklanmadi'}`);
+        }
+      }
+
+      // Asosiy rasmni tanlangan bo'yicha belgilash
+      if (primaryNewImageIndex !== null) {
+        const uploadedPrimary = uploadedMediaList.find(x => x.index === primaryNewImageIndex);
+        if (uploadedPrimary?.mediaId) {
+          try {
+            await setPrimaryProductMedia(currentId, uploadedPrimary.mediaId);
+          } catch (primErr) {
+            console.warn('Asosiy rasmni belgilashda xatolik:', primErr);
+          }
+        }
+      } else if (primaryMediaId) {
+        try {
+          await setPrimaryProductMedia(currentId, primaryMediaId);
+        } catch (primErr) {
+          console.warn('Asosiy rasmni belgilashda xatolik:', primErr);
         }
       }
 
@@ -600,36 +676,51 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
 
           <div className="wide">
             <span className="label">Rasmlar ({images.length + (existingMedia?.length || 0)} ta)</span>
+            <small style={{ display: 'block', marginBottom: 8, color: 'var(--muted)' }}>
+              Tovarning asosiy rasmi qidiruvda, do‘konda va chekda birinchi bo‘lib ko‘rsatiladi. Asosiy qilish uchun kerakli rasm ustidagi <b>★ Asosiy</b> tugmasini bosing.
+            </small>
+
             {existingMedia && existingMedia.length > 0 && (
-              <div style={{ marginBottom: 10 }}>
-                <small style={{ display: 'block', marginBottom: 6, color: 'var(--muted)' }}>Mavjud yuklangan rasmlar:</small>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {existingMedia.map(m => (
-                    <div key={m.id} style={{ width: 70, height: 70, borderRadius: 8, overflow: 'hidden', position: 'relative', border: m.is_primary ? '2px solid var(--orange)' : '1px solid var(--line)' }}>
-                      <img src={m.public_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                      {m.is_primary ? (
-                        <span style={{ position: 'absolute', bottom: 2, left: 2, background: 'var(--orange)', color: '#fff', fontSize: 9, padding: '1px 4px', borderRadius: 4, fontWeight: 700 }}>Asosiy</span>
-                      ) : (
-                        <button type="button" title="Asosiy qilish" style={{ position: 'absolute', bottom: 2, left: 2, background: 'rgba(0,0,0,.6)', color: '#fdba74', fontSize: 10, border: 0, borderRadius: 4, padding: '1px 4px', cursor: 'pointer' }} onClick={() => makePrimary(m.id)}>★ Asosiy</button>
-                      )}
-                      <button type="button" title="O‘chirish" style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, border: 0, borderRadius: 4, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 10, cursor: 'pointer' }} onClick={() => removeExistingMedia(m.id)}>✕</button>
-                    </div>
-                  ))}
+              <div style={{ marginBottom: 12 }}>
+                <small style={{ display: 'block', marginBottom: 6, fontWeight: 600, color: 'var(--muted)' }}>Mavjud yuklangan rasmlar:</small>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {existingMedia.map(m => {
+                    const isPrim = (primaryMediaId ? m.id === primaryMediaId : m.is_primary) && primaryNewImageIndex === null;
+                    return (
+                      <div key={m.id} style={{ width: 80, height: 80, borderRadius: 8, overflow: 'hidden', position: 'relative', border: isPrim ? '2.5px solid var(--orange, #ea580c)' : '1px solid var(--line)', boxShadow: isPrim ? '0 0 0 2px rgba(234, 88, 12, 0.25)' : 'none' }}>
+                        <img src={m.public_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        {isPrim ? (
+                          <span style={{ position: 'absolute', bottom: 3, left: 3, right: 3, background: 'var(--orange, #ea580c)', color: '#fff', fontSize: 10, padding: '2px 4px', borderRadius: 4, fontWeight: 700, textAlign: 'center', display: 'block' }}>✓ Asosiy</span>
+                        ) : (
+                          <button type="button" title="Asosiy rasm qilish" style={{ position: 'absolute', bottom: 3, left: 3, right: 3, background: 'rgba(0,0,0,.75)', color: '#fdba74', fontSize: 10, border: 0, borderRadius: 4, padding: '2px 4px', cursor: 'pointer', fontWeight: 600, textAlign: 'center' }} onClick={() => makePrimary(m.id)}>★ Asosiy</button>
+                        )}
+                        <button type="button" title="O‘chirish" style={{ position: 'absolute', top: 3, right: 3, width: 20, height: 20, border: 0, borderRadius: 4, background: 'rgba(0,0,0,.65)', color: '#fff', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => removeExistingMedia(m.id)}>✕</button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}
 
             {images.length > 0 && (
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 8 }}>
-                {images.map((file, i) => (
-                  <div key={i} style={{ width: 70, height: 70, borderRadius: 8, overflow: 'hidden', position: 'relative', border: '1px solid var(--line)' }}>
-                    <img src={URL.createObjectURL(file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                    {i === 0 && (!existingMedia || !existingMedia.length) && (
-                      <span style={{ position: 'absolute', bottom: 2, left: 2, background: 'var(--orange)', color: '#fff', fontSize: 9, padding: '1px 4px', borderRadius: 4, fontWeight: 700 }}>Asosiy</span>
-                    )}
-                    <button type="button" style={{ position: 'absolute', top: 2, right: 2, width: 18, height: 18, border: 0, borderRadius: 4, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 10, cursor: 'pointer' }} onClick={() => setImages(imgs => imgs.filter((_, j) => j !== i))}>✕</button>
-                  </div>
-                ))}
+              <div style={{ marginBottom: 12 }}>
+                <small style={{ display: 'block', marginBottom: 6, fontWeight: 600, color: 'var(--muted)' }}>Yangi qo‘shilayotgan rasmlar:</small>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  {images.map((file, i) => {
+                    const isPrim = primaryNewImageIndex === i && !primaryMediaId;
+                    return (
+                      <div key={i} style={{ width: 80, height: 80, borderRadius: 8, overflow: 'hidden', position: 'relative', border: isPrim ? '2.5px solid var(--orange, #ea580c)' : '1px solid var(--line)', boxShadow: isPrim ? '0 0 0 2px rgba(234, 88, 12, 0.25)' : 'none' }}>
+                        <img src={URL.createObjectURL(file)} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        {isPrim ? (
+                          <span style={{ position: 'absolute', bottom: 3, left: 3, right: 3, background: 'var(--orange, #ea580c)', color: '#fff', fontSize: 10, padding: '2px 4px', borderRadius: 4, fontWeight: 700, textAlign: 'center', display: 'block' }}>✓ Asosiy</span>
+                        ) : (
+                          <button type="button" title="Asosiy rasm qilish" style={{ position: 'absolute', bottom: 3, left: 3, right: 3, background: 'rgba(0,0,0,.75)', color: '#fdba74', fontSize: 10, border: 0, borderRadius: 4, padding: '2px 4px', cursor: 'pointer', fontWeight: 600, textAlign: 'center' }} onClick={() => makeNewImagePrimary(i)}>★ Asosiy</button>
+                        )}
+                        <button type="button" title="O‘chirish" style={{ position: 'absolute', top: 3, right: 3, width: 20, height: 20, border: 0, borderRadius: 4, background: 'rgba(0,0,0,.65)', color: '#fff', fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={() => removeNewImage(i)}>✕</button>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
 
@@ -639,7 +730,16 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
                 const files = [...e.target.files];
                 const invalid = files.find(file => file.size > 10 * 1024 * 1024 || !file.type.startsWith('image/'));
                 if (invalid) setError(`${invalid.name}: faqat rasm fayli, maksimal 10 MB.`);
-                else if (files.length) { setError(''); setImages(prev => [...prev, ...files]); }
+                else if (files.length) {
+                  setError('');
+                  setImages(prev => {
+                    const next = [...prev, ...files];
+                    if (!primaryMediaId && (primaryNewImageIndex === null || primaryNewImageIndex === undefined)) {
+                      setPrimaryNewImageIndex(0);
+                    }
+                    return next;
+                  });
+                }
                 e.target.value = '';
               }} />
             </label>

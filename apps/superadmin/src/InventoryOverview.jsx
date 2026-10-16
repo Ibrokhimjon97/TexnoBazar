@@ -263,7 +263,7 @@ function ProductDetailModal({product,close,toast,rate,onEdit}){
     const{data:u}=await client.from('inventory_units').select('id,qr_code,serial_number,status,location_id,locations(name,type,branch_id,branches(name))').eq('product_id',product.product_id).order('created_at',{ascending:false}).limit(500);
     const{data:m}=await client.from('product_media').select('*').eq('product_id',product.product_id).order('is_primary',{ascending:false}).order('sort_order');
     setDetail(p);setUnits(u||[]);setMedia(m||[]);
-    setDesc(p?.description||'');setVideoUrl(p?.seo_image_url||'');
+    setDesc(p?.description||'');setVideoUrl(p?.video_url||'');
   }catch(e){}finally{setLoading(false)}};
 
   const branches=[...new Set((units||[]).map(u=>u.locations?.branches?.name).filter(Boolean))];
@@ -288,7 +288,7 @@ function ProductDetailModal({product,close,toast,rate,onEdit}){
 
   const saveVideo=async()=>{try{
     const{updateProductTextFields}=await import('@texnobazar/data');
-    await updateProductTextFields(product.product_id,{seoImageUrl:videoUrl});
+    await updateProductTextFields(product.product_id,{videoUrl});
     if(toast)toast('Video URL saqlandi');
   }catch(e){alert(e.message)}};
 
@@ -371,7 +371,7 @@ function ProductDetailModal({product,close,toast,rate,onEdit}){
     <div className="table-wrap" style={{maxHeight:250,overflow:'auto'}}><table className="table"><thead><tr><th>QR kod</th><th>Seriya</th><th>Filial</th><th>Joy</th><th>Status</th><th>QR</th></tr></thead><tbody>{filteredUnits.map(u=><tr key={u.id}><td><code>{u.qr_code||'-'}</code></td><td>{u.serial_number||'-'}</td><td>{u.locations?.branches?.name||'-'}</td><td>{u.locations?.name||'-'}</td><td><Status type={u.status==='available'?'green':u.status==='sold'?'blue':'orange'}>{unitStatusLabel(u.status)}</Status></td><td><button className="icon-btn" title="QR yuklab olish" onClick={()=>downloadQR(u)}><Download size={14}/></button></td></tr>)}{!filteredUnits.length&&<tr><td colSpan="6" className="unit-filter-empty">Filtrga mos birlik topilmadi</td></tr>}</tbody></table></div>
 
     <h4 style={{marginTop:'1rem'}}>Rasmlar ({media.length})</h4>
-    <div className="product-media-grid">{media.map(m=><div key={m.id} className="product-media-item"><img src={m.public_url} alt="" onError={e=>{e.target.style.display='none'}}/><button className="media-delete-btn" title="Ochirish" onClick={async()=>{if(!confirm('Bu rasmni ochirasizmi?'))return;try{const client=getBrowserClient();const{error:err}=await client.from('product_media').delete().eq('id',m.id);if(err)throw err;await loadDetail();if(toast)toast('Rasm ochirildi')}catch(err){alert(err.message)}}}><Trash2 size={12}/></button></div>)}</div>
+    <div className="product-media-grid">{media.map(m=><div key={m.id} className="product-media-item" style={{position:'relative',border:m.is_primary?'2px solid var(--orange,#ea580c)':'1px solid var(--border,#e2e8f0)',borderRadius:8,overflow:'hidden'}}><img src={m.public_url} alt="" onError={e=>{e.target.style.display='none'}}/>{m.is_primary?<span style={{position:'absolute',bottom:2,left:2,right:2,background:'var(--orange,#ea580c)',color:'#fff',fontSize:8,padding:'1px 3px',borderRadius:3,fontWeight:700,textAlign:'center',display:'block'}}>✓ Asosiy</span>:<button type="button" title="Asosiy qilish" style={{position:'absolute',bottom:2,left:2,right:2,background:'rgba(0,0,0,.75)',color:'#fdba74',fontSize:8,border:0,borderRadius:3,padding:'1px 3px',cursor:'pointer',fontWeight:600,textAlign:'center'}} onClick={async()=>{try{const{setPrimaryProductMedia}=await import('@texnobazar/data');await setPrimaryProductMedia(product.product_id,m.id);await loadDetail();if(toast)toast('Asosiy rasm belgilandi')}catch(e){alert(e.message)}}}>★ Asosiy</button>}<button className="media-delete-btn" title="Ochirish" onClick={async()=>{if(!confirm('Bu rasmni ochirasizmi?'))return;try{const{deleteProductMedia}=await import('@texnobazar/data');await deleteProductMedia(m.id);await loadDetail();if(toast)toast('Rasm ochirildi')}catch(err){alert(err.message)}}}><Trash2 size={12}/></button></div>)}</div>
     <label className="btn btn-outline btn-sm" style={{marginTop:'.5rem'}}><Upload size={14}/> {uploading?'Yuklanmoqda...':'Rasm yuklash'}<input type="file" accept="image/jpeg,image/png,image/webp,image/avif" multiple hidden onChange={uploadImage} disabled={uploading}/></label>
 
     <h4 style={{marginTop:'1rem'}}>Video (YouTube)</h4>
