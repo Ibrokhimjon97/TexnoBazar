@@ -212,12 +212,19 @@ export default function App() {
         if (existing?.hasDetail && !product.hasDetail) {
           merged.set(product.id, {
             ...product,
-            descriptionBlocks: existing.descriptionBlocks,
-            media: existing.media,
+            ...existing,
+            stock: product.stock ?? existing.stock,
+            price: product.price ?? existing.price,
+            oldPrice: product.oldPrice ?? existing.oldPrice,
+            components: (existing.components && existing.components.length > 0) ? existing.components : (product.components || []),
+            variants: (existing.variants && existing.variants.length > 0) ? existing.variants : (product.variants || []),
+            priceTiers: (existing.priceTiers && existing.priceTiers.length > 0) ? existing.priceTiers : (product.priceTiers || []),
+            descriptionBlocks: existing.descriptionBlocks || product.descriptionBlocks,
+            media: (existing.media && existing.media.length > 0) ? existing.media : product.media,
             hasDetail: true,
-            seoTitle: existing.seoTitle,
-            seoDescription: existing.seoDescription,
-            seoImage: existing.seoImage,
+            seoTitle: existing.seoTitle || product.seoTitle,
+            seoDescription: existing.seoDescription || product.seoDescription,
+            seoImage: existing.seoImage || product.seoImage,
           });
           return;
         }
@@ -1172,7 +1179,7 @@ function ProductCard({ product, go, add, toggleFavorite, loved, cartQty = 0, onU
   const handleAdd=()=>{add(product);setLocalQty(q=>q+1)};
   const increment=()=>{if(onUpdateQty){onUpdateQty(product,localQty+1)}else{add(product)};setLocalQty(q=>Math.min(q+1,product.stock))};
   const decrement=()=>{const next=localQty-1;if(onUpdateQty)onUpdateQty(product,next);setLocalQty(next)};
-  return <article className="product-card modern-card"><div className="product-img"><ProductMedia product={product}/><div className="product-tags">{discount>0&&<span className="product-badge">-{discount}%</span>}{product.stock>0&&product.stock<4&&<span className="product-limited">Oxirgi {product.stock} dona</span>}</div><button type="button" className="product-open" onClick={()=>go('product',product)} aria-label={`${product.name} mahsulotini ochish`}/></div><button type="button" className={`product-heart ${loved?'loved':''}`} onClick={()=>toggleFavorite(product)} aria-label="Saralangan"><Heart size={19} fill={loved?'currentColor':'none'}/></button><div className="product-body"><span className={`stock-label ${product.stock?'':'out'}`}><i/>{product.stock?`${product.stock} dona mavjud`:'Sotuvda yo\u2019q'}</span><h3 onClick={()=>go('product',product)}>{product.name}</h3>{hasVariants&&<div className="product-color-dots">{product.variants.slice(0,6).map(v=><span key={v.id} style={{background:v.colorHex||'#ccc'}} title={v.colorName}/>)}</div>}{product.reviewCount>0?<div className="product-card-rating"><Star size={13} fill="currentColor"/><b>{product.avgRating.toFixed(1)}</b><span>({product.reviewCount} sharh)</span></div>:<div className="product-meta">{feature?`${feature.name}: ${plainValue(feature.value)}`:'Sharh hali yo\u2019q'}</div>}<div className="product-price-row"><div>{discount>0&&<div className="old-price">{money(product.oldPrice)}</div>}<div className="price">{money(product.price)}</div></div>{hasVariants?<button className="cart-add" onClick={()=>go('product',product)} aria-label="Rangni tanlash"><ShoppingCart size={19}/></button>:localQty>0?<div className="card-qty"><button onClick={decrement} aria-label="Kamaytirish"><Minus size={15}/></button><b>{localQty}</b><button onClick={increment} disabled={localQty>=product.stock} aria-label="Ko\u2019paytirish"><Plus size={15}/></button></div>:<button className="cart-add" onClick={handleAdd} disabled={!product.stock} aria-label="Savatchaga qo\u2019shish"><ShoppingCart size={19}/></button>}</div></div></article>;
+  return <article className="product-card modern-card"><div className="product-img"><ProductMedia product={product}/><div className="product-tags">{discount>0&&<span className="product-badge">-{discount}%</span>}{product.stock>0&&product.stock<4&&<span className="product-limited">Oxirgi {product.stock} dona</span>}{product.components?.length>0&&<span className="product-badge" style={{background:'#ea580c',color:'#fff'}}>Komplekt</span>}</div><button type="button" className="product-open" onClick={()=>go('product',product)} aria-label={`${product.name} mahsulotini ochish`}/></div><button type="button" className={`product-heart ${loved?'loved':''}`} onClick={()=>toggleFavorite(product)} aria-label="Saralangan"><Heart size={19} fill={loved?'currentColor':'none'}/></button><div className="product-body"><span className={`stock-label ${product.stock?'':'out'}`}><i/>{product.stock?`${product.stock} dona mavjud`:'Sotuvda yo\u2019q'}</span><h3 onClick={()=>go('product',product)}>{product.name}</h3>{hasVariants&&<div className="product-color-dots">{product.variants.slice(0,6).map(v=><span key={v.id} style={{background:v.colorHex||'#ccc'}} title={v.colorName}/>)}</div>}{product.reviewCount>0?<div className="product-card-rating"><Star size={13} fill="currentColor"/><b>{product.avgRating.toFixed(1)}</b><span>({product.reviewCount} sharh)</span></div>:<div className="product-meta">{feature?`${feature.name}: ${plainValue(feature.value)}`:'Sharh hali yo\u2019q'}</div>}<div className="product-price-row"><div>{discount>0&&<div className="old-price">{money(product.oldPrice)}</div>}<div className="price">{money(product.price)}</div></div>{hasVariants?<button className="cart-add" onClick={()=>go('product',product)} aria-label="Rangni tanlash"><ShoppingCart size={19}/></button>:localQty>0?<div className="card-qty"><button onClick={decrement} aria-label="Kamaytirish"><Minus size={15}/></button><b>{localQty}</b><button onClick={increment} disabled={localQty>=product.stock} aria-label="Ko\u2019paytirish"><Plus size={15}/></button></div>:<button className="cart-add" onClick={handleAdd} disabled={!product.stock} aria-label="Savatchaga qo\u2019shish"><ShoppingCart size={19}/></button>}</div></div></article>;
 }
 
 function CatalogTopBanner({banners,navigateTarget}){const banner=safeArray(banners).find(item=>item.image_url&&item.placement==='catalog_top');if(!banner)return null;return <button type="button" className="catalog-top-banner" onClick={()=>navigateTarget?.(banner.target_url||'/catalog')}><BannerMedia banner={banner} alt={plainValue(banner.title)}/><span><small>KATALOG TAKLIFI</small><b>{plainValue(banner.title)||'Maxsus taklif'}</b><em>Batafsil <ArrowRight/></em></span></button>}
@@ -1250,6 +1257,7 @@ function ServerCatalog({go,add,toggleFavorite,favorites,query,setQuery,reference
 function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
   const [state, setState] = useState({ loading: true, error: '', product: null });
   const [selectedVariantId, setSelectedVariantId] = useState(null);
+  const [selectedCompIds, setSelectedCompIds] = useState(new Set());
   const [added, setAdded] = useState(false);
   const isClosingRef = useRef(false);
 
@@ -1330,6 +1338,7 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
         } else if (adapted.variants?.length) {
           setSelectedVariantId(String(adapted.variants[0].id));
         }
+        setSelectedCompIds(new Set((adapted.components || []).filter(c => c.isDefault || c.isRequired).map(c => c.id)));
       } catch (err) {
         setState({ loading: false, error: errorText(err), product: null });
       }
@@ -1348,9 +1357,40 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
     }
   };
 
+  const toggleComponent = compId => {
+    const comp = (state.product?.components || []).find(c => c.id === compId);
+    if (comp?.isRequired) return;
+    setSelectedCompIds(prev => {
+      const next = new Set(prev);
+      if (next.has(compId)) next.delete(compId);
+      else next.add(compId);
+      return next;
+    });
+  };
+
+  const components = state.product?.components || [];
+  const hasComponents = components.length > 0;
+  const selectedComponentsList = useMemo(() => {
+    return components.filter(c => selectedCompIds.has(c.id));
+  }, [components, selectedCompIds]);
+  const componentsSum = useMemo(() => {
+    return selectedComponentsList.reduce((sum, c) => sum + (Number(c.price) || 0), 0);
+  }, [selectedComponentsList]);
+
+  const activeVariant = state.product?.variants?.find(v => String(v.id) === String(selectedVariantId)) || state.product?.variants?.[0];
+  const displayImage = activeVariant?.image || state.product?.image || state.product?.seoImage || state.product?.primary_media_url || state.product?.seo_image_url || '';
+  const displayPrice = activeVariant?.price || state.product?.price || 0;
+  const finalModalPrice = displayPrice + componentsSum;
+
   const handleAddToCart = () => {
     if (!state.product) return;
-    add(state.product, 1, selectedVariantId);
+    const cartProduct = {
+      ...state.product,
+      price: finalModalPrice,
+      selectedVariantId,
+      selectedComponents: selectedComponentsList
+    };
+    add(cartProduct, selectedVariantId, { selectedComponents: selectedComponentsList });
     setAdded(true);
     setToast?.('Mahsulot savatga muvaffaqiyatli qo‘shildi!');
     setTimeout(() => setAdded(false), 2000);
@@ -1362,15 +1402,11 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
     go('product', toPass, { replace: true });
   };
 
-  const activeVariant = state.product?.variants?.find(v => String(v.id) === String(selectedVariantId)) || state.product?.variants?.[0];
-  const displayImage = activeVariant?.image || state.product?.image || state.product?.seoImage || state.product?.primary_media_url || state.product?.seo_image_url || '';
-  const displayPrice = activeVariant?.price || state.product?.price || 0;
-
   return (
     <div className="overlay" style={{ display: 'grid', placeItems: 'center', zIndex: 1200, padding: 16 }}>
-      <div className="card" style={{ maxWidth: 460, width: '100%', padding: 0, overflow: 'hidden', borderRadius: 20, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', animation: 'toastIn 0.25s ease' }} onClick={e => e.stopPropagation()}>
+      <div className="card" style={{ maxWidth: 480, width: '100%', maxHeight: '90vh', display: 'flex', flexDirection: 'column', padding: 0, overflow: 'hidden', borderRadius: 20, boxShadow: '0 25px 50px -12px rgba(0,0,0,0.25)', animation: 'toastIn 0.25s ease' }} onClick={e => e.stopPropagation()}>
         {/* Modal Header */}
-        <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', background: 'var(--surface-2, #f8fafc)' }}>
+        <div style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border)', background: 'var(--surface-2, #f8fafc)', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--orange)', fontWeight: 800, fontSize: 13 }}>
             <QrCode size={18} />
             <span style={{ color: 'var(--text-1)' }}>QR kod bo‘yicha topildi</span>
@@ -1403,7 +1439,7 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
             <button type="button" className="btn btn-primary" onClick={handleClose}>Katalogga qaytish</button>
           </div>
         ) : state.product ? (
-          <div style={{ padding: '20px 20px 24px' }}>
+          <div style={{ padding: '20px 20px 24px', overflowY: 'auto' }}>
             {/* Image & Main Info - Mahsulot sahifasiga o'tish uchun bosiladigan blok */}
             <div
               role="button"
@@ -1415,10 +1451,10 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
                 display: 'flex',
                 gap: 16,
                 alignItems: 'flex-start',
-                marginBottom: 16,
+                marginBottom: 12,
                 cursor: 'pointer',
                 padding: 6,
-                margin: '-6px -6px 10px -6px',
+                margin: '-6px -6px 8px -6px',
                 borderRadius: 14,
                 border: '1px solid transparent',
                 transition: 'background 0.15s ease, border-color 0.15s ease',
@@ -1432,25 +1468,24 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
                 e.currentTarget.style.background = 'transparent';
                 e.currentTarget.style.borderColor = 'transparent';
               }}
-              onTouchStart={e => {
-                e.currentTarget.style.background = 'var(--surface-2, #f8fafc)';
-              }}
-              onTouchEnd={e => {
-                e.currentTarget.style.background = 'transparent';
-              }}
             >
-              <div style={{ width: 105, height: 105, borderRadius: 14, overflow: 'hidden', background: '#f1f5f9', flexShrink: 0, border: '1px solid var(--border)', display: 'grid', placeItems: 'center' }}>
+              <div style={{ width: 100, height: 100, borderRadius: 14, overflow: 'hidden', background: '#f1f5f9', flexShrink: 0, border: '1px solid var(--border)', display: 'grid', placeItems: 'center' }}>
                 <ImageWithFallback src={displayImage} alt={state.product.name} style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {state.product.brandName && (
                   <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--orange)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{state.product.brandName}</span>
                 )}
-                <h3 style={{ margin: '2px 0 6px', fontSize: 15, fontWeight: 800, lineHeight: 1.3, color: 'var(--text-1)' }}>
+                <h3 style={{ margin: '2px 0 4px', fontSize: 15, fontWeight: 800, lineHeight: 1.3, color: 'var(--text-1)' }}>
                   {state.product.name}
                 </h3>
                 <div style={{ fontSize: 18, fontWeight: 900, color: 'var(--orange)' }}>
-                  {money(displayPrice)}
+                  {money(finalModalPrice)}
+                  {componentsSum > 0 && (
+                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', display: 'block' }}>
+                      (Asosiy: {money(displayPrice)} + qismlar: {money(componentsSum)})
+                    </span>
+                  )}
                 </div>
                 {state.product.oldPrice > displayPrice && (
                   <del style={{ fontSize: 12, color: 'var(--muted)' }}>{money(state.product.oldPrice)}</del>
@@ -1462,9 +1497,17 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
               </div>
             </div>
 
+            {/* Tarkibiy qismlari borligi ko'rsatuvchi belgi */}
+            {hasComponents && (
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', borderRadius: 8, background: '#fff7ed', color: '#c2410c', border: '1px solid #fdba74', fontSize: 11, fontWeight: 700, marginBottom: 12 }}>
+                <PackageCheck size={14} />
+                <span>To‘plam: Ushbu mahsulot {components.length} ta tarkibiy qismdan iborat</span>
+              </div>
+            )}
+
             {/* Ranglar / Variantlar tanlovi */}
             {state.product.variants?.length > 1 && (
-              <div style={{ marginBottom: 16, padding: '10px 12px', background: '#f8fafc', borderRadius: 12, border: '1px solid var(--border)' }}>
+              <div style={{ marginBottom: 14, padding: '10px 12px', background: '#f8fafc', borderRadius: 12, border: '1px solid var(--border)' }}>
                 <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                   Rangi: <b>{activeVariant?.colorName || 'Standart'}</b>
                 </span>
@@ -1495,8 +1538,86 @@ function QrResolver({ code, go, add, setToast, mergeCatalogProducts }) {
               </div>
             )}
 
+            {/* Tarkibiy va qo'shimcha qismlar ro'yxati */}
+            {hasComponents && (
+              <div style={{ marginBottom: 14, padding: '10px 12px', background: '#f8fafc', borderRadius: 12, border: '1px solid #fed7aa' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: '#9a3412', display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <PackageCheck size={14} style={{ color: 'var(--orange)' }} />
+                    Tarkibiy qismlar ({components.length} ta):
+                  </span>
+                  <span style={{ fontSize: 10, color: '#7c2d12', fontWeight: 600 }}>
+                    To‘plamga tanlash
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gap: 6, maxHeight: 160, overflowY: 'auto', paddingRight: 2 }}>
+                  {components.map(comp => {
+                    const isChecked = selectedCompIds.has(comp.id);
+                    return (
+                      <label
+                        key={comp.id}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'space-between',
+                          padding: '6px 10px',
+                          borderRadius: 8,
+                          background: isChecked ? '#fff7ed' : '#ffffff',
+                          border: isChecked ? '1px solid #fdba74' : '1px solid var(--border)',
+                          cursor: comp.isRequired ? 'default' : 'pointer',
+                          fontSize: 12,
+                          gap: 8,
+                          transition: 'all 0.15s ease'
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            disabled={comp.isRequired}
+                            onChange={() => toggleComponent(comp.id)}
+                            style={{ accentColor: 'var(--orange)', cursor: comp.isRequired ? 'default' : 'pointer' }}
+                          />
+                          {comp.imageUrl && (
+                            <img
+                              src={comp.imageUrl}
+                              alt={comp.name}
+                              style={{ width: 28, height: 28, borderRadius: 5, objectFit: 'cover', border: '1px solid #cbd5e1', background: '#f1f5f9', flexShrink: 0 }}
+                            />
+                          )}
+                          {comp.colorHex && (
+                            <span
+                              style={{ width: 10, height: 10, borderRadius: '50%', background: comp.colorHex, border: '1px solid rgba(0,0,0,0.1)', flexShrink: 0 }}
+                              title={comp.colorName}
+                            />
+                          )}
+                          <span style={{ fontWeight: isChecked ? 600 : 400, color: 'var(--text-1)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {comp.name} {comp.quantity > 1 ? `(${comp.quantity} ta)` : ''} {comp.colorName ? `· ${comp.colorName}` : ''}
+                          </span>
+                          {comp.isRequired && (
+                            <span style={{ fontSize: 9, background: '#fee2e2', color: '#b91c1c', padding: '1px 5px', borderRadius: 4, fontWeight: 700, flexShrink: 0 }}>
+                              Majburiy
+                            </span>
+                          )}
+                        </div>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: isChecked ? '#c2410c' : 'var(--muted)', flexShrink: 0 }}>
+                          +{money(comp.price)}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                {componentsSum > 0 && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8, paddingTop: 6, borderTop: '1px dashed #fed7aa', fontSize: 11 }}>
+                    <span style={{ color: 'var(--muted)' }}>Qismlar qo‘shimcha qiymati:</span>
+                    <b style={{ color: '#c2410c' }}>+{money(componentsSum)}</b>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Qoldiq va seriya ma'lumoti */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--muted)', marginBottom: 20 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, color: 'var(--muted)', marginBottom: 18 }}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 5, color: '#16a34a', fontWeight: 700 }}>
                 <Check size={14} /> Omborda mavjud
               </span>
@@ -1597,10 +1718,18 @@ function Product({ product, go, add, toggleFavorite, loved, related, favorites, 
     return new Set(components.filter(c => c.isDefault || c.isRequired).map(c => c.id));
   });
 
+  const lastCompKeyRef = useRef('');
   useEffect(() => {
     setVariantId((product.selectedVariantId && variants.some(v => String(v.id) === String(product.selectedVariantId))) ? product.selectedVariantId : (variants[0]?.id || null));
     setSelectedTierId(product.id && product.id.includes('_') ? product.id : (priceTiers[0]?.id || null));
-    setSelectedCompIds(new Set((product.components || []).filter(c => c.isDefault || c.isRequired).map(c => c.id)));
+    const key = `${product.id}:${(product.components || []).length}`;
+    if (lastCompKeyRef.current !== key) {
+      const isNewProduct = !lastCompKeyRef.current.startsWith(`${product.id}:`);
+      if (isNewProduct || selectedCompIds.size === 0) {
+        setSelectedCompIds(new Set((product.components || []).filter(c => c.isDefault || c.isRequired).map(c => c.id)));
+      }
+      lastCompKeyRef.current = key;
+    }
   }, [product.id, product.selectedVariantId, priceTiers.length, (product.components || []).length]);
 
   const toggleComponent = compId => {

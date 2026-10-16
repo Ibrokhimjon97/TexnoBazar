@@ -230,6 +230,7 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
         <small>{context.brand_name||'Brendsiz'} · {context.sku}</small>
         <small>QR: {context.qr_code}{context.serial_number?` · S/N: ${context.serial_number}`:''}</small>
         <Status type={context.location_type==='store'?'green':'blue'}>{context.location_type==='store'?'Do‘konda':'Omborda'}</Status>
+        {context.variant_color&&<Status type="blue"><i style={{width:8,height:8,borderRadius:'50%',background:context.variant_color_hex||'#ccc',display:'inline-block',marginRight:4}}/>{context.variant_color}</Status>}
         {context.unit_branch_name&&<Status type={inCurrentBranch?'green':'orange'}>{context.unit_branch_name}</Status>}
         {!free&&<Status type={context.status==='sold'?'blue':'orange'}>{unitStates[context.status]||context.status}</Status>}
         {!productActive&&<Status type="orange">{context.product_status==='draft'?'Qoralama':'Faol emas'}</Status>}
@@ -297,7 +298,29 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
     <div className="pos-unit-context-stock">
       <span><Store size={15}/> Do‘konda: <b>{stock.store}</b> dona</span>
       <span><Warehouse size={15}/> Omborda: <b>{stock.warehouse}</b> dona</span>
+      <span>Jami: <b>{stock.total ?? (stock.store + stock.warehouse)}</b> dona</span>
     </div>
+    {context.variants_summary_text && (
+      <div style={{margin:'6px 0 10px',padding:'6px 10px',borderRadius:6,background:'#fff7ed',border:'1px solid #fed7aa',fontSize:11,color:'#c2410c'}}>
+        <b>Ranglar bo‘yicha filial qoldig‘i:</b> {context.variants_summary_text}
+      </div>
+    )}
+    {context.variants_stock?.length > 1 && (
+      <div style={{display:'flex',gap:6,flexWrap:'wrap',marginBottom:10}}>
+        {context.variants_stock.map((vs, idx) => (
+          <span key={idx} style={{
+            display:'inline-flex',alignItems:'center',gap:4,padding:'3px 8px',borderRadius:6,
+            background: vs.is_current ? '#ea580c' : '#f1f5f9',
+            color: vs.is_current ? '#ffffff' : '#334155',
+            border: vs.is_current ? '1px solid #c2410c' : '1px solid #cbd5e1',
+            fontSize: 11, fontWeight: vs.is_current ? 700 : 500
+          }}>
+            {vs.color_hex && <i style={{width:7,height:7,borderRadius:'50%',background:vs.color_hex,display:'inline-block',border:'1px solid rgba(0,0,0,0.2)'}}/>}
+            <b>{vs.color_name}</b>: {vs.total_quantity} dona {vs.is_current ? '(ushbu tovar)' : ''}
+          </span>
+        ))}
+      </div>
+    )}
     {context.other_branches?.length>0&&<div className="pos-unit-context-branches">
       <small>Boshqa filiallarda mavjud:</small>
       <div>{context.other_branches.map(b=><span key={b.branch_id}><MapPin size={12}/>{b.branch_name}: <b>{b.quantity}</b></span>)}</div>

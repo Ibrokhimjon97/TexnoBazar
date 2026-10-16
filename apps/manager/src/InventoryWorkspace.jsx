@@ -4472,6 +4472,27 @@ export function InventoryScanner({open,close,branchId,toast}){
           {availableCount > 0 ? `Mavjud: ${availableCount} dona` : 'Qolmagan'}
         </Status>
       </div>
+      {unit.variants_stock?.length > 1 && (
+        <div style={{margin:'8px 0 12px',padding:'8px 12px',background:'#fff7ed',borderRadius:8,border:'1px solid #fed7aa'}}>
+          <div style={{fontSize:11,fontWeight:700,color:'#c2410c',marginBottom:4}}>
+            Filialdagi ranglar bo‘yicha qoldiq ({unit.available_count || availableCount} dona):
+          </div>
+          <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+            {unit.variants_stock.map((vs, idx) => (
+              <span key={idx} style={{
+                display:'inline-flex',alignItems:'center',gap:5,padding:'3px 8px',borderRadius:6,
+                background: vs.is_current ? '#ea580c' : '#ffffff',
+                color: vs.is_current ? '#ffffff' : '#334155',
+                border: vs.is_current ? '1px solid #c2410c' : '1px solid #cbd5e1',
+                fontSize: 11, fontWeight: vs.is_current ? 700 : 500
+              }}>
+                {vs.color_hex && <i style={{width:8,height:8,borderRadius:'50%',background:vs.color_hex,display:'inline-block',border:'1px solid rgba(0,0,0,0.2)'}}/>}
+                <b>{vs.color_name}</b>: {vs.total_quantity} dona {vs.is_current ? '(ushbu tovar)' : ''}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
       <div style={{display:'flex',justifyContent:'flex-end',marginBottom:10}}>
         <button
           type="button"
@@ -4489,6 +4510,11 @@ export function InventoryScanner({open,close,branchId,toast}){
         <span>
           <small>Mavjud qoldiq</small>
           <b>{availableCount} dona {unit.total_count ? `(jami ${unit.total_count} ta)` : ''}</b>
+          {unit.variants_summary_text ? (
+            <small style={{display:'block',color:'#ea580c',fontWeight:600,fontSize:11,marginTop:3}}>
+              Ranglar: {unit.variants_summary_text}
+            </small>
+          ) : null}
           {unit.branch_stock && (unit.branch_stock.store > 0 || unit.branch_stock.warehouse > 0) && (
             <small style={{display:'block',color:'var(--muted)',fontSize:10.5,marginTop:2}}>
               Filialda: Do‘konda {unit.branch_stock.store} · Omborda {unit.branch_stock.warehouse}
