@@ -1,7 +1,7 @@
 export {DualPriceInput, DualPrice, useExchangeRate, formatDualMoney} from './DualPriceInput.jsx';
 export {QrScannerModal, QrScanButton} from './QrScannerModal.jsx';
 export {AiChat} from './AiChat.jsx';
-export {ColorVariantEditor, BASE_COLOR_PALETTE} from './ColorVariantEditor.jsx';
+export {ColorVariantEditor, BASE_COLOR_PALETTE, detectColorFromImageSource, findClosestColor} from './ColorVariantEditor.jsx';
 export {ProductExcelImportModal} from './ProductExcelImportModal.jsx';
 export {ProductEditor} from './ProductEditor.jsx';
 export {ProductComponentEditor} from './ProductComponentEditor.jsx';

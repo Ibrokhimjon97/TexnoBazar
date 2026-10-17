@@ -176,22 +176,31 @@ const adaptProduct = raw => {
     const variantsStockSum = rawVariants.reduce((sum, v) => sum + v.stock, 0);
     const totalAvail = Math.max(0, Math.trunc(numberOf(raw.available_stock)));
     if (!hasStandart && totalAvail > variantsStockSum) {
-      const stdStock = totalAvail - variantsStockSum;
-      finalVariants = [
-        {
-          id: 'standard',
-          colorName: 'Standart',
-          colorHex: '#94a3b8',
-          price: numberOf(raw.promotion_price || raw.effective_price || raw.retail_price),
-          retailPrice: numberOf(raw.retail_price),
-          compareAtPrice: numberOf(raw.compare_at_price),
-          costPrice: numberOf(raw.cost_price),
-          stock: stdStock,
-          image: primaryImg || null,
-          media: mediaList,
-        },
-        ...rawVariants
-      ];
+      if (rawVariants.length === 1) {
+        finalVariants = [
+          {
+            ...rawVariants[0],
+            stock: Math.max(rawVariants[0].stock, totalAvail)
+          }
+        ];
+      } else {
+        const stdStock = totalAvail - variantsStockSum;
+        finalVariants = [
+          {
+            id: 'standard',
+            colorName: 'Standart',
+            colorHex: '#94a3b8',
+            price: numberOf(raw.promotion_price || raw.effective_price || raw.retail_price),
+            retailPrice: numberOf(raw.retail_price),
+            compareAtPrice: numberOf(raw.compare_at_price),
+            costPrice: numberOf(raw.cost_price),
+            stock: stdStock,
+            image: primaryImg || null,
+            media: mediaList,
+          },
+          ...rawVariants
+        ];
+      }
     }
   }
 

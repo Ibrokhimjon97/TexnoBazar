@@ -276,6 +276,22 @@ html[data-theme="dark"] .ai-md table.ai-md-table th{background:var(--surface-3)}
 .variant-swatch{width:28px;height:28px;border-radius:50%;border:2px solid var(--border);display:grid;place-items:center;color:#fff;box-shadow:inset 0 0 0 1px rgba(0,0,0,.06);transition:transform .15s ease,border-color .15s ease}
 .variant-swatch:hover{transform:scale(1.1)}
 .variant-swatch.active{border-color:var(--orange);box-shadow:0 0 0 2px var(--orange-soft)}
+.variant-row-primary{border:1.5px solid var(--orange,#f97316);background:var(--surface,#ffffff);box-shadow:0 2px 10px rgba(249,115,22,0.08)}
+.variant-row-title-bar{display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border,#e2e8f0);padding-bottom:8px}
+.variant-row-badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;padding:3px 9px;border-radius:99px}
+.variant-row-badge.primary{background:#ffedd5;color:#c2410c;border:1px solid #fed7aa}
+.variant-row-badge.secondary{background:#f1f5f9;color:#475569;border:1px solid #e2e8f0}
+.variant-detect-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;font-size:12px;font-weight:600;white-space:nowrap;background:linear-gradient(135deg,#f8fafc 0%,#f1f5f9 100%);border:1px solid #cbd5e1;color:#1e293b;border-radius:8px;cursor:pointer;transition:all .15s ease}
+.variant-detect-btn:hover:not(:disabled){background:#ffedd5;border-color:#f97316;color:#c2410c;transform:translateY(-1px)}
+.variant-detect-toast{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:8px;font-size:12px;font-weight:600}
+.variant-palette-box{display:flex;flex-direction:column;gap:7px;background:var(--surface-2,#f8fafc);border:1px solid var(--border,#e2e8f0);border-radius:10px;padding:10px 12px}
+.variant-palette-label{font-size:11px;font-weight:600;color:var(--text-2,#64748b)}
+.variant-chips-grid{display:flex;flex-wrap:wrap;gap:6px}
+.variant-color-chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 6px;background:var(--surface,#ffffff);border:1px solid var(--border,#e2e8f0);border-radius:20px;font-size:12px;font-weight:600;color:var(--text,#0f172a);cursor:pointer;transition:all .15s ease;box-shadow:0 1px 2px rgba(0,0,0,0.03)}
+.variant-color-chip:hover{border-color:#94a3b8;transform:translateY(-1px)}
+.variant-color-chip.active{border-color:var(--orange,#f97316);background:#fff7ed;color:#c2410c;box-shadow:0 0 0 2px rgba(249,115,22,0.2)}
+.variant-chip-circle{width:16px;height:16px;border-radius:50%;display:grid;place-items:center;flex-shrink:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,0.08)}
+.variant-chip-name{line-height:1}
 .variant-price-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
 .variant-field{min-width:0}
 .variant-field.wide{grid-column:span 1}
@@ -291,6 +307,7 @@ html[data-theme="dark"] .ai-md table.ai-md-table th{background:var(--surface-3)}
 @media(max-width:640px){
   .variant-price-grid{grid-template-columns:1fr}
   .variant-swatch{width:26px;height:26px}
+  .hide-on-mobile{display:none}
 }
 
 /* AI Chat Interaktiv Tugmalar va Multimodal vositalar */

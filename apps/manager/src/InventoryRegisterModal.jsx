@@ -110,6 +110,22 @@ export default function CreateProductModal({open,close,branchId,created}){
             }
           }
         }
+
+        // Retroaktiv bog'lash: agar tovarning eski variant_id=NULL bo'lgan birliklari
+        // yoki partiyalari bo'lsa, ularni 1-variant (asosiy rang)ga biriktiramiz
+        if (createdVariants && createdVariants.length > 0 && createdVariants[0]?.id) {
+          const firstVarId = createdVariants[0].id;
+          try {
+            await client.from('inventory_units').update({ variant_id: firstVarId }).eq('product_id', data.id).is('variant_id', null);
+            await client.from('stock_batches').update({ variant_id: firstVarId }).eq('product_id', data.id).is('variant_id', null);
+            await client.from('order_lines').update({
+              variant_id: firstVarId,
+              variant_color: createdVariants[0].color_name
+            }).eq('product_id', data.id).is('variant_id', null);
+          } catch (syncErr) {
+            console.warn('Orphan stock sync notice:', syncErr);
+          }
+        }
       }
 
       const namedComponents=(components||[]).filter(c=>c.name?.trim());
@@ -314,6 +330,7 @@ function CreateProductForm({categories=[],brands=[],initialCategoryId='',onSave,
         rate={rate}
         basePriceHint={form.retail_price?`${form.retail_price} so'm`:''}
         baseCostHint={form.cost_price?`${form.cost_price} so'm`:''}
+        productImages={images}
       />
     </div>
     <div className="wide">

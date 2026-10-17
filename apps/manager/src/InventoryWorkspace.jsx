@@ -1,7 +1,7 @@
 import React,{useEffect,useMemo,useRef,useState}from'react';
 import{createPortal}from'react-dom';
 import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,Camera,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Layers,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
-import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,ProductComponentEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal,formatSecretCostCode}from'@texnobazar/ui';
+import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,ProductComponentEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal,formatSecretCostCode,BASE_COLOR_PALETTE,detectColorFromImageSource}from'@texnobazar/ui';
 import QRCode from'qrcode';
 import RichTextEditor from'./RichTextEditor';
 import{CreateProductInline}from'./InventoryRegisterModal';
@@ -3805,6 +3805,22 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
             }
           }
         }
+
+        // Retroaktiv bog'lash: agar tovarning eski variant_id=NULL bo'lgan birliklari
+        // yoki partiyalari bo'lsa, ularni 1-variant (asosiy rang)ga biriktiramiz
+        if (createdVariants && createdVariants.length > 0 && createdVariants[0]?.id) {
+          const firstVarId = createdVariants[0].id;
+          try {
+            await client.from('inventory_units').update({ variant_id: firstVarId }).eq('product_id', data.id).is('variant_id', null);
+            await client.from('stock_batches').update({ variant_id: firstVarId }).eq('product_id', data.id).is('variant_id', null);
+            await client.from('order_lines').update({
+              variant_id: firstVarId,
+              variant_color: createdVariants[0].color_name
+            }).eq('product_id', data.id).is('variant_id', null);
+          } catch (syncErr) {
+            console.warn('Orphan stock sync notice:', syncErr);
+          }
+        }
       }catch{}
     }
     if (Array.isArray(components) && components.length > 0) {
@@ -4294,7 +4310,36 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
       <>
         {/* Asosiy narxlar - 3 ustun (Rangi, Miqdor, Tannarx) */}
         <label>
-          <span>Rangi {line.color_name ? `(${line.color_name})` : '(masalan: Oq, Qora)'}</span>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+            <span>Rangi {line.color_name ? `(${line.color_name})` : '(masalan: Oq, Qora)'}</span>
+            <label className="btn btn-ghost btn-xs" style={{cursor:'pointer',display:'inline-flex',alignItems:'center',gap:4,padding:'1px 6px',fontSize:10,color:'var(--orange,#ea580c)'}} title="Rasmdan rangni aniqlash">
+              <Camera size={12}/> <span>Rasmdan aniqlash</span>
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                hidden
+                onChange={async e=>{
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  const currentFiles = line.variantImageFiles || [];
+                  setLine(index, 'variantImageFiles', [...currentFiles, file]);
+                  try {
+                    const detected = await detectColorFromImageSource(file);
+                    if (detected?.name) {
+                      const matched = (line.variants||[]).find(v => v.color_name?.trim().toLowerCase() === detected.name.toLowerCase());
+                      if (matched) {
+                        setLine(index, { color_name: detected.name, variant_id: matched.id });
+                      } else {
+                        setLine(index, { color_name: detected.name, variant_id: '' });
+                      }
+                    }
+                  } catch {}
+                  e.target.value = '';
+                }}
+              />
+            </label>
+          </div>
           <input
             className="input"
             value={line.color_name || ''}
@@ -4369,6 +4414,51 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
               ))}
             </div>
           )}
+          <div style={{display:'flex',gap:4,flexWrap:'wrap',marginTop:5}}>
+            <small style={{fontSize:10,color:'var(--muted)',width:'100%'}}>Tezkor 12 ta rang:</small>
+            {BASE_COLOR_PALETTE.map(c => {
+              const active = (line.color_name || '').trim().toLowerCase() === c.name.toLowerCase();
+              return (
+                <button
+                  key={c.name}
+                  type="button"
+                  style={{
+                    padding:'2px 7px',
+                    fontSize:10,
+                    display:'inline-flex',
+                    alignItems:'center',
+                    gap:4,
+                    background: active ? '#f97316' : '#ffffff',
+                    color: active ? '#ffffff' : '#334155',
+                    border: '1px solid ' + (active ? '#ea580c' : '#cbd5e1'),
+                    borderRadius: 14,
+                    cursor: 'pointer'
+                  }}
+                  onClick={() => {
+                    const val = c.name;
+                    const matched = (line.variants || []).find(v => v.color_name?.trim().toLowerCase() === val.toLowerCase());
+                    if (matched) {
+                      setLine(index, {
+                        color_name: val,
+                        variant_id: matched.id,
+                        unit_cost: matched.cost_price ? String(matched.cost_price) : line.unit_cost,
+                        unit_cost_usd: matched.cost_price_usd ?? line.unit_cost_usd,
+                        retail_price: matched.retail_price ? String(matched.retail_price) : line.retail_price,
+                        retail_price_usd: matched.retail_price_usd ?? line.retail_price_usd,
+                        wholesale_price: matched.wholesale_price ? String(matched.wholesale_price) : line.wholesale_price,
+                        wholesale_price_usd: matched.wholesale_price_usd ?? line.wholesale_price_usd
+                      });
+                    } else {
+                      setLine(index, { color_name: val, variant_id: '' });
+                    }
+                  }}
+                >
+                  <span style={{width:7,height:7,borderRadius:'50%',background:c.hex,border:c.border?'1px solid #94a3b8':'none'}}/>
+                  {c.name}
+                </button>
+              );
+            })}
+          </div>
         </label>
 
         {/* Tanlangan rang uchun alohida rasm yuklash bloki */}
