@@ -3189,13 +3189,14 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     const savedLoc = isInventory && typeof window !== 'undefined'
       ? (localStorage.getItem('tb_last_inventory_loc_' + (branchId || '')) || localStorage.getItem('tb_last_inventory_loc') || '')
       : '';
-    return{receipt_no:rno,supplier_id:'',receiving_location_id:savedLoc,invoice_number:'',currency:'USD',payment_status:'paid',received_at:localDateStr,notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'',paid_amount:''};
+    return{receipt_no:rno,supplier_id:'',receiving_location_id:savedLoc,invoice_number:'',currency:isInventory?'UZS':'USD',payment_status:'paid',received_at:localDateStr,notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'',paid_amount:''};
   });
   const[lines,setLines]=useState([{
     product_id:'',
     color_name:'',
     variant_id:'',
     quantity:1,
+    currency:isInventory?'UZS':'USD',
     unit_cost:'',
     unit_cost_usd:'',
     serials:'',
@@ -3232,7 +3233,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         ...f,
         receipt_no:rno,
         received_at:f.received_at || localDateStr,
-        currency:f.currency||'USD',
+        currency:f.currency || (isInventory ? 'UZS' : 'USD'),
         notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':f.notes
       }));
       getInventoryReferences(branchId).then(async r=>{
@@ -3299,7 +3300,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
 
   const handleProductSelect=async(i,productId,productOverride=null)=>{
     const product=productOverride || refs.products.find(p=>p.id===productId);
-    const prodCurrency = product?.currency || form.currency || 'USD';
+    const prodCurrency = product?.currency || form.currency || (isInventory ? 'UZS' : 'USD');
     const initialLine = {
       ...lines[i],
       product_id:productId,
@@ -3381,7 +3382,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         color_name: '',
         variant_id: '',
         quantity: 1,
-        currency: lastLineWithProduct.currency || product?.currency || form.currency || 'USD',
+        currency: lastLineWithProduct.currency || product?.currency || form.currency || (isInventory ? 'UZS' : 'USD'),
         unit_cost: lastLineWithProduct.unit_cost || String(product?.cost_price || ''),
         unit_cost_usd: lastLineWithProduct.unit_cost_usd ?? (product?.cost_price_usd != null ? Number(product.cost_price_usd) : ''),
         retail_price: lastLineWithProduct.retail_price || String(product?.retail_price || ''),
@@ -3408,7 +3409,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         color_name: '',
         variant_id: '',
         quantity: 1,
-        currency: form.currency || 'USD',
+        currency: form.currency || (isInventory ? 'UZS' : 'USD'),
         unit_cost: '',
         unit_cost_usd: '',
         serials: '',
@@ -3441,7 +3442,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
 
     setLine(i, {
       priceConfirmed: true,
-      currency: line?.currency || product?.currency || form.currency || 'USD',
+      currency: line?.currency || product?.currency || form.currency || (isInventory ? 'UZS' : 'USD'),
       retail_price: rUzs,
       retail_price_usd: rUsd,
       wholesale_price: wUzs,
@@ -3454,15 +3455,10 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
   };
 
   const handleCreateCurrencyChange = (newCurrency) => {
-    const prevCurrency = form.currency || 'USD';
+    const prevCurrency = form.currency || (isInventory ? 'UZS' : 'USD');
     if (newCurrency === prevCurrency) return;
     setForm(f => ({ ...f, currency: newCurrency }));
-    setLines(prevLines => prevLines.map(line => {
-      if (!line.product_id) {
-        return { ...line, currency: newCurrency };
-      }
-      return line;
-    }));
+    setLines(prevLines => prevLines.map(line => ({ ...line, currency: newCurrency })));
   };
 
   const submit=async e=>{
@@ -3501,7 +3497,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
 
       for(const line of lines){
         const product = refs.products.find(p=>p.id===line.product_id);
-        const lineCurrency = line.currency || product?.currency || form.currency || 'USD';
+        const lineCurrency = line.currency || product?.currency || form.currency || (isInventory ? 'UZS' : 'USD');
         const isLineUsd = lineCurrency === 'USD';
 
         let baseCost = Number(line.unit_cost) || 0;
@@ -3611,7 +3607,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         }
 
         const serials = (line.serials || '').split(/\r?\n|,/).map(s=>s.trim()).filter(Boolean);
-        const priceOverride = line.priceConfirmed && baseRetail > 0 ? {
+        const shouldOverridePrice = line.priceConfirmed || isInventory || Boolean(line.retail_price && Number(line.retail_price) > 0) || Boolean(line.retail_price_usd && Number(line.retail_price_usd) > 0);
+        const priceOverride = shouldOverridePrice && (baseRetail > 0 || (baseRetailUsd && baseRetailUsd > 0)) ? {
           retail_price: baseRetail,
           retail_price_usd: baseRetailUsd,
           wholesale_price: baseWholesale,
@@ -3717,6 +3714,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
 
       const createdRes = await createStockReceipt({
         ...form,
+        currency: form.currency || (isInventory ? 'UZS' : 'USD'),
         exchange_rate: rate || 12800,
         supplier_id: isInventory ? (supplierId || null) : supplierId,
         branch_id: branchId,
@@ -3738,7 +3736,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
   const onProductCreatedFromForm=async(newProdForm,images=[],variants=[],components=[])=>{
     const client=getBrowserClient();
     const slug=newProdForm.name.trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')+'-'+Date.now().toString(36);
-    const prodCurrency = newProdForm.currency || (newProdForm.retail_price_usd && Number(newProdForm.retail_price_usd) > 0 ? 'USD' : 'UZS');
+    const prodCurrency = newProdForm.currency || (isInventory ? 'UZS' : (newProdForm.retail_price_usd && Number(newProdForm.retail_price_usd) > 0 ? 'USD' : (form.currency || 'UZS')));
     const{data,error:insertErr}=await client.from('products').insert({
       name:newProdForm.name.trim(),
       sku:newProdForm.sku?.trim().toUpperCase()||('TB-'+Date.now().toString(36).toUpperCase()),
@@ -3999,7 +3997,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
           confirmPrice={confirmPrice}
           openCreateProduct={()=>{setCreateForLineIdx(i);setShowCreateProduct(true)}}
           rate={rate}
-          currency={form.currency}
+          currency={form.currency || (isInventory ? 'UZS' : 'USD')}
         />
       ))}
 
@@ -4662,8 +4660,8 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
               <b>{line.color_name ? `"${line.color_name}" rangi sotish narxlari:` : 'Sotish narxlari:'}</b>
               <div style={{display:'flex',gap:6,alignItems:'center'}}>
                 <small>Valyuta:</small>
-                <button type="button" className={priceCurrency==='USD'?'btn btn-primary':'btn'} style={{padding:'2px 8px',fontSize:11}} onClick={()=>setPriceCurrency('USD')}>USD</button>
-                <button type="button" className={priceCurrency==='UZS'?'btn btn-primary':'btn'} style={{padding:'2px 8px',fontSize:11}} onClick={()=>setPriceCurrency('UZS')}>UZS</button>
+                <button type="button" className={priceCurrency==='USD'?'btn btn-primary':'btn'} style={{padding:'2px 8px',fontSize:11}} onClick={()=>{setPriceCurrency('USD');setLine(index,'currency','USD');}}>USD</button>
+                <button type="button" className={priceCurrency==='UZS'?'btn btn-primary':'btn'} style={{padding:'2px 8px',fontSize:11}} onClick={()=>{setPriceCurrency('UZS');setLine(index,'currency','UZS');}}>UZS</button>
               </div>
             </div>
             <label>

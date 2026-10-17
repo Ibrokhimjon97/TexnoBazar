@@ -203,7 +203,8 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
   const [form, setForm] = useState({
     name: '', sku: '', barcode: '', category_id: '', brand_id: '',
     cost_price: '', retail_price: '', wholesale_price: '', promotion_price: '',
-    minimum_sale_price: '0', compare_at_price: '', slug: '', video_url: '', description: ''
+    minimum_sale_price: '0', compare_at_price: '', slug: '', video_url: '', description: '',
+    currency: 'UZS'
   });
   const [images, setImages] = useState([]);
   const [existingMedia, setExistingMedia] = useState([]);
@@ -296,7 +297,7 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
       slug: prod.slug || '',
       video_url: prod.video_url || '',
       description: prod.description || '',
-      currency: prod.currency || (prod.retail_price_usd && Number(prod.retail_price_usd) > 0 ? 'USD' : 'UZS')
+      currency: prod.currency || 'UZS'
     });
     const mediaList = prod.media || [];
     setExistingMedia(mediaList);
@@ -419,7 +420,7 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
           compare_at_price: form.compare_at_price === '' ? null : Number(form.compare_at_price),
           description: form.description || null,
           video_url: form.video_url?.trim() || null,
-          currency: form.currency || 'USD',
+          currency: form.currency || 'UZS',
           status: 'active',
           is_published: false,
           track_individual_units: true,
@@ -444,7 +445,7 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
           promotion_price: form.promotion_price === '' ? null : Number(form.promotion_price),
           minimum_sale_price: Number(form.minimum_sale_price) || 0,
           minimum_sale_price_usd: form.minimum_sale_price_usd !== '' && form.minimum_sale_price_usd != null && !isNaN(Number(form.minimum_sale_price_usd)) ? Number(form.minimum_sale_price_usd) : (rate && Number(form.minimum_sale_price) ? Number((Number(form.minimum_sale_price)/rate).toFixed(2)) : null),
-          currency: form.currency || 'USD',
+          currency: form.currency || 'UZS',
           compare_at_price: form.compare_at_price === '' ? null : Number(form.compare_at_price),
           description: form.description || null,
           video_url: form.video_url?.trim() || null,

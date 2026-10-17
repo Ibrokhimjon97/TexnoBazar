@@ -1089,6 +1089,7 @@ export default function InventoryExcelImportModal({
               payloadLines.push({
                 product_id: it.productId,
                 variant_id: c.variantId || null,
+                currency: it.currency || group.currency || 'UZS',
                 quantity: c.quantity || 1,
                 unit_cost: it.currency === 'USD' ? it.unitCostUsd : it.unitCostUzs,
                 unit_cost_usd: it.unitCostUsd,
@@ -1105,6 +1106,7 @@ export default function InventoryExcelImportModal({
             payloadLines.push({
               product_id: it.productId,
               variant_id: it.variantId || null,
+              currency: it.currency || group.currency || 'UZS',
               quantity: it.quantity,
               unit_cost: it.currency === 'USD' ? it.unitCostUsd : it.unitCostUzs,
               unit_cost_usd: it.unitCostUsd,

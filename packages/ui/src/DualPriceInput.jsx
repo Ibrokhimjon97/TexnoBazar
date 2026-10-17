@@ -80,17 +80,95 @@ export function DualPriceInput({label,valueUzs='',onChangeUzs,valueUsd,onChangeU
     }
   };
 
-  return <div className="dual-price">
-    <span className="dual-price-label">{label}</span>
+  const setCurrencyBase = (curr) => {
+    const isUsd = curr === 'USD';
+    setSource(isUsd ? 'usd' : 'uzs');
+    if (onDualChange) {
+      onDualChange({ uzs: valueUzs, usd, currency: isUsd ? 'USD' : 'UZS' });
+    } else {
+      onCurrencyChange?.(isUsd ? 'USD' : 'UZS');
+    }
+  };
+
+  const isUzsActive = source !== 'usd';
+
+  return <div className="dual-price" style={{marginBottom: 8}}>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+      <span className="dual-price-label" style={{fontWeight:600}}>{label}</span>
+      <div style={{display:'inline-flex',alignItems:'center',gap:4,background:'#f1f5f9',borderRadius:6,padding:2}}>
+        <button
+          type="button"
+          onClick={() => setCurrencyBase('UZS')}
+          style={{
+            border:0,
+            background: isUzsActive ? '#0284c7' : 'transparent',
+            color: isUzsActive ? '#fff' : '#64748b',
+            fontSize:10,
+            fontWeight:700,
+            padding:'2px 6px',
+            borderRadius:4,
+            cursor:'pointer'
+          }}
+          title="Tannarx va sotish narxi so'mda belgilanadi (kurs o'zgarsa ham so'm narxi o'zgarmaydi)"
+        >
+          UZS (so'm)
+        </button>
+        <button
+          type="button"
+          onClick={() => setCurrencyBase('USD')}
+          style={{
+            border:0,
+            background: !isUzsActive ? '#0284c7' : 'transparent',
+            color: !isUzsActive ? '#fff' : '#64748b',
+            fontSize:10,
+            fontWeight:700,
+            padding:'2px 6px',
+            borderRadius:4,
+            cursor:'pointer'
+          }}
+          title="Tannarx va sotish narxi dollarda belgilanadi (kurs o'zgarsa so'mdagi narxi avtomatik yangilanadi)"
+        >
+          USD ($)
+        </button>
+      </div>
+    </div>
     <div className="dual-price-row">
-      <label className="dual-price-field">
-        <input className="input" type="number" min="0" step="1" value={valueUzs} onChange={handleUzs} disabled={disabled} placeholder="0"/>
-        <small>UZS</small>
+      <label className="dual-price-field" style={{flex:1, position:'relative'}}>
+        <input
+          className="input"
+          type="number"
+          min="0"
+          step="1"
+          value={valueUzs}
+          onChange={handleUzs}
+          disabled={disabled}
+          placeholder="0"
+          style={{
+            borderColor: isUzsActive ? '#0284c7' : undefined,
+            background: isUzsActive ? '#f8fafc' : undefined,
+            fontWeight: isUzsActive ? 600 : 400
+          }}
+        />
+        <small style={{fontWeight: isUzsActive ? 700 : 400, color: isUzsActive ? '#0284c7' : undefined}}>UZS</small>
       </label>
-      <span className="dual-price-sep">=</span>
-      <label className="dual-price-field">
-        <input className="input" type="number" min="0" step="0.01" value={usd} onChange={handleUsd} disabled={disabled||!rate} placeholder={rate?'0.00':'Kurs yo\'q'}/>
-        <small>USD</small>
+      <span className="dual-price-sep" style={{color:'#94a3b8'}}>=</span>
+      <label className="dual-price-field" style={{flex:1, position:'relative'}}>
+        <input
+          className="input"
+          type="number"
+          min="0"
+          step="0.01"
+          value={usd}
+          onChange={handleUsd}
+          disabled={disabled||!rate}
+          placeholder={rate?'0.00':'Kurs yo\'q'}
+          style={{
+            borderColor: !isUzsActive ? '#0284c7' : undefined,
+            background: !isUzsActive ? '#f8fafc' : undefined,
+            fontWeight: !isUzsActive ? 600 : 400
+          }}
+        />
+        <small style={{fontWeight: !isUzsActive ? 700 : 400, color: !isUzsActive ? '#0284c7' : undefined}}>USD</small>
       </label>
     </div>
   </div>;
