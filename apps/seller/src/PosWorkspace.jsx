@@ -89,6 +89,8 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
     if(isStandalone&&standaloneComp){
       const compRetail=Number(standaloneComp.retail_price_uzs||0);
       const compCost=Number(standaloneComp.cost_price_uzs||0);
+      const compRetailUsd=Number(standaloneComp.retail_price_usd||(rate?compRetail/rate:0));
+      const compCostUsd=Number(standaloneComp.cost_price_usd||(rate?compCost/rate:0));
       const compLine={
         id:context.id,
         qr_code:context.qr_code,
@@ -99,8 +101,11 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
         image:standaloneComp.image_url||context.image,
         location_type:context.location_type,
         retail_price:compRetail,
+        retail_price_usd:compRetailUsd,
         minimum_sale_price:compRetail,
+        minimum_sale_price_usd:compRetailUsd,
         unit_cost:compCost,
+        unit_cost_usd:compCostUsd,
         tax_rate:context.prices?.tax_rate||0,
         available_branch_count:(context.branch_stock?.store||0)+(context.branch_stock?.warehouse||0),
         selected_components:[standaloneComp],
@@ -119,6 +124,12 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
     const unitCost=Number(context.prices?.unit_cost_uzs||0)+compsCost;
     const minPrice=Number(context.prices?.minimum_sale_price_uzs||0)+compsRetail;
 
+    const compsRetailUsd=(selectedComps||[]).reduce((s,c)=>s+(Number(c.retail_price_usd)||(rate?Number(c.retail_price_uzs||0)/rate:0)),0);
+    const compsCostUsd=(selectedComps||[]).reduce((s,c)=>s+(Number(c.cost_price_usd)||(rate?Number(c.cost_price_uzs||0)/rate:0)),0);
+    const retailPriceUsd=(context.prices?.retail_price_usd??context.retail_price_usd)!=null?Number(context.prices?.retail_price_usd??context.retail_price_usd)+compsRetailUsd:null;
+    const unitCostUsd=(context.prices?.unit_cost_usd??context.unit_cost_usd??context.cost_price_usd)!=null?Number(context.prices?.unit_cost_usd??context.unit_cost_usd??context.cost_price_usd)+compsCostUsd:null;
+    const minPriceUsd=(context.prices?.minimum_sale_price_usd??context.minimum_sale_price_usd)!=null?Number(context.prices?.minimum_sale_price_usd??context.minimum_sale_price_usd)+compsRetailUsd:null;
+
     const buildLine=unit=>({
       id:unit.id,
       qr_code:unit.qr_code||context.qr_code,
@@ -129,8 +140,11 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
       image:context.image,
       location_type:unit.location_type||context.location_type,
       retail_price:retailPrice,
+      retail_price_usd:retailPriceUsd,
       minimum_sale_price:minPrice,
+      minimum_sale_price_usd:minPriceUsd,
       unit_cost:unitCost,
+      unit_cost_usd:unitCostUsd,
       tax_rate:context.prices?.tax_rate||0,
       available_branch_count:(context.branch_stock?.store||0)+(context.branch_stock?.warehouse||0),
       selected_components:selectedComps||[],
@@ -200,10 +214,28 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
     return selectedComponents.reduce((sum,c)=>sum+(Number(c.cost_price_uzs)||0),0);
   },[selectedComponents]);
 
+  const compsCostUsdTotal=useMemo(()=>{
+    return selectedComponents.reduce((sum,c)=>sum+(Number(c.cost_price_usd)||(rate?Number(c.cost_price_uzs||0)/rate:0)),0);
+  },[selectedComponents,rate]);
+  const compsRetailUsdTotal=useMemo(()=>{
+    return selectedComponents.reduce((sum,c)=>sum+(Number(c.retail_price_usd)||(rate?Number(c.retail_price_uzs||0)/rate:0)),0);
+  },[selectedComponents,rate]);
+
   const[showCost,setShowCost]=useState(false);
   const baseCost=p?.unit_cost_uzs??context.unit_cost??context.cost_price;
+  const baseCostUsd=p?.unit_cost_usd??context.unit_cost_usd??context.cost_price_usd;
   const effectiveCostPrice=baseCost!=null?Number(baseCost)+compsCostTotal:null;
-  const effectiveRetailPrice=Number(p?.retail_price_uzs||0)+compsRetailTotal;
+  const effectiveCostPriceUsd=baseCostUsd!=null?Number(baseCostUsd)+compsCostUsdTotal:(effectiveCostPrice!=null&&rate?effectiveCostPrice/rate:null);
+
+  const baseRetailPrice=p?.retail_price_uzs||0;
+  const baseRetailPriceUsd=p?.retail_price_usd??context.retail_price_usd;
+  const effectiveRetailPrice=Number(baseRetailPrice)+compsRetailTotal;
+  const effectiveRetailPriceUsd=baseRetailPriceUsd!=null?Number(baseRetailPriceUsd)+compsRetailUsdTotal:(rate?effectiveRetailPrice/rate:null);
+
+  const baseMinPrice=p?.minimum_sale_price_uzs||0;
+  const baseMinPriceUsd=p?.minimum_sale_price_usd??context.minimum_sale_price_usd;
+  const effectiveMinPrice=Number(baseMinPrice)+compsRetailTotal;
+  const effectiveMinPriceUsd=baseMinPriceUsd!=null?Number(baseMinPriceUsd)+compsRetailUsdTotal:(rate?effectiveMinPrice/rate:null);
 
   const productActive=context.product_status==='active';
   const inCurrentBranch=context.in_current_branch!==false;
@@ -240,16 +272,16 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
     <div className="pos-unit-context-prices">
       <span>
         <small>Sotish narxi{compsRetailTotal>0?' (qismlar bilan)':''}</small>
-        <b><DualPrice value={Number(effectiveRetailPrice||0)} rate={rate}/></b>
-        {compsRetailTotal>0&&<small style={{color:'var(--muted)',fontSize:'10px'}}>Asosiy: {formatDualMoney(Number(p?.retail_price_uzs||0),rate)}</small>}
+        <b><DualPrice value={Number(effectiveRetailPrice||0)} usdValue={effectiveRetailPriceUsd} rate={rate}/></b>
+        {compsRetailTotal>0&&<small style={{color:'var(--muted)',fontSize:'10px'}}>Asosiy: {formatDualMoney(Number(p?.retail_price_uzs||0),rate,p?.retail_price_usd)}</small>}
       </span>
       <span>
         <small>Ulgurji narxi</small>
-        <b>{p?.wholesale_price_uzs!=null?<DualPrice value={Number(p.wholesale_price_uzs||0)} rate={rate}/>:'—'}</b>
+        <b>{p?.wholesale_price_uzs!=null?<DualPrice value={Number(p.wholesale_price_uzs||0)} usdValue={p?.wholesale_price_usd} rate={rate}/>:'—'}</b>
       </span>
       <span>
         <small>Minimal narx</small>
-        <b><DualPrice value={Number(p?.minimum_sale_price_uzs||0)+compsRetailTotal} rate={rate}/></b>
+        <b><DualPrice value={Number(effectiveMinPrice)} usdValue={effectiveMinPriceUsd} rate={rate}/></b>
       </span>
       <span className="pos-unit-price-cost-cell" onClick={()=>setShowCost(v=>!v)} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>
         <small style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -257,7 +289,7 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
           {showCost?<EyeOff size={12}/>:<Eye size={12}/>}
         </small>
         <button type="button" className="pos-masked-price" onClick={e=>{e.stopPropagation();setShowCost(v=>!v)}} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>
-          {showCost?<b>{effectiveCostPrice!=null&&Number(effectiveCostPrice)>0?<DualPrice value={Number(effectiveCostPrice)} rate={rate}/>:'—'}</b>:<b style={{letterSpacing:'0.12em'}}>******</b>}
+          {showCost?<b>{effectiveCostPrice!=null&&Number(effectiveCostPrice)>0?<DualPrice value={Number(effectiveCostPrice)} usdValue={effectiveCostPriceUsd} rate={rate}/>:'—'}</b>:<b style={{letterSpacing:'0.12em'}}>******</b>}
         </button>
       </span>
     </div>
@@ -369,7 +401,8 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
 
 function Unit({unit,add,rate}){
   const[showCost,setShowCost]=useState(false);
-  return <article className="pos-real-unit">{unit.image?<img src={unit.image} alt=""/>:<span className="pos-real-image"><QrCode/></span>}<div><b>{unit.product_name}</b><small>{unit.brand_name||'Brendsiz'} · {unit.sku}</small><small>QR: {unit.qr_code}{unit.serial_number?` · S/N: ${unit.serial_number}`:''}</small>{unit.location_type&&<Status type={unit.location_type==='store'?'green':'blue'}>{unit.location_type==='store'?'Do‘konda':'Omborda'}</Status>}<strong>{<DualPrice value={Number(unit.retail_price||0)} rate={rate}/>}</strong><em>Minimum: {<DualPrice value={Number(unit.minimum_sale_price||0)} rate={rate}/>} · Tannarx: <button type="button" className="pos-masked-price-inline" onClick={e=>{e.stopPropagation();setShowCost(v=>!v)}} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>{showCost?<DualPrice value={Number(unit.unit_cost||0)} rate={rate}/>:<b>******</b>}</button></em>{unit.latest_batch_retail&&Number(unit.latest_batch_retail)!==Number(unit.retail_price)&&<em style={{color:'#059669'}}>Yangi partiya narxi: {<DualPrice value={Number(unit.latest_batch_retail||0)} rate={rate}/>}</em>}<em>Filialda: {unit.available_branch_count} dona</em></div><button type="button" onClick={add} aria-label="Savdoga qo'shish"><Plus/></button></article>;
+  const costUsd = unit.unit_cost_usd ?? unit.cost_price_usd;
+  return <article className="pos-real-unit">{unit.image?<img src={unit.image} alt=""/>:<span className="pos-real-image"><QrCode/></span>}<div><b>{unit.product_name}</b><small>{unit.brand_name||'Brendsiz'} · {unit.sku}</small><small>QR: {unit.qr_code}{unit.serial_number?` · S/N: ${unit.serial_number}`:''}</small>{unit.location_type&&<Status type={unit.location_type==='store'?'green':'blue'}>{unit.location_type==='store'?'Do‘konda':'Omborda'}</Status>}<strong>{<DualPrice value={Number(unit.retail_price||0)} usdValue={unit.retail_price_usd} rate={rate}/>}</strong><em>Minimum: {<DualPrice value={Number(unit.minimum_sale_price||0)} usdValue={unit.minimum_sale_price_usd} rate={rate}/>} · Tannarx: <button type="button" className="pos-masked-price-inline" onClick={e=>{e.stopPropagation();setShowCost(v=>!v)}} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>{showCost?<DualPrice value={Number(unit.unit_cost||0)} usdValue={costUsd} rate={rate}/>:<b>******</b>}</button></em>{unit.latest_batch_retail&&Number(unit.latest_batch_retail)!==Number(unit.retail_price)&&<em style={{color:'#059669'}}>Yangi partiya narxi: {<DualPrice value={Number(unit.latest_batch_retail||0)} rate={rate}/>}</em>}<em>Filialda: {unit.available_branch_count} dona</em></div><button type="button" onClick={add} aria-label="Savdoga qo'shish"><Plus/></button></article>;
 }
 
 // --- Sale flow: cart + optional customer info + minimum-price warning (soft, not blocking).
@@ -436,7 +469,7 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate}
             <label>Chegirma<input type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={line.discount} onChange={e=>editLine(line.id,'discount',e.target.value)} onBlur={()=>normalizeLine(line.id,'discount')}/></label>
           </div>
           {isBelowMinimum&&<div className="pos-real-warning"><AlertTriangle size={14}/> Narx minimal sotish summasidan past ({<DualPrice value={Number(line.minimum_sale_price||0)} rate={rate}/>}). Sotish mumkin, ammo menejer bunga e’tibor beradi.</div>}
-          <div className="pos-real-prices"><span>Retail <b>{<DualPrice value={Number(line.retail_price||0)} rate={rate}/>}</b></span><span>Minimum <b>{<DualPrice value={Number(line.minimum_sale_price||0)} rate={rate}/>}</b></span><span>Tannarx <b>{<DualPrice value={Number(line.unit_cost||0)} rate={rate}/>}</b></span><span>Tax ({Number(line.tax_rate||0)}%) <b>{<DualPrice value={Number(lineTax(line)||0)} rate={rate}/>}</b></span><span>Taxminiy foyda <b>{<DualPrice value={Number(lineTotal(line)-lineTax(line)-Number(line.unit_cost)||0)} rate={rate}/>}</b></span><span>Filialda <b>{line.available_branch_count} dona</b></span></div>
+          <div className="pos-real-prices"><span>Retail <b>{<DualPrice value={Number(line.retail_price||0)} usdValue={line.retail_price_usd} rate={rate}/>}</b></span><span>Minimum <b>{<DualPrice value={Number(line.minimum_sale_price||0)} usdValue={line.minimum_sale_price_usd} rate={rate}/>}</b></span><span>Tannarx <b>{<DualPrice value={Number(line.unit_cost||0)} usdValue={line.unit_cost_usd} rate={rate}/>}</b></span><span>Tax ({Number(line.tax_rate||0)}%) <b>{<DualPrice value={Number(lineTax(line)||0)} rate={rate}/>}</b></span><span>Taxminiy foyda <b>{<DualPrice value={Number(lineTotal(line)-lineTax(line)-Number(line.unit_cost)||0)} rate={rate}/>}</b></span><span>Filialda <b>{line.available_branch_count} dona</b></span></div>
         </article>;
       })}</div>
       <div className="pos-real-totals"><span>Narxlar − chegirma<b>{<DualPrice value={Number(cart.reduce((s,x)=>s+Number(x.unit_price)-Number(x.discount||0),0)||0)} rate={rate}/>}</b></span><span>Soliq<b>{<DualPrice value={Number(cart.reduce((s,x)=>s+lineTax(x),0)||0)} rate={rate}/>}</b></span><strong>Jami<b>{<DualPrice value={Number(total||0)} rate={rate}/>}</b></strong></div>

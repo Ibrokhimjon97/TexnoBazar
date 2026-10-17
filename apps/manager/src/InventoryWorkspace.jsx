@@ -4841,8 +4841,8 @@ export function InventoryScanner({open,close,branchId,toast}){
         <span><small>Zavod seriyasi</small><b>{unit.serial_number||'—'}</b></span>
         <span><small>Partiya</small><b>{unit.batch?.receipt_no||'—'}</b></span>
         <span><small>Ta’minotchi</small><b>{unit.batch?.supplier_name||'—'}</b></span>
-        <span><small>Tannarx</small><button type="button" className="masked-value" onClick={()=>setShowCost(v=>!v)} title={showCost?'Yashirish':'Ko‘rsatish'}>{showCost?<><b><DualPrice value={Number(unit.batch?.unit_cost||unit.product?.cost_price||0)} rate={rate}/></b><EyeOff size={13}/></>:<><b>******</b><Eye size={13}/></>}</button></span>
-        <span><small>Sotish narxi</small><b><DualPrice value={Number(unit.batch?.retail_price||unit.product?.retail_price||0)} rate={rate}/></b></span>
+        <span><small>Tannarx</small><button type="button" className="masked-value" onClick={()=>setShowCost(v=>!v)} title={showCost?'Yashirish':'Ko‘rsatish'}>{showCost?<><b><DualPrice value={Number(unit.batch?.unit_cost||unit.product?.cost_price||0)} usdValue={unit.cost_price_usd ?? unit.batch?.unit_cost_usd ?? unit.product?.cost_price_usd} rate={rate}/></b><EyeOff size={13}/></>:<><b>******</b><Eye size={13}/></>}</button></span>
+        <span><small>Sotish narxi</small><b><DualPrice value={Number(unit.batch?.retail_price||unit.product?.retail_price||0)} usdValue={unit.product?.retail_price_usd ?? unit.batch?.retail_price_usd} rate={rate}/></b></span>
         {unit.product?.slug&&<span><small>Sayt sahifasi</small><a className="passport-link" href={`${storefrontBase}/product/${unit.product.slug}`} target="_blank" rel="noopener"><ExternalLink size={12}/>{unit.product.is_published?'Saytda ko‘rish':'Ko‘rish (nashr qilinmagan)'}</a></span>}
         {unit.latest_batch_prices&&<span><small>Eng yangi partiya narxi</small><b><DualPrice value={Number(unit.latest_batch_prices.retail_price||0)} rate={rate}/></b></span>}
         <span><small>Hozirgi joyi</small><b>{unit.location?.name||'—'}</b></span>
