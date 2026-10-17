@@ -18,9 +18,12 @@ export function useExchangeRate(){
 export function formatDualMoney(value,rate,usdValue){
   const uzs=Number(value||0);
   const formatted=new Intl.NumberFormat('uz-UZ').format(uzs)+" so'm";
-  const usd=usdValue!==undefined&&usdValue!==null&&!isNaN(Number(usdValue))&&Number(usdValue)>0?Number(usdValue):(rate&&rate>0?Math.round(uzs/rate):null);
+  const usd=usdValue!==undefined&&usdValue!==null&&!isNaN(Number(usdValue))&&Number(usdValue)>0
+    ? Number(usdValue)
+    : (rate&&rate>0 ? Number((uzs/rate).toFixed(2)) : null);
   if(usd===null)return formatted;
-  return `${formatted} ($${usd.toLocaleString('en-US')})`;
+  const usdStr = Number.isInteger(usd) ? usd.toLocaleString('en-US') : usd.toFixed(2);
+  return `${formatted} ($${usdStr})`;
 }
 
 /**
@@ -186,11 +189,12 @@ export function DualPrice({value,rate,usdValue,className='',style,bold=false}){
   if(usdValue!==undefined&&usdValue!==null&&!isNaN(Number(usdValue))&&Number(usdValue)>0){
     usd=Number(usdValue);
   }else if(rate&&rate>0){
-    usd=Math.round(uzs/rate);
+    usd=Number((uzs/rate).toFixed(2));
   }
   const formatted=new Intl.NumberFormat('uz-UZ').format(uzs);
+  const usdStr = usd !== null ? (Number.isInteger(usd) ? usd.toLocaleString('en-US') : usd.toFixed(2)) : null;
   return <span className={`dual-price ${className}`} style={style}>
     {bold?<b>{formatted} so'm</b>:<>{formatted} so'm</>}
-    {usd!==null&&<em className="dual-price-usd">${usd.toLocaleString('en-US')}</em>}
+    {usdStr!==null&&<em className="dual-price-usd">${usdStr}</em>}
   </span>;
 }
