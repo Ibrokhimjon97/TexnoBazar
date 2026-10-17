@@ -512,42 +512,65 @@ BEGIN
       END IF;
 
       INSERT INTO public.inventory_units(
-        branch_id, product_id, location_id, batch_id,
-        serial_number, status, unit_cost, created_by,
-        variant_id, short_qr
+        product_id, batch_id, location_id, qr_code,
+        serial_number, status, unit_sequence, variant_id
       ) VALUES (
-        v_branch, v_product.id, v_location, v_batch,
-        v_serial, 'available', v_cost, auth.uid(),
-        v_variant_id, v_line_qr
+        v_product.id, v_batch, v_location, v_line_qr,
+        v_serial, 'available', v_unit_seq, v_variant_id
       ) RETURNING id INTO v_unit;
 
-      v_created_units := v_created_units + 1;
-
-      INSERT INTO public.inventory_ledger(
-        unit_id, branch_id, location_id, product_id,
-        event_type, event_id, reason, created_by
+      INSERT INTO public.inventory_movements(
+        unit_id, product_id, batch_id, movement_type,
+        from_location_id, to_location_id, quantity, unit_cost, reference_type,
+        reference_id, actor_id, metadata
       ) VALUES (
-        v_unit, v_branch, v_location, v_product.id,
-        'stock_receipt', v_receipt, 'Tovarlar qabul qilindi / inventarizatsiya', auth.uid()
+        v_unit, v_product.id, v_batch, 'received',
+        NULL, v_location, 1, v_cost, 'stock_receipt',
+        v_receipt, auth.uid(),
+        jsonb_build_object(
+          'source', 'receive_stock',
+          'receipt_no', v_receipt_no,
+          'line_no', v_line_no,
+          'unit_sequence', v_unit_seq
+        )
       );
+
+      v_created_units := v_created_units + 1;
     END LOOP;
   END LOOP;
 
+  v_total_cost := (
+    SELECT coalesce(sum(quantity * unit_cost), 0)
+    FROM public.stock_batches
+    WHERE receipt_id = v_receipt
+  );
+
   IF v_supplier IS NOT NULL THEN
-    PERFORM public.record_supplier_payable(
-      p_receipt_id := v_receipt,
-      p_supplier_id := v_supplier,
-      p_branch_id := v_branch,
-      p_receipt_no := v_receipt_no,
-      p_paid_amount := v_paid_amount
-    );
+    IF v_payment_status = 'unpaid' THEN
+      v_debt := v_total_cost;
+    ELSIF v_payment_status = 'partial' THEN
+      v_debt := greatest(0, v_total_cost - v_paid_amount);
+    ELSE
+      v_debt := 0;
+    END IF;
+
+    IF v_debt > 0 THEN
+      UPDATE public.suppliers SET balance = balance + v_debt WHERE id = v_supplier;
+    END IF;
   END IF;
 
-  RETURN public.get_stock_receipt(v_receipt);
+  v_receipt_record := public.get_stock_receipt(v_receipt);
+
+  RETURN v_receipt_record || jsonb_build_object(
+    'receipt_id', v_receipt,
+    'receipt', v_receipt_record,
+    'created_units_count', v_created_units,
+    'total_lines', v_line_no
+  );
 END;
 $$;
 
-GRANT EXECUTE ON FUNCTION public.receive_stock(jsonb, jsonb, uuid) TO authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.receive_stock(jsonb, jsonb, uuid) TO authenticated, service_role, anon;
 
 -- 3. Bugun yaratilgan va inventarizatsiya orqali kiritilgan tovarlarning valyutasini UZS ga o'tkazish
 -- va ularning asl so'm narxlarini tiklash:
