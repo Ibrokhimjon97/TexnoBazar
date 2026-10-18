@@ -455,3 +455,202 @@ export function ThermalReceiptPreview({ receipt, mode = 'per_item', activeIndex 
     </div>
   );
 }
+
+/**
+ * Builds standalone HTML for individual product delivery / sold stickers (40mm x 30mm)
+ * Each product unit gets its own label so it can be stuck on the physical item.
+ */
+export function buildProductDeliveryStickersHtml({
+  items = [],
+  customer = {},
+  sale = {},
+  branchName = 'TEXNOBAZAR'
+} = {}) {
+  const dateStr = formatReceiptDate(sale.sold_at || sale.created_at || new Date());
+  const shortNo = getReceiptShortNo(sale.sale_no || sale.delivery_no || sale.pending_no);
+  const pages = [];
+
+  const rawItems = items && items.length ? items : [{
+    product_name: 'Mahsulot',
+    unit_price: sale.total || 0,
+    line_total: sale.total || 0
+  }];
+
+  rawItems.forEach((item, index) => {
+    const itemPrice = formatReceiptMoney(item.unit_price || item.line_total || 0);
+    const prodName = String(item.product_name || 'Mahsulot').trim();
+    const batchCode = item.batch_code || item.reference || (item.qr_code ? `QR: ${item.qr_code}` : '');
+    const custName = customer?.full_name || customer?.name || 'Mijoz';
+    const custPhone = customer?.phone || '';
+    const custAddress = customer?.address || customer?.delivery_address || '';
+    const counterText = `${index + 1}/${rawItems.length}`;
+
+    // Font styling based on name length
+    const st = getProductStyle(prodName.length, 1);
+
+    pages.push(`
+      <div class="thermal-receipt-page">
+        <div class="header" style="border-bottom: 1px solid #000 !important; padding-bottom: 0.3mm !important;">
+          <span class="header-brand" style="font-size: 7.5pt !important; color: #000 !important; letter-spacing: 0.3px !important;">
+            🏷️ TOVAR SOTILDI
+          </span>
+          <span class="header-branch" style="font-size: 6.5pt !important; font-weight: 800 !important; color: #000 !important;">
+            ${escapeHtml(shortNo)}
+          </span>
+        </div>
+
+        <div class="product-box" style="margin: 0.3mm 0 !important; min-height: 8mm !important;">
+          <div class="product-name" style="font-size: ${st.pt} !important; font-weight: 900 !important; line-height: ${st.lh} !important; color: #000 !important;">
+            ${escapeHtml(prodName)}
+          </div>
+          ${batchCode ? `
+            <div style="font-size: 5.6pt !important; font-weight: 700 !important; color: #111 !important; margin-top: 0.2mm !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important;">
+              Partiya: <b>${escapeHtml(batchCode)}</b>
+            </div>
+          ` : ''}
+          ${item.qr_code && !batchCode.includes(item.qr_code) ? `
+            <div style="font-size: 5pt !important; color: #333 !important;">
+              QR: ${escapeHtml(item.qr_code)}
+            </div>
+          ` : ''}
+        </div>
+
+        <div style="border-top: 1px dashed #000 !important; padding-top: 0.3mm !important; margin: 0.2mm 0 !important; font-size: 5.8pt !important; line-height: 1.15 !important;">
+          <div style="display: flex !important; justify-content: space-between !important;">
+            <span>Mijoz: <b style="font-weight: 800 !important;">${escapeHtml(custName)}</b></span>
+            <span><b style="font-weight: 800 !important;">${escapeHtml(custPhone)}</b></span>
+          </div>
+          ${custAddress ? `
+            <div style="white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; color: #111 !important; margin-top: 0.1mm !important;">
+              Manzil: <b>${escapeHtml(custAddress)}</b>
+            </div>
+          ` : ''}
+        </div>
+
+        <div class="footer-row" style="border-top: 1px solid #000 !important; padding-top: 0.3mm !important; font-size: 6.2pt !important;">
+          <span style="font-weight: 900 !important; font-size: 7.2pt !important;">${itemPrice}</span>
+          <span style="font-weight: 800 !important;">${dateStr} (${counterText})</span>
+        </div>
+      </div>
+    `);
+  });
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Tovar stikerlari ${escapeHtml(shortNo)}</title>
+  <style>
+    @page {
+      size: 40mm 30mm;
+      margin: 0 !important;
+    }
+    * {
+      box-sizing: border-box !important;
+      margin: 0;
+      padding: 0;
+    }
+    html, body {
+      width: 40mm;
+      background: #fff;
+      margin: 0 !important;
+      padding: 0 !important;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      color: #000;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    .thermal-receipt-page {
+      width: 40mm !important;
+      height: 29.2mm !important;
+      max-height: 29.2mm !important;
+      min-height: 29.2mm !important;
+      overflow: hidden !important;
+      padding: 0.8mm 1.2mm !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: space-between !important;
+      background: #fff !important;
+      page-break-after: always !important;
+      break-after: page !important;
+      page-break-inside: avoid !important;
+      break-inside: avoid !important;
+      border: 0 !important;
+    }
+    .thermal-receipt-page:last-child {
+      page-break-after: avoid !important;
+      break-after: avoid !important;
+    }
+    .header {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      line-height: 1.1 !important;
+    }
+    .header-brand {
+      font-weight: 900 !important;
+    }
+    .header-branch {
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+    }
+    .product-box {
+      flex: 1 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      justify-content: center !important;
+      overflow: hidden !important;
+    }
+    .product-name {
+      word-break: break-word !important;
+      overflow-wrap: break-word !important;
+      white-space: normal !important;
+    }
+    .footer-row {
+      display: flex !important;
+      justify-content: space-between !important;
+      align-items: center !important;
+      color: #000 !important;
+    }
+  </style>
+</head>
+<body>
+  ${pages.join('')}
+</body>
+</html>`;
+}
+
+/**
+ * Directly prints product delivery stickers (40x30mm) using hidden iframe
+ */
+export function printProductDeliveryStickers(payload = {}) {
+  const html = buildProductDeliveryStickersHtml(payload);
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  document.body.appendChild(iframe);
+
+  const doc = iframe.contentWindow.document;
+  doc.open();
+  doc.write(html);
+  doc.close();
+
+  setTimeout(() => {
+    try {
+      iframe.contentWindow.focus();
+      iframe.contentWindow.print();
+    } catch (e) {
+      console.error('Print iframe error:', e);
+    }
+    setTimeout(() => {
+      try {
+        iframe.remove();
+      } catch {}
+    }, 4000);
+  }, 250);
+}

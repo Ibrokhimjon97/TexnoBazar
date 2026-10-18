@@ -7,6 +7,7 @@ export {ProductEditor} from './ProductEditor.jsx';
 export {ProductComponentEditor} from './ProductComponentEditor.jsx';
 export {SearchableCategoryPicker, SearchableBrandPicker, saveStoredRecent, RECENT_CATS_KEY, RECENT_BRANDS_KEY} from './CategoryBrandPickers.jsx';
 export * from './thermalReceipt.jsx';
+export * from './ProductDeliveryStickersModal.jsx';
 export * from './detongerBluetooth.js';
 export * from './mhtBluetooth.js';
 export * from './DetongerPrintModal.jsx';

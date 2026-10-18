@@ -1,9 +1,10 @@
 import React,{useEffect,useMemo,useState}from'react';
 import{AlertTriangle,ArrowLeftRight,BarChart3,Boxes,ChevronLeft,ChevronRight,Clock,CreditCard,ExternalLink,Eye,EyeOff,FileText,Home,Layers,Mail,MapPin,Package,Plus,Printer,QrCode,ReceiptText,Search,Send,ShoppingCart,Store,Trash2,User,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,QrScanButton,Status,formatDualMoney,useExchangeRate,printThermalReceipt,ThermalReceiptPreview}from'@texnobazar/ui';
-import{createPosPendingSale,getPosBatchUnits,getPosPendingSale,getPosProductAvailability,getPosReferences,getPosUnitContext,getReceiptDeliveryStatus,getSaleReceipt,listMyPosPendingSalesByDate,listMyPosSales,listPosUnits,queueSaleReceipt,relocatePosUnits}from'@texnobazar/data';
+import{createPosPendingSale,updatePosPendingSale,deletePosPendingSale,getPosBatchUnits,getPosPendingSale,getPosProductAvailability,getPosReferences,getPosUnitContext,getReceiptDeliveryStatus,getSaleReceipt,listMyPosPendingSalesByDate,listMyPosSales,listPosUnits,queueSaleReceipt,relocatePosUnits}from'@texnobazar/data';
 import ProfileWorkspace from'./ProfileWorkspace';
 import AttendanceWorkspace from'./AttendanceWorkspace';
+import ProductCatalogWorkspace from'./ProductCatalogWorkspace';
 
 const msg=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 const when=value=>value?new Date(value).toLocaleString('uz-UZ'):'—';
@@ -24,6 +25,9 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
   const rate=useExchangeRate();
   const[page,setPage]=useState('home'),[refs,setRefs]=useState(null),[units,setUnits]=useState([]),[sales,setSales]=useState(emptySales),[pending,setPending]=useState({items:[]}),[homeDate,setHomeDate]=useState(todayInput);
   const[cart,setCart]=useState([]),[query,setQuery]=useState(''),[debounced,setDebounced]=useState(''),[loading,setLoading]=useState(true),[error,setError]=useState(''),[receipt,setReceipt]=useState(null),[pendingDetail,setPendingDetail]=useState(null),[created,setCreated]=useState(null);
+  const[editingPendingSale,setEditingPendingSale]=useState(null);
+  const[cancelConfirmSale,setCancelConfirmSale]=useState(null);
+  const[canceling,setCanceling]=useState(false);
   const[relocateBatch,setRelocateBatch]=useState([]);
   // The unfinished basket survives accidental logout/refresh until a new sale starts.
   const cartKey=profile?.id&&branchId?`texnobazar:seller-cart:${profile.id}:${branchId}`:null;
@@ -47,6 +51,50 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
   const addToRelocate=unit=>setRelocateBatch(current=>{if(current.some(x=>x.id===unit.id)){toast?.('Bu mahsulot birligi ro‘yxatda bor');return current}toast?.('Ko‘chirish ro‘yxatiga qo‘shildi');return[...current,unit]});
   const openReceipt=async id=>{try{setReceipt({...await getSaleReceipt(id),sale_id:id})}catch(e){setError(msg(e))}};
   const openPending=async id=>{try{setPendingDetail(await getPosPendingSale(id))}catch(e){setError(msg(e))}};
+
+  const startEditPendingSale = sale => {
+    if (!sale || !sale.lines?.length) return;
+    const mappedCart = sale.lines.map(line => ({
+      id: line.unit_id,
+      product_id: line.product_id,
+      product_name: line.product_name,
+      sku: line.sku,
+      qr_code: line.qr_code,
+      serial_number: line.serial_number,
+      image: line.image,
+      unit_price: numericText(line.unit_price),
+      discount: line.discount ? numericText(line.discount) : '',
+      tax_rate: Number(line.tax_rate || 0),
+      retail_price: line.retail_price,
+      minimum_sale_price: line.minimum_sale_price,
+      unit_cost: line.unit_cost,
+      selected_components: line.selected_components || [],
+      location_type: line.location_type || 'store',
+      available_branch_count: 1
+    }));
+    setEditingPendingSale(sale);
+    setCart(mappedCart);
+    setPendingDetail(null);
+    setPage('cart');
+    toast?.(`Kassa so‘rovi #${sale.pending_no} tahrirlash uchun ochildi`);
+  };
+
+  const cancelPendingSale = async sale => {
+    if (!sale?.id) return;
+    setCanceling(true);
+    try {
+      await deletePosPendingSale(sale.id, true);
+      toast?.(`So‘rov #${sale.pending_no} bekor qilindi, tovarlar sotuvga qaytarildi`);
+      setCancelConfirmSale(null);
+      setPendingDetail(null);
+      await loadHome(homeDate);
+    } catch (e) {
+      toast?.(msg(e));
+    } finally {
+      setCanceling(false);
+    }
+  };
+
   useEffect(()=>{
     if(!focusPendingSaleId)return;
     setPage('home');
@@ -55,14 +103,64 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[focusPendingSaleId]);
   return <><main className="pos-real-workspace">
-    {page!=='scan'&&page!=='profile'&&page!=='attendance'&&!loading&&!error&&<button type="button" className="pos-real-scan-cta pos-real-scan-sticky" onClick={()=>setPage('scan')}><QrCode/><span><b>QR/seriyani kiritish</b><small>Skaner qurilmasi yoki klaviatura orqali</small></span><ChevronRight/></button>}
-    {loading?<State text="POS ma’lumotlari yuklanmoqda…"/>:error?<State error text={error} retry={load}/>:page==='home'?<HomePage sales={sales} pending={pending} date={homeDate} setDate={changeHomeDate} profile={profile} openReceipt={openReceipt} openPending={openPending} go={setPage} rate={rate}/>:page==='scan'?<Scanner branchId={branchId} query={query} setQuery={setQuery} units={units} add={add} addMultiple={addMultiple} cart={cart} addToRelocate={addToRelocate} relocateCount={relocateBatch.length} goRelocate={()=>setPage('relocate')} toast={toast} rate={rate}/>:page==='cart'?<Cart branchId={branchId} cart={cart} setCart={setCart} refs={refs} created={created} setCreated={setCreated} refresh={load} toast={toast} rate={rate}/>:page==='relocate'?<Relocate branchId={branchId} batch={relocateBatch} setBatch={setRelocateBatch} toast={toast} back={()=>setPage('scan')}/>:page==='attendance'?<AttendanceWorkspace branchId={branchId} profile={profile} toast={toast}/>:page==='profile'?<ProfileWorkspace toast={toast}/>:<Kpi branchId={branchId} openReceipt={openReceipt} rate={rate}/>}
-  </main><nav className="pos-real-nav">{[['home',Home,'Asosiy'],['scan',QrCode,'Skaner'],['cart',ShoppingCart,'Savdo'],['attendance',Clock,'Davomat'],['kpi',BarChart3,'KPI'],['profile',User,'Profil']].map(([key,Icon,text])=><button type="button" key={key} className={page===key?'active':''} onClick={()=>setPage(key)}><span><Icon/>{key==='cart'&&cart.length>0&&<i>{cart.length}</i>}</span>{text}</button>)}</nav>
-  <PendingDetail sale={pendingDetail} close={()=>setPendingDetail(null)} rate={rate}/><Receipt receipt={receipt} close={()=>setReceipt(null)} rate={rate}/></>;
+    {page!=='scan'&&page!=='products'&&page!=='profile'&&page!=='attendance'&&!loading&&!error&&<button type="button" className="pos-real-scan-cta pos-real-scan-sticky" onClick={()=>setPage('scan')}><QrCode/><span><b>QR/seriyani kiritish</b><small>Skaner qurilmasi yoki klaviatura orqali</small></span><ChevronRight/></button>}
+    {loading?<State text="POS ma’lumotlari yuklanmoqda…"/>:error?<State error text={error} retry={load}/>:page==='home'?<HomePage sales={sales} pending={pending} date={homeDate} setDate={changeHomeDate} profile={profile} openReceipt={openReceipt} openPending={openPending} go={setPage} rate={rate}/>:page==='products'?<ProductCatalogWorkspace branchId={branchId} onAddToCart={add} toast={toast}/>:page==='scan'?<Scanner branchId={branchId} query={query} setQuery={setQuery} units={units} add={add} addMultiple={addMultiple} cart={cart} addToRelocate={addToRelocate} relocateCount={relocateBatch.length} goRelocate={()=>setPage('relocate')} toast={toast} rate={rate}/>:page==='cart'?<Cart branchId={branchId} cart={cart} setCart={setCart} refs={refs} created={created} setCreated={setCreated} refresh={load} toast={toast} rate={rate} editingPendingSale={editingPendingSale} setEditingPendingSale={setEditingPendingSale}/>:page==='relocate'?<Relocate branchId={branchId} batch={relocateBatch} setBatch={setRelocateBatch} toast={toast} back={()=>setPage('scan')}/>:page==='attendance'?<AttendanceWorkspace branchId={branchId} profile={profile} toast={toast}/>:page==='profile'?<ProfileWorkspace toast={toast}/>:<Kpi branchId={branchId} openReceipt={openReceipt} rate={rate}/>}
+  </main><nav className="pos-real-nav">{[['home',Home,'Asosiy'],['products',Boxes,'Tovarlar'],['scan',QrCode,'Skaner'],['cart',ShoppingCart,'Savdo'],['attendance',Clock,'Davomat'],['kpi',BarChart3,'KPI'],['profile',User,'Profil']].map(([key,Icon,text])=><button type="button" key={key} className={page===key?'active':''} onClick={()=>setPage(key)}><span><Icon/>{key==='cart'&&cart.length>0&&<i>{cart.length}</i>}</span>{text}</button>)}</nav>
+  <PendingDetail sale={pendingDetail} close={()=>setPendingDetail(null)} onEdit={startEditPendingSale} onDelete={setCancelConfirmSale} rate={rate}/>
+  <Receipt receipt={receipt} close={()=>setReceipt(null)} rate={rate}/>
+  <Modal open={Boolean(cancelConfirmSale)} onClose={()=>!canceling&&setCancelConfirmSale(null)} title="So‘rovni bekor qilish">
+    <div style={{display:'flex',flexDirection:'column',gap:14}}>
+      <p style={{margin:0,fontSize:14,color:'var(--navy)'}}>Haqiqatan ham <b>#{cancelConfirmSale?.pending_no}</b> kassa so‘rovini bekor qilmoqchimisiz?</p>
+      <div style={{padding:'10px 14px',background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:8,fontSize:13,color:'#166534'}}>
+        Tovar(lar) zudlik bilan bandlikdan bo‘shatiladi va qaytadan erkin sotuvga chiqadi.
+      </div>
+      <div style={{display:'flex',justifyContent:'flex-end',gap:10,marginTop:6}}>
+        <button type="button" className="btn btn-outline" disabled={canceling} onClick={()=>setCancelConfirmSale(null)}>Bekor qilish</button>
+        <button type="button" className="btn" style={{background:'#e11d48',borderColor:'#e11d48',color:'#fff',fontWeight:700}} disabled={canceling} onClick={()=>cancelPendingSale(cancelConfirmSale)}>{canceling?'Bekor qilinmoqda…':'Ha, so‘rovni bekor qilish'}</button>
+      </div>
+    </div>
+  </Modal>
+  </>;
 }
 
 function State({text,error,retry}){return <div className={'pos-real-state '+(error?'error':'')}>{error&&<AlertTriangle/>}<p>{text}</p>{retry&&<button type="button" className="btn" onClick={retry}>Qayta urinish</button>}</div>}
-function HomePage({sales,pending,date,setDate,profile,openReceipt,openPending,go,rate}){const k=sales.today||{};const isToday=date===todayInput();return <section><div className="pos-real-title"><div><small>{isToday?'Bugungi natija':'Tanlangan kun natijasi'}</small><h2>{profile?.full_name?.split(' ')[0]||'Sotuvchi'}</h2></div><Status type="green">Yangilangan</Status></div><DateFilter value={date} onChange={setDate}/><KpiCards kpi={k} rate={rate}/><h3>Kassadagi so‘rovlar</h3>{pending.items?.length?<div className="pos-real-pending">{pending.items.map(x=><button type="button" key={x.id} onClick={()=>openPending(x.id)}><div><b>{x.pending_no}</b><small>{x.unit_count} dona · {when(x.created_at)}</small></div><strong><DualPrice value={Number(x.total||0)} rate={rate}/></strong><Status type={colors[x.status]}>{labels[x.status]||x.status}</Status><ChevronRight/></button>)}</div>:<Empty title="Kassa so‘rovlari yo‘q" text="Tanlangan kunda kassaga yuborilgan so‘rovlar mavjud emas."/>}<Sales title="Tanlangan kundagi savdolar" rows={sales.items} openReceipt={openReceipt} rate={rate}/></section>}
+function HomePage({sales,pending,date,setDate,profile,openReceipt,openPending,go,rate}){
+  const k=sales.today||{};
+  const isToday=date===todayInput();
+  return <section>
+    <div className="pos-real-title">
+      <div>
+        <small>{isToday?'Bugungi natija':'Tanlangan kun natijasi'}</small>
+        <h2>{profile?.full_name?.split(' ')[0]||'Sotuvchi'}</h2>
+      </div>
+      <Status type="green">Yangilangan</Status>
+    </div>
+    <DateFilter value={date} onChange={setDate}/>
+    <KpiCards kpi={k} rate={rate}/>
+    <h3>Kassadagi so‘rovlar</h3>
+    {pending.items?.length?(
+      <div className="pos-real-pending">
+        {pending.items.map(x=>(
+          <button type="button" key={x.id} onClick={()=>openPending(x.id)}>
+            <div>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <b>{x.pending_no}</b>
+                {(x.is_edited || (x.updated_at && x.updated_at !== x.created_at)) && (
+                  <span style={{background:'#fef3c7',color:'#b45309',border:'1px solid #fde68a',fontSize:'9.5px',padding:'1px 5px',borderRadius:'4px',fontWeight:700}}>✏️ Tahrirlangan</span>
+                )}
+              </div>
+              <small>{x.unit_count} dona · {when(x.created_at)}</small>
+            </div>
+            <strong><DualPrice value={Number(x.total||0)} rate={rate}/></strong>
+            <Status type={colors[x.status]}>{labels[x.status]||x.status}</Status>
+            <ChevronRight/>
+          </button>
+        ))}
+      </div>
+    ):<Empty title="Kassa so‘rovlari yo‘q" text="Tanlangan kunda kassaga yuborilgan so‘rovlar mavjud emas."/>}
+    <Sales title="Tanlangan kundagi savdolar" rows={sales.items} openReceipt={openReceipt} rate={rate}/>
+  </section>;
+}
 function DateFilter({value,onChange}){return <label className="pos-real-date-filter"><span>Sana</span><input type="date" value={value} onChange={event=>onChange(event.target.value)}/></label>}
 function KpiCards({kpi,rate}){return <div className="pos-real-kpis"><article><small>Savdo</small><b>{<DualPrice value={Number(kpi.total||0)} rate={rate}/>}</b></article><article><small>Cheklar</small><b>{Number(kpi.count||0)} ta</b></article><article><small>Foyda</small><b>{<DualPrice value={Number(kpi.profit||0)} rate={rate}/>}</b></article><article><small>O‘rtacha chek</small><b>{<DualPrice value={Number(kpi.avg_check||0)} rate={rate}/>}</b></article></div>}
 
@@ -406,14 +504,27 @@ function Unit({unit,add,rate}){
 }
 
 // --- Sale flow: cart + optional customer info + minimum-price warning (soft, not blocking).
-function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate}){
-  const[payments,setPayments]=useState([]),[notes,setNotes]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
+function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,editingPendingSale,setEditingPendingSale}){
+  const[notes,setNotes]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
   const[customer,setCustomer]=useState({full_name:'',phone:'',address:''}),[showCustomer,setShowCustomer]=useState(false);
   const total=useMemo(()=>cart.reduce((sum,line)=>sum+lineTotal(line),0),[cart]);
-  const paid=payments.reduce((sum,p)=>sum+Number(p.amount||0),0);
-  const methods=refs?.payment_methods||[];
-  useEffect(()=>{if(!methods.length)return;setPayments(current=>current.length?current:[{method_code:(methods.find(x=>x.code==='cash')||methods[0]).code,amount:total?total.toFixed(2):'',external_reference:''}])},[methods.length]);
-  useEffect(()=>setPayments(current=>current.length===1?[{...current[0],amount:total?total.toFixed(2):''}]:current),[total]);
+
+  // When editing an existing pending sale, initialize customer and notes
+  useEffect(()=>{
+    if(!editingPendingSale)return;
+    if(editingPendingSale.notes!=null){
+      setNotes(editingPendingSale.notes);
+    }
+    if(editingPendingSale.customer){
+      setCustomer({
+        full_name:editingPendingSale.customer.full_name||'',
+        phone:editingPendingSale.customer.phone||'',
+        address:editingPendingSale.customer.address||''
+      });
+      setShowCustomer(Boolean(editingPendingSale.customer.phone||editingPendingSale.customer.full_name));
+    }
+  },[editingPendingSale]);
+
   const editLine=(id,key,value)=>setCart(rows=>rows.map(row=>row.id===id?{...row,[key]:numericText(value)}:row));
   // Limits are enforced when the field loses focus so typing is never blocked.
   const normalizeLine=(id,key)=>setCart(rows=>rows.map(row=>{
@@ -428,26 +539,72 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate}
     const maxDiscount=Math.max(0,Math.min(Number(row.unit_price||0)*percent,Number(row.unit_price||0)));
     return{...row,discount:numericText(Math.min(maxDiscount,Math.max(0,Number(row.discount||0))))};
   }));
-  const addPayment=()=>{if(payments.length>=10||!methods.length)return;setPayments([...payments,{method_code:methods[0].code,amount:'',external_reference:''}])};
+
   const belowMinimumLines=cart.filter(line=>lineTotal(line)-lineTax(line)<Number(line.minimum_sale_price||0));
+  const hasMissingPrice = cart.some(line => !line.unit_price || Number(line.unit_price) <= 0);
+
   const submit=async e=>{
     e.preventDefault();if(!cart.length)return;
-    if(Math.abs(paid-total)>0.005)return setError('To‘lovlar jami hisoblangan umumiy summaga teng bo‘lishi kerak.');
+    if(hasMissingPrice)return setError('Barcha mahsulotlarning sotish narxini kiriting.');
     setBusy(true);setError('');
     try{
       const customerPayload=customer.phone.trim()?{full_name:customer.full_name.trim()||null,phone:customer.phone.trim(),address:customer.address.trim()||null}:null;
-      const result=await createPosPendingSale({branchId,lines:cart.map(x=>({unit_id:x.id,unit_price:Number(x.unit_price),discount:Number(x.discount||0),selected_components:x.selected_components||[]})),payments:payments.map(x=>({method_code:x.method_code,amount:Number(x.amount),external_reference:x.external_reference||null})),notes,customer:customerPayload});
-      setCreated(result);setCart([]);setNotes('');setCustomer({full_name:'',phone:'',address:''});setShowCustomer(false);
-      toast?.('Savdo menejer kassasiga yuborildi');await refresh();
+      // Default payments payload for backend validation — cashier will choose actual payment method in manager app
+      const defaultPayments = [{ method_code: 'cash', amount: Number(total.toFixed(2)), external_reference: null }];
+      let result;
+      if(editingPendingSale){
+        result=await updatePosPendingSale({
+          pendingId:editingPendingSale.id,
+          lines:cart.map(x=>({unit_id:x.id,unit_price:Number(x.unit_price),discount:Number(x.discount||0),selected_components:x.selected_components||[]})),
+          payments:defaultPayments,
+          notes,
+          customer:customerPayload
+        });
+        toast?.(`Kassa so‘rovi #${result.pending_no} muvaffaqiyatli tahrirlandi`);
+      }else{
+        result=await createPosPendingSale({
+          branchId,
+          lines:cart.map(x=>({unit_id:x.id,unit_price:Number(x.unit_price),discount:Number(x.discount||0),selected_components:x.selected_components||[]})),
+          payments:defaultPayments,
+          notes,
+          customer:customerPayload
+        });
+        toast?.('Savdo menejer kassasiga yuborildi');
+      }
+      setCreated(result);setCart([]);setNotes('');setCustomer({full_name:'',phone:'',address:''});setShowCustomer(false);setEditingPendingSale(null);
+      await refresh();
     }catch(e){setError(msg(e))}finally{setBusy(false)}
   };
-  if(created&&!cart.length)return <section><div className="pos-real-success"><ReceiptText/><h2>Kassaga yuborildi</h2><b>{created.pending_no}</b><Status type={colors[created.status]}>{labels[created.status]||created.status}</Status><p>Rezerv tugashi: {when(created.expires_at)}</p><strong>{<DualPrice value={Number(created.total||0)} rate={rate}/>}</strong><button type="button" className="btn btn-primary" onClick={()=>setCreated(null)}>Yangi savdo</button></div></section>;
+
+  if(created&&!cart.length)return <section><div className="pos-real-success"><ReceiptText/><h2>{editingPendingSale?'Muvaffaqiyatli tahrirlandi':'Kassaga yuborildi'}</h2><b>{created.pending_no}</b><Status type={colors[created.status]}>{labels[created.status]||created.status}</Status><p>Rezerv tugashi: {when(created.expires_at)}</p><strong>{<DualPrice value={Number(created.total||0)} rate={rate}/>}</strong><button type="button" className="btn btn-primary" onClick={()=>setCreated(null)}>Yangi savdo</button></div></section>;
+
   return <section>
-    <div className="pos-real-title"><div><h2>Joriy savdo</h2><small>{cart.length} ta noyob mahsulot birligi</small></div></div>
+    <div className="pos-real-title"><div><h2>{editingPendingSale?'So‘rovni tahrirlash':'Joriy savdo'}</h2><small>{cart.length} ta noyob mahsulot birligi</small></div></div>
+    {editingPendingSale&&(
+      <div className="pos-editing-banner">
+        <div>
+          <span className="badge">✏️ Tahrirlash rejimi</span>
+          <b>So‘rov #{editingPendingSale.pending_no}</b>
+          <small>Yaratilgan: {when(editingPendingSale.created_at)}{editingPendingSale.updated_at && editingPendingSale.updated_at !== editingPendingSale.created_at ? ` · Tahrirlangan: ${when(editingPendingSale.updated_at)}` : ''}</small>
+        </div>
+        <button
+          type="button"
+          className="btn btn-outline btn-sm"
+          onClick={()=>{
+            setEditingPendingSale(null);
+            setCart([]);
+            toast?.('Tahrirlash bekor qilindi');
+          }}
+        >
+          Bekor qilish
+        </button>
+      </div>
+    )}
     {!cart.length?<Empty title="Savdo bo‘sh" text="Skaner yoki qidiruvdan mahsulot birligini qo‘shing."/>:<form onSubmit={submit}>
       <div className="pos-real-cart">{cart.map(line=>{
         const currentTotal=lineTotal(line)-lineTax(line);
         const isBelowMinimum=currentTotal<Number(line.minimum_sale_price||0);
+        const isPriceMissing=!line.unit_price||Number(line.unit_price)<=0;
         return <article key={line.id}>
           <div className="pos-real-cart-head">
             <div>
@@ -464,8 +621,23 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate}
             </div>
             <button type="button" onClick={()=>setCart(x=>x.filter(y=>y.id!==line.id))}><Trash2/></button>
           </div>
-          <div className="pos-real-line-grid">
-            <label>Sotuv narxi<input type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={line.unit_price} onChange={e=>editLine(line.id,'unit_price',e.target.value)} onBlur={()=>normalizeLine(line.id,'unit_price')}/></label>
+          <div className="pos-sale-price-field">
+            <div className="pos-sale-price-head">
+              <span>Sotish narxi (so‘m) *</span>
+              {isPriceMissing&&<span className="pos-price-pulse-badge">Narx kiritilmagan!</span>}
+            </div>
+            <input
+              className={`pos-sale-price-input ${isPriceMissing?'pulse-attention':''}`}
+              type="text"
+              inputMode="decimal"
+              autoComplete="off"
+              placeholder="Sotuv narxini kiriting…"
+              value={line.unit_price}
+              onChange={e=>editLine(line.id,'unit_price',e.target.value)}
+              onBlur={()=>normalizeLine(line.id,'unit_price')}
+            />
+          </div>
+          <div className="pos-real-line-grid" style={{marginTop:6}}>
             <label>Chegirma<input type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={line.discount} onChange={e=>editLine(line.id,'discount',e.target.value)} onBlur={()=>normalizeLine(line.id,'discount')}/></label>
           </div>
           {isBelowMinimum&&<div className="pos-real-warning"><AlertTriangle size={14}/> Narx minimal sotish summasidan past ({<DualPrice value={Number(line.minimum_sale_price||0)} rate={rate}/>}). Sotish mumkin, ammo menejer bunga e’tibor beradi.</div>}
@@ -481,11 +653,17 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate}
           <label>Manzil<input className="input" value={customer.address} onChange={e=>setCustomer(c=>({...c,address:e.target.value}))} placeholder="Ixtiyoriy"/></label>
         </div>}
       </div>
-      <div className="pos-real-payment"><div className="between"><h3>To‘lov taqsimoti</h3><button type="button" onClick={addPayment}><Plus/> Qator</button></div>{payments.map((p,i)=><div className="pos-real-payment-row" key={i}><select value={p.method_code} onChange={e=>setPayments(x=>x.map((v,n)=>n===i?{...v,method_code:e.target.value}:v))}>{methods.map(m=><option key={m.code} value={m.code}>{m.name}</option>)}</select><input aria-label="Summa" type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={p.amount} onChange={e=>setPayments(x=>x.map((v,n)=>n===i?{...v,amount:numericText(e.target.value)}:v))}/><input aria-label="Havola" value={p.external_reference} onChange={e=>setPayments(x=>x.map((v,n)=>n===i?{...v,external_reference:e.target.value}:v))} placeholder="Havola (ixtiyoriy)"/><button type="button" disabled={payments.length===1} onClick={()=>setPayments(x=>x.filter((_,n)=>n!==i))}><X/></button></div>)}<small>To‘lovlar: {<DualPrice value={Number(paid||0)} rate={rate}/>} / {<DualPrice value={Number(total||0)} rate={rate}/>}</small></div>
       <label className="pos-real-notes">Izoh<textarea value={notes} onChange={e=>setNotes(e.target.value)} rows="2"/></label>
       {belowMinimumLines.length>0&&<div className="pos-real-warning"><AlertTriangle size={14}/> {belowMinimumLines.length} ta mahsulot minimal narxdan past sotilmoqda.</div>}
       {error&&<div className="pos-real-inline-error">{error}</div>}
-      <button type="submit" className="btn btn-primary btn-block pos-real-submit" disabled={busy||Math.abs(paid-total)>.005}><CreditCard/>{busy?'Yuborilmoqda…':'Kassaga yuborish'}</button>
+      <button
+        type="submit"
+        className="btn btn-primary btn-block pos-real-submit"
+        disabled={busy||!cart.length||hasMissingPrice}
+      >
+        <Send size={18}/>
+        {busy ? 'Yuborilmoqda…' : editingPendingSale ? 'O‘zgarishlarni saqlash va kassaga yuborish' : 'Kassaga yuborish'}
+      </button>
     </form>}
   </section>;
 }
@@ -529,7 +707,56 @@ function Kpi({branchId,openReceipt,rate}){
   return <section><div className="pos-real-title"><div><h2>KPI</h2><small>Filial vaqt mintaqasi bo‘yicha tanlangan kun</small></div></div><form className="pos-real-kpi-filters" onSubmit={apply}><DateFilter value={date} onChange={setDate}/><label className="pos-real-search"><Search/><input value={draft} onChange={event=>setDraft(event.target.value)} placeholder="Chek, mahsulot, SKU, QR yoki seriya"/><button type="submit">Qidirish</button></label>{query&&<button type="button" className="btn btn-outline" onClick={()=>{setDraft('');setQuery('')}}>Filtrni tozalash</button>}</form>{error?<div className="pos-real-inline-error">{error}</div>:loading?<State text="KPI yuklanmoqda…"/>:<><KpiCards kpi={sales.today||{}} rate={rate}/><div className="pos-real-kpi-wide"><span>Berilgan chegirma<b><DualPrice value={Number(sales.today?.discount||0)} rate={rate}/></b></span><span>Sof foyda<b><DualPrice value={Number(sales.today?.profit||0)} rate={rate}/></b></span></div><Sales title="Filtrlangan savdolar" rows={sales.items} openReceipt={openReceipt} rate={rate}/></>}</section>
 }
 function Sales({title,rows=[],openReceipt,rate}){return <><h3>{title}</h3>{rows.length?<div className="pos-real-sales">{rows.map(sale=><button type="button" key={sale.id} onClick={()=>openReceipt(sale.id)}><ReceiptText/><span><b>{sale.sale_no}</b><small>{when(sale.sold_at)} · {sale.unit_count} dona</small></span><strong>{<DualPrice value={Number(sale.total||0)} rate={rate}/>}</strong><ChevronRight/></button>)}</div>:<Empty title="Savdolar yo‘q" text="Tasdiqlangan savdolar shu yerda ko‘rinadi."/>}</>}
-function PendingDetail({sale,close,rate}){return <Modal open={Boolean(sale)} onClose={close} title={sale?.pending_no||'Kassa so‘rovi'}>{sale&&<div className="pos-real-pending-detail"><div className="between"><Status type={colors[sale.status]}>{labels[sale.status]||sale.status}</Status><small>{when(sale.created_at)}</small></div><p>Rezerv tugashi: <b>{when(sale.expires_at)}</b></p>{sale.rejection_reason&&<div className="pos-real-inline-error">Sabab: {sale.rejection_reason}</div>}<h3>Mahsulotlar</h3>{sale.lines?.map(line=><article key={line.id}><span><b>{line.product_name}</b><small>{line.sku} · {line.qr_code}</small>{line.selected_components?.length>0&&<small style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:'4px',marginTop:'2px',color:'var(--muted)'}}>Qismlar: {line.selected_components.map((c,i)=><span key={i} style={{display:'inline-flex',alignItems:'center',gap:'3px'}}>{(c.image_url||c.imageUrl)&&<img src={c.image_url||c.imageUrl} alt="" style={{width:'14px',height:'14px',borderRadius:'2px',objectFit:'cover'}}/>}{c.quantity>1?`${c.quantity}x `:''}{c.name}{c.color?` (${c.color})`:''}{i<line.selected_components.length-1?', ':''}</span>)}</small>}</span><strong>{<DualPrice value={Number(line.line_total||0)} rate={rate}/>}</strong></article>)}<div className="pos-real-totals"><span>Chegirma<b>{<DualPrice value={Number(sale.discount||0)} rate={rate}/>}</b></span><span>Soliq<b>{<DualPrice value={Number(sale.tax||0)} rate={rate}/>}</b></span><strong>Jami<b>{<DualPrice value={Number(sale.total||0)} rate={rate}/>}</b></strong></div><h3>To‘lovlar</h3>{sale.payments?.map((payment,index)=><p key={index}>{payment.method_name}: <b>{<DualPrice value={Number(payment.amount||0)} rate={rate}/>}</b>{payment.external_reference?` · ${payment.external_reference}`:''}</p>)}</div>}</Modal>}
+function PendingDetail({sale,close,onEdit,onDelete,rate}){
+  return <Modal open={Boolean(sale)} onClose={close} title={sale?.pending_no||'Kassa so‘rovi'}>
+    {sale&&<div className="pos-real-pending-detail">
+      <div className="between">
+        <div style={{display:'flex',alignItems:'center',gap:6}}>
+          <Status type={colors[sale.status]}>{labels[sale.status]||sale.status}</Status>
+          {(sale.is_edited || (sale.updated_at && sale.updated_at !== sale.created_at)) && (
+            <span style={{background:'#fef3c7',color:'#b45309',border:'1px solid #fde68a',fontSize:'11px',padding:'2px 7px',borderRadius:'4px',fontWeight:700}}>✏️ Tahrirlangan</span>
+          )}
+        </div>
+        <div style={{textAlign:'right'}}>
+          <small style={{display:'block',color:'var(--muted)'}}>Yaratildi: {when(sale.created_at)}</small>
+          {(sale.is_edited || (sale.updated_at && sale.updated_at !== sale.created_at)) && (
+            <small style={{display:'block',color:'#d97706',fontWeight:600}}>Tahrirlandi: {when(sale.updated_at)}</small>
+          )}
+        </div>
+      </div>
+      <p style={{marginTop:8}}>Rezerv tugashi: <b>{when(sale.expires_at)}</b></p>
+      {sale.customer&&(sale.customer.full_name||sale.customer.phone)&&(
+        <p style={{margin:'6px 0',fontSize:'12px',color:'var(--navy)'}}>Mijoz: <b>{sale.customer.full_name||'Ismsiz'}</b> {sale.customer.phone?`(${sale.customer.phone})`:''}</p>
+      )}
+      {sale.rejection_reason&&<div className="pos-real-inline-error">Sabab: {sale.rejection_reason}</div>}
+      <h3>Mahsulotlar ({sale.lines?.length||0} ta)</h3>
+      {sale.lines?.map(line=><article key={line.id}><span><b>{line.product_name}</b><small>{line.sku} · {line.qr_code}</small>{line.selected_components?.length>0&&<small style={{display:'flex',flexWrap:'wrap',alignItems:'center',gap:'4px',marginTop:'2px',color:'var(--muted)'}}>Qismlar: {line.selected_components.map((c,i)=><span key={i} style={{display:'inline-flex',alignItems:'center',gap:'3px'}}>{(c.image_url||c.imageUrl)&&<img src={c.image_url||c.imageUrl} alt="" style={{width:'14px',height:'14px',borderRadius:'2px',objectFit:'cover'}}/>}{c.quantity>1?`${c.quantity}x `:''}{c.name}{c.color?` (${c.color})`:''}{i<line.selected_components.length-1?', ':''}</span>)}</small>}</span><strong>{<DualPrice value={Number(line.line_total||0)} rate={rate}/>}</strong></article>)}
+      <div className="pos-real-totals"><span>Chegirma<b>{<DualPrice value={Number(sale.discount||0)} rate={rate}/>}</b></span><span>Soliq<b>{<DualPrice value={Number(sale.tax||0)} rate={rate}/>}</b></span><strong>Jami<b>{<DualPrice value={Number(sale.total||0)} rate={rate}/>}</b></strong></div>
+      <h3>To‘lovlar</h3>
+      {sale.payments?.map((payment,index)=><p key={index}>{payment.method_name}: <b>{<DualPrice value={Number(payment.amount||0)} rate={rate}/>}</b>{payment.external_reference?` · ${payment.external_reference}`:''}</p>)}
+      {sale.status==='pending'&&(
+        <div style={{display:'flex',gap:10,marginTop:16,paddingTop:14,borderTop:'1px solid var(--line)',flexWrap:'wrap'}}>
+          <button
+            type="button"
+            className="btn btn-primary"
+            style={{flex:'1 1 180px',display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'12px',fontSize:'13px',fontWeight:700}}
+            onClick={()=>onEdit?.(sale)}
+          >
+            ✏️ So‘rovni tahrirlash
+          </button>
+          <button
+            type="button"
+            className="btn btn-outline"
+            style={{flex:'1 1 120px',color:'#e11d48',borderColor:'#fecdd3',background:'#fff1f2',display:'flex',alignItems:'center',justifyContent:'center',gap:6,padding:'12px',fontSize:'13px',fontWeight:600}}
+            onClick={()=>onDelete?.(sale)}
+          >
+            <Trash2 size={15}/> Bekor qilish
+          </button>
+        </div>
+      )}
+    </div>}
+  </Modal>;
+}
 function Receipt({receipt,close,rate}){
   const[email,setEmail]=useState(''),[delivery,setDelivery]=useState(null),[busy,setBusy]=useState(false),[deliveryError,setDeliveryError]=useState(''),[idempotencyKey,setIdempotencyKey]=useState(()=>crypto.randomUUID());
   const[printMode,setPrintMode]=useState('per_item'),[previewIndex,setPreviewIndex]=useState(0);

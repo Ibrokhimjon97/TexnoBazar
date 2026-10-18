@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Clock3, FileText, Layers, Printer, ReceiptText, Search, Trash2, WalletCards, X } from 'lucide-react';
-import { DualPrice, Empty, Modal, Status, useExchangeRate, ThermalReceiptPreview, printThermalReceipt } from '@texnobazar/ui';
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock3, FileText, Layers, Printer, ReceiptText, Search, Trash2, WalletCards, X, Truck, Tag, DollarSign, Check, CreditCard } from 'lucide-react';
+import { DualPrice, Empty, Modal, Status, useExchangeRate, ThermalReceiptPreview, printThermalReceipt, ProductDeliveryStickersModal } from '@texnobazar/ui';
 import {
   confirmPosSale,
+  createPosDelivery,
   deletePosPendingSale,
   getPosPendingSale,
   getSaleReceipt,
@@ -63,6 +64,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
   const [error, setError] = useState('');
   const [detail, setDetail] = useState(null);
   const [receipt, setReceipt] = useState(null);
+  const [stickersPayload, setStickersPayload] = useState(null);
 
   const PAGE_SIZE = 30;
   const [page, setPage] = useState(1);
@@ -136,18 +138,55 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusPendingSaleId]);
 
-  const confirmed = async id => {
-    const saleId = await confirmPosSale(id, null);
+  const confirmed = async (id, paymentsPayload, deliveryInfo) => {
+    const saleId = await confirmPosSale(id, paymentsPayload || null);
     if (!saleId) {
       setDetail(await getPosPendingSale(id));
       toast?.('Rezerv muddati tugagan va mahsulotlar bo\'shatildi');
       await load();
       return;
     }
+
+    if (deliveryInfo && deliveryInfo.needed) {
+      try {
+        await createPosDelivery({
+          saleId,
+          customerName: deliveryInfo.customerName,
+          customerPhone: deliveryInfo.customerPhone,
+          deliveryAddress: deliveryInfo.deliveryAddress,
+          paymentType: deliveryInfo.paymentType,
+          codAmount: deliveryInfo.isCod ? Number(deliveryInfo.totalAmount) : 0,
+          notes: deliveryInfo.notes
+        });
+      } catch (err) {
+        console.error('Failed to create POS delivery:', err);
+      }
+    }
+
     const check = await getSaleReceipt(saleId);
     setDetail(null);
-    setReceipt(check);
-    toast?.('Pul qabul qilindi, mahsulotlar SOLD holatiga o\'tdi');
+
+    if (deliveryInfo && deliveryInfo.needed) {
+      setStickersPayload({
+        items: deliveryInfo.items && deliveryInfo.items.length ? deliveryInfo.items : (check.lines || []),
+        customer: {
+          full_name: deliveryInfo.customerName,
+          phone: deliveryInfo.customerPhone,
+          address: deliveryInfo.deliveryAddress
+        },
+        sale: {
+          sale_no: check.sale_no,
+          total: check.total,
+          sold_at: check.sold_at
+        }
+      });
+    } else {
+      setReceipt(check);
+    }
+
+    toast?.(deliveryInfo?.isCod
+      ? 'Kuryerdan to‘lov zayavkasi shakllantirildi va Dostavka sahifasiga yuborildi'
+      : 'Pul qabul qilindi, mahsulotlar SOLD holatiga o‘tdi');
     await load();
   };
 
@@ -239,7 +278,14 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                 onClick={() => open(row.id)}
               >
                 <div className="between">
-                  <b>{row.pending_no}</b>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <b>{row.pending_no}</b>
+                    {(row.is_edited || (row.updated_at && row.updated_at !== row.created_at)) && (
+                      <span style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', fontSize: '9.5px', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                        ✏️ Tahrirlangan
+                      </span>
+                    )}
+                  </div>
                   <Status type={colors[row.status]}>{labels[row.status] || row.status}</Status>
                 </div>
                 <span>Sotuvchi <strong>{row.seller_name}</strong></span>
@@ -368,10 +414,35 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
         confirm={confirmed}
         reject={rejected}
         onViewReceipt={openReceipt}
+        onOpenStickers={(s) => setStickersPayload({
+          items: s.lines?.map(l => ({
+            product_name: l.product_name,
+            unit_price: l.unit_price,
+            line_total: l.line_total,
+            batch_code: l.batch_code || l.reference || (l.qr_code ? `QR: ${l.qr_code}` : ''),
+            qr_code: l.qr_code,
+            quantity: 1
+          })) || [],
+          customer: {
+            full_name: s.customer?.full_name || '',
+            phone: s.customer?.phone || '',
+            address: s.customer?.address || ''
+          },
+          sale: {
+            sale_no: s.pending_no,
+            total: s.total,
+            sold_at: s.updated_at || s.created_at
+          }
+        })}
         onDelete={setDeletingSale}
         rate={rate}
       />
       <Receipt receipt={receipt} close={() => setReceipt(null)} rate={rate} />
+      <ProductDeliveryStickersModal
+        open={Boolean(stickersPayload)}
+        onClose={() => setStickersPayload(null)}
+        {...stickersPayload}
+      />
 
 
       <Modal
@@ -433,17 +504,54 @@ function State({ text, error, retry }) {
   );
 }
 
-function CashDetail({ sale, close, confirm, reject, onViewReceipt, onDelete, rate }) {
+function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenStickers, onDelete, rate }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [reason, setReason] = useState('');
   const [rejecting, setRejecting] = useState(false);
 
+  // Cashier payment & delivery states
+  const [paymentType, setPaymentType] = useState('cash'); // 'cash' | 'card' | 'split' | 'cod'
+  const [cashAmount, setCashAmount] = useState('');
+  const [cardAmount, setCardAmount] = useState('');
+  const [isDelivery, setIsDelivery] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+
   useEffect(() => {
     setError('');
     setReason('');
     setRejecting(false);
+    if (sale) {
+      setPaymentType('cash');
+      setIsDelivery(false);
+      const tot = Number(sale.total || 0);
+      setCashAmount(tot > 0 ? String(tot) : '');
+      setCardAmount('0');
+      setCustomerName(sale.customer?.full_name || '');
+      setCustomerPhone(sale.customer?.phone || '');
+      setCustomerAddress(sale.customer?.address || '');
+    }
   }, [sale?.id]);
+
+  const tot = Number(sale?.total || 0);
+
+  const handleCashSplitChange = val => {
+    const raw = String(val).replace(/[^\d.]/g, '');
+    setCashAmount(raw);
+    const num = Number(raw || 0);
+    const remainder = Math.max(0, tot - num);
+    setCardAmount(remainder > 0 ? String(Math.round(remainder)) : '0');
+  };
+
+  const handleCardSplitChange = val => {
+    const raw = String(val).replace(/[^\d.]/g, '');
+    setCardAmount(raw);
+    const num = Number(raw || 0);
+    const remainder = Math.max(0, tot - num);
+    setCashAmount(remainder > 0 ? String(Math.round(remainder)) : '0');
+  };
 
   const act = async fn => {
     setBusy(true);
@@ -457,13 +565,79 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onDelete, rat
     }
   };
 
+  const handleConfirm = () => {
+    let paymentsPayload = [];
+    if (paymentType === 'cash') {
+      paymentsPayload = [{ method_code: 'cash', amount: tot }];
+    } else if (paymentType === 'card') {
+      paymentsPayload = [{ method_code: 'card', amount: tot }];
+    } else if (paymentType === 'split') {
+      const c = Number(cashAmount || 0);
+      const k = Number(cardAmount || 0);
+      if (Math.abs(c + k - tot) > 0.01) {
+        setError(`Aralash to‘lovlar jami (${c + k} so'm) xarid summasiga (${tot} so'm) teng bo‘lishi kerak.`);
+        return;
+      }
+      paymentsPayload = [
+        { method_code: 'cash', amount: c },
+        { method_code: 'card', amount: k }
+      ].filter(p => p.amount > 0);
+    } else if (paymentType === 'cod') {
+      paymentsPayload = [{ method_code: 'cod', amount: tot }];
+    }
+
+    const deliveryNeeded = isDelivery || paymentType === 'cod';
+    if (deliveryNeeded) {
+      if (!customerPhone.trim()) {
+        setError('Dostavka uchun mijoz telefon raqami kiritilishi shart.');
+        return;
+      }
+      if (!customerAddress.trim()) {
+        setError('Dostavka uchun mijoz yetkazish manzili kiritilishi shart.');
+        return;
+      }
+    }
+
+    const deliveryData = deliveryNeeded ? {
+      needed: true,
+      isCod: paymentType === 'cod',
+      customerName: customerName.trim() || 'Mijoz',
+      customerPhone: customerPhone.trim(),
+      deliveryAddress: customerAddress.trim(),
+      paymentType,
+      totalAmount: tot,
+      items: sale.lines?.map(l => ({
+        product_name: l.product_name,
+        unit_price: l.unit_price,
+        line_total: l.line_total,
+        batch_code: l.batch_code || l.reference || (l.qr_code ? `QR: ${l.qr_code}` : ''),
+        qr_code: l.qr_code,
+        quantity: 1
+      }))
+    } : null;
+
+    act(() => confirm(sale.id, paymentsPayload, deliveryData));
+  };
+
   return (
     <Modal open={Boolean(sale)} onClose={close} title={sale?.pending_no || 'Kassa so\'rovi'}>
       {sale && (
         <div className="cash-real-detail">
           <div className="between">
-            <Status type={colors[sale.status]}>{labels[sale.status] || sale.status}</Status>
-            <small>{date(sale.created_at)}</small>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Status type={colors[sale.status]}>{labels[sale.status] || sale.status}</Status>
+              {(sale.is_edited || (sale.updated_at && sale.updated_at !== sale.created_at)) && (
+                <span style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', fontSize: '11px', padding: '2px 7px', borderRadius: '4px', fontWeight: 700 }}>
+                  ✏️ Tahrirlangan
+                </span>
+              )}
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <small style={{ display: 'block', color: 'var(--muted)' }}>Yaratildi: {date(sale.created_at)}</small>
+              {(sale.is_edited || (sale.updated_at && sale.updated_at !== sale.created_at)) && (
+                <small style={{ display: 'block', color: '#d97706', fontWeight: 600 }}>Tahrirlandi: {date(sale.updated_at)}</small>
+              )}
+            </div>
           </div>
           <div className="cash-real-parties">
             <span>
@@ -479,7 +653,13 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onDelete, rat
               <b>{date(sale.expires_at)}</b>
             </span>
           </div>
-          <h3>Mahsulotlar</h3>
+          {sale.customer && (sale.customer.full_name || sale.customer.phone) && (
+            <div style={{ margin: '8px 0', padding: '8px 12px', background: '#f8fafc', border: '1px solid var(--line)', borderRadius: 8, fontSize: '12px' }}>
+              <span>Mijoz (sotuvchidan): <b>{sale.customer.full_name || 'Ismsiz'}</b> {sale.customer.phone ? `(${sale.customer.phone})` : ''}</span>
+              {sale.customer.address && <small style={{ display: 'block', color: 'var(--muted)', marginTop: 2 }}>Manzil: {sale.customer.address}</small>}
+            </div>
+          )}
+          <h3>Mahsulotlar ({sale.lines?.length || 0} ta)</h3>
           <div className="cash-real-lines">
             {sale.lines?.map(line => (
               <article key={line.id}>
@@ -513,19 +693,143 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onDelete, rat
             <span>Soliq <b><DualPrice value={Number(sale.tax || 0)} rate={rate} /></b></span>
             <strong>Jami <b><DualPrice value={Number(sale.total || 0)} rate={rate} /></b></strong>
           </div>
-          <h3>Sotuvchi taklif qilgan to'lov</h3>
-          <div className="cash-real-payments">
-            {sale.payments?.map((p, i) => (
-              <p key={i}>
-                <span>
-                  <b>{p.method_name}</b>
-                  {p.external_reference && <small>{p.external_reference}</small>}
+
+          {/* Cashier Payment Selection (Only active when pending confirmation) */}
+          {sale.can_confirm && !rejecting && (
+            <div style={{ marginTop: 16, padding: '14px 16px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <b style={{ fontSize: 13.5, color: 'var(--navy, #0f172a)' }}>To‘lov shaklini tanlang:</b>
+                <span style={{ fontSize: 12, fontWeight: 700, color: '#0284c7' }}>
+                  Summa: {new Intl.NumberFormat('uz-UZ').format(tot)} so'm
                 </span>
-                <strong><DualPrice value={Number(p.amount || 0)} rate={rate} /></strong>
-              </p>
-            ))}
-          </div>
+              </div>
+
+              {/* Payment buttons grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+                {[
+                  ['cash', '💵 Naqd pul'],
+                  ['card', '💳 Plastik / Click'],
+                  ['split', '⚖️ Aralash to‘lov'],
+                  ['cod', '🚚 Kuryerdan beraman']
+                ].map(([code, label]) => (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() => {
+                      setPaymentType(code);
+                      if (code === 'cod') setIsDelivery(true);
+                    }}
+                    style={{
+                      padding: '10px 8px',
+                      borderRadius: 9,
+                      border: paymentType === code ? '2px solid #0284c7' : '1px solid var(--line, #cbd5e1)',
+                      background: paymentType === code ? '#eff6ff' : '#ffffff',
+                      color: paymentType === code ? '#0369a1' : '#334155',
+                      fontWeight: paymentType === code ? 800 : 600,
+                      fontSize: 12.5,
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Split inputs */}
+              {paymentType === 'split' && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12, padding: '10px 12px', background: '#ffffff', border: '1px solid #bfdbfe', borderRadius: 8 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>
+                    Naqd summa:
+                    <input
+                      className="input"
+                      type="text"
+                      inputMode="decimal"
+                      value={cashAmount}
+                      onChange={e => handleCashSplitChange(e.target.value)}
+                      placeholder="0"
+                    />
+                  </label>
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>
+                    Plastik summa:
+                    <input
+                      className="input"
+                      type="text"
+                      inputMode="decimal"
+                      value={cardAmount}
+                      onChange={e => handleCardSplitChange(e.target.value)}
+                      placeholder="0"
+                    />
+                  </label>
+                </div>
+              )}
+
+              {/* COD banner */}
+              {paymentType === 'cod' && (
+                <div style={{ marginTop: 12, padding: '10px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, fontSize: 12.5, color: '#c2410c' }}>
+                  🚚 <b>Kuryerdan berib yuboraman:</b> Mijoz tovar yetkazilganda to‘laydi. Bepul dostavka zayavkasi shakllantiriladi va <b>Dostavka</b> bo‘limida ro‘yxatga olinadi. Kuryer pulni olib kelgach <b>"Pulni oldim"</b> tugmasini bosasiz.
+                </div>
+              )}
+
+              {/* Delivery section */}
+              <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed #cbd5e1' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: paymentType === 'cod' ? 'default' : 'pointer', fontWeight: 700, fontSize: 13 }}>
+                  <input
+                    type="checkbox"
+                    checked={isDelivery || paymentType === 'cod'}
+                    disabled={paymentType === 'cod'}
+                    onChange={e => setIsDelivery(e.target.checked)}
+                    style={{ width: 17, height: 17 }}
+                  />
+                  <span>📦 Bepul yetkazib berish (Dostavka) zayavkasi shakllantirish</span>
+                  {paymentType === 'cod' && <small style={{ color: '#ea580c', fontWeight: 600 }}>(Majburiy)</small>}
+                </label>
+
+                {(isDelivery || paymentType === 'cod') && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10, padding: '10px 12px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 8 }}>
+                    <div style={{ fontSize: 11.5, color: 'var(--muted, #64748b)' }}>
+                      Mijoz ma’lumotlarini tasdiqlang yoki mijoz aytganiga qarab tahrirlang:
+                    </div>
+
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>
+                      Mijoz ismi:
+                      <input
+                        className="input"
+                        value={customerName}
+                        onChange={e => setCustomerName(e.target.value)}
+                        placeholder="Mijoz to‘liq ismi"
+                      />
+                    </label>
+
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>
+                      Telefon raqami *:
+                      <input
+                        className="input"
+                        type="tel"
+                        value={customerPhone}
+                        onChange={e => setCustomerPhone(e.target.value)}
+                        placeholder="+998 90 123 45 67"
+                      />
+                    </label>
+
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>
+                      Yetkazib berish manzili *:
+                      <input
+                        className="input"
+                        value={customerAddress}
+                        onChange={e => setCustomerAddress(e.target.value)}
+                        placeholder="Shahar, tuman, ko‘cha, uy raqami, mo‘ljal..."
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {error && <div className="cash-real-inline-error">{error}</div>}
+
           {rejecting && (
             <div className="cash-real-reject">
               <label>
@@ -545,8 +849,9 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onDelete, rat
               </div>
             </div>
           )}
+
           {sale.can_confirm && !rejecting && (
-            <div className="cash-real-actions">
+            <div className="cash-real-actions" style={{ marginTop: 16 }}>
               <button
                 type="button"
                 className="btn cash-real-danger"
@@ -559,31 +864,64 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onDelete, rat
                 type="button"
                 className="btn btn-primary"
                 disabled={busy}
-                onClick={() => act(() => confirm(sale.id))}
+                onClick={handleConfirm}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontWeight: 800,
+                  fontSize: 13.5,
+                  padding: '10px 18px',
+                  background: paymentType === 'cod' ? 'linear-gradient(135deg, #ea580c, #c2410c)' : undefined
+                }}
               >
-                {busy ? 'Tasdiqlanmoqda…' : 'Pulni qabul qildim'}
+                {busy ? 'Tasdiqlanmoqda…' : paymentType === 'cod' ? '🚚 Kuryerdan olish zayavkasi va stikerlar' : (isDelivery ? '✅ Pulni oldim va dostavka stikerlari' : '✅ Pulni qabul qildim')}
               </button>
             </div>
           )}
+
           {sale.status === 'confirmed' && (
-            <div className="cash-real-actions" style={{ marginTop: 18 }}>
+            <div className="cash-real-actions" style={{ marginTop: 18, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button
                 type="button"
-                className="btn btn-primary btn-block"
+                className="btn btn-primary"
                 style={{
+                  flex: 1,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   gap: 8,
                   padding: '12px 18px',
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: 700
                 }}
                 disabled={busy}
                 onClick={() => act(() => onViewReceipt?.(sale.id))}
               >
-                <Printer size={18} />
-                {busy ? 'Chek yuklanmoqda…' : 'Chekni ko‘rish va qayta chop etish (40 × 30 mm)'}
+                <Printer size={16} />
+                {busy ? 'Chek yuklanmoqda…' : 'Kassa chekini ko‘rish (40 × 30 mm)'}
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-outline"
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  padding: '12px 18px',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  borderColor: '#f97316',
+                  color: '#ea580c'
+                }}
+                disabled={busy}
+                onClick={() => onOpenStickers?.(sale)}
+              >
+                <Tag size={16} />
+                Tovar stikerlarini chiqarish ({sale.lines?.length || 1} ta)
               </button>
             </div>
           )}

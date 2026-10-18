@@ -1,11 +1,12 @@
 import React,{useEffect,useMemo,useRef,useState}from'react';
 import{createPortal}from'react-dom';
-import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,Camera,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Layers,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
+import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,Camera,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Layers,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Tag,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,ProductComponentEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal,formatSecretCostCode,BASE_COLOR_PALETTE,detectColorFromImageSource}from'@texnobazar/ui';
 import QRCode from'qrcode';
 import RichTextEditor from'./RichTextEditor';
 import{CreateProductInline}from'./InventoryRegisterModal';
 import InventoryExcelImportModal from'./InventoryExcelImportModal';
+import BatchPriceExcelModal from'./BatchPriceExcelModal';
 import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia,exportBatchesBackup,exportReceiptBackup,inspectBatchesBackupFile,restoreBatchesBackupFile,saveProductComponents,getProductComponents}from'@texnobazar/data';
 const err=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 // Visual marker only: INV-* kirimlar inventarizatsiya orqali ro‘yxatga olingan,
@@ -26,6 +27,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   const[exportingId,setExportingId]=useState(null);
   const[restoreModalOpen,setRestoreModalOpen]=useState(false);
   const[excelImportOpen,setExcelImportOpen]=useState(false);
+  const[batchPriceModalOpen,setBatchPriceModalOpen]=useState(false);
 
   useEffect(()=>{
     if(!branchId)return;
@@ -348,10 +350,12 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     setError('');
     try{
       const locId = locationFilter === 'all' ? null : locationFilter;
-      const formattedDate = dateParam 
-        ? `${dateParam.getFullYear()}-${String(dateParam.getMonth() + 1).padStart(2, '0')}-${String(dateParam.getDate()).padStart(2, '0')}` 
-        : null;
       const cleanQ = query ? query.trim() : null;
+      // Agar qidiruv kiritilgan bo'lsa, avvalgi kunlardagi partiyalar ham topilishi uchun sana filtrini bekor qilamiz!
+      const effectiveDate = cleanQ ? null : dateParam;
+      const formattedDate = effectiveDate 
+        ? `${effectiveDate.getFullYear()}-${String(effectiveDate.getMonth() + 1).padStart(2, '0')}-${String(effectiveDate.getDate()).padStart(2, '0')}` 
+        : null;
       const r = await listStockReceipts({
         branchId, 
         locationId: locId, 
@@ -515,12 +519,14 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   const invCount=useMemo(()=>rows.filter(x=>isInventoryReceipt(x.receipt_no)).length,[rows]);
   const totalCostAll=useMemo(()=>rows.reduce((s,x)=>s+Number(x.total_cost||0),0),[rows]);
   const totalMinAll=useMemo(()=>rows.reduce((s,x)=>s+Number(x.total_min_price||0),0),[rows]);
+  const cleanQ = query ? query.trim() : '';
   const displayRows=useMemo(()=>{
     return rows.filter(x=>{
       if(typeFilter==='batch'&&isInventoryReceipt(x.receipt_no))return false;
       if(typeFilter==='inventory'&&!isInventoryReceipt(x.receipt_no))return false;
       if(locationFilter!=='all'&&x.receiving_location_id!==locationFilter)return false;
-      if(selectedDate){
+      // Faqat qidiruv bo'lmagandagina tanlangan sana bo'yicha cheklaymiz. Qidiruv paytida barcha kunlardagi yozuvlar chiqadi!
+      if(selectedDate && !cleanQ){
         const d=new Date(x.received_at);
         const cd=new Date(x.created_at||x.received_at);
         const matchRec=d.getFullYear()===selectedDate.getFullYear()&&d.getMonth()===selectedDate.getMonth()&&d.getDate()===selectedDate.getDate();
@@ -529,7 +535,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       }
       return true;
     });
-  },[rows,selectedDate,typeFilter,locationFilter]);
+  },[rows,selectedDate,typeFilter,locationFilter,cleanQ]);
 
   const sortedRows=useMemo(()=>{
     const list=[...displayRows];
@@ -596,9 +602,18 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         className="btn"
         style={{background:'#0284c7',color:'#fff',borderColor:'#0284c7',display:'inline-flex',alignItems:'center',gap:6,fontWeight:700,boxShadow:'0 2px 8px rgba(2,132,199,0.25)'}}
         onClick={()=>setExcelImportOpen(true)}
-        title="Excel (.xlsx) orqali partiya yoki inventarizatsiyani import qilish"
+        title="Excel (.xlsx) orqali yangi partiya yoki inventarizatsiyani import qilish"
       >
         <Upload size={16}/>Exceldan import
+      </button>
+      <button
+        type="button"
+        className="btn"
+        style={{background:'#7c3aed',color:'#fff',borderColor:'#7c3aed',display:'inline-flex',alignItems:'center',gap:6,fontWeight:700,boxShadow:'0 2px 8px rgba(124,58,237,0.25)'}}
+        onClick={()=>setBatchPriceModalOpen(true)}
+        title="Partiyalar va inventarizatsiyadagi tovarlar narxlarini Excel (.xlsx) orqali ommaviy yangilash (UZS va USD)"
+      >
+        <Tag size={16}/>Narxlarni yangilash (Excel)
       </button>
       <button className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#64748b'}} onClick={handleExportAll} disabled={exportingAll} title="Barcha partiyalarni dasturiy JSON zahira fayliga yuklash">
         <Download size={14}/>{exportingAll?'Eksport…':'Zahira (JSON)'}
@@ -608,6 +623,59 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       </button>
     </div>
   </div>
+
+  {/* Yuqori qismdagi sarlavha ostidagi asosiy tezkor qidiruv paneli */}
+  <div style={{margin:'14px 0 16px',position:'relative'}}>
+    <Search size={18} style={{position:'absolute',left:14,top:'50%',transform:'translateY(-50%)',color:'#0284c7'}}/>
+    <input
+      type="text"
+      className="input"
+      style={{
+        width:'100%',
+        paddingLeft:44,
+        paddingRight:query?90:14,
+        height:48,
+        fontSize:14,
+        borderRadius:12,
+        border:cleanQ?'2px solid #0284c7':'1.5px solid #cbd5e1',
+        boxShadow:cleanQ?'0 0 0 3px rgba(2,132,199,0.15)':'0 2px 6px rgba(0,0,0,0.04)',
+        background:'#fff',
+        fontWeight:500,
+        outline:'none'
+      }}
+      placeholder="Tovar nomi, SKU, umumiy QR kod, partiya raqami yoki ta'minotchi bo'yicha qidirish (barcha kunlar bo'yicha)..."
+      value={query}
+      onChange={e=>setQuery(e.target.value)}
+    />
+    {query && (
+      <button
+        type="button"
+        className="btn btn-ghost btn-sm"
+        style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:12,color:'#64748b',padding:'4px 8px',height:30}}
+        onClick={()=>setQuery('')}
+        title="Qidiruvni tozalash"
+      >
+        <X size={15}/> Tozalash
+      </button>
+    )}
+  </div>
+
+  {cleanQ && (
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'#eff6ff',color:'#1e40af',border:'1px solid #bfdbfe',borderRadius:10,padding:'8px 14px',fontSize:13,fontWeight:600,marginBottom:14,flexWrap:'wrap',gap:8}}>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <Search size={16}/>
+        <span>Barcha kunlar bo‘yicha qidirilmoqda: "<b>{cleanQ}</b>" — <b>{displayRows.length} ta</b> partiya/inventarizatsiya topildi</span>
+      </div>
+      <button
+        type="button"
+        className="btn btn-sm btn-outline"
+        style={{background:'#fff',borderColor:'#bfdbfe',color:'#1e40af',fontSize:12,height:28,padding:'2px 10px'}}
+        onClick={()=>setQuery('')}
+      >
+        <RotateCcw size={13}/> Qidiruvni bekor qilish
+      </button>
+    </div>
+  )}
   <div className="batch-stats">
     <div><b>{total}</b><span>Jami yozuvlar</span></div>
     <div><b>{aggregates.batchCount ?? batchCount}</b><span>Kirim partiyalari</span></div>
@@ -984,6 +1052,18 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       setQuery('');
       load(getTodayDate());
       toast?.('Excel fayldagi tovarlar muvaffaqiyatli qabul qilindi');
+    }}
+  />
+  <BatchPriceExcelModal
+    open={batchPriceModalOpen}
+    onClose={()=>setBatchPriceModalOpen(false)}
+    branchId={branchId}
+    receipts={rows}
+    rate={rate}
+    toast={toast}
+    onUpdated={()=>{
+      load(selectedDate);
+      toast?.('Tovarlar narxlari muvaffaqiyatli yangilandi');
     }}
   />
   </>;
@@ -3221,6 +3301,42 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
   const[rate,setRate]=useState(null);
   useEffect(()=>{getLatestExchangeRate().then(r=>setRate(Number(r)||null)).catch(()=>{})},[]);
 
+  const draftKey = `tb_draft_receipt_${branchId || ''}_${mode}`;
+  const [draftRestored, setDraftRestored] = useState(false);
+
+  useEffect(() => {
+    if (open && branchId) {
+      try {
+        const raw = localStorage.getItem(draftKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed?.lines) && parsed.lines.some(l => l.product_id || (l.quantity && l.quantity > 1) || l.unit_cost || l.retail_price || l.serials)) {
+            setLines(parsed.lines);
+            if (parsed.form) {
+              setForm(prev => ({ ...prev, ...parsed.form }));
+            }
+            setDraftRestored(true);
+          }
+        }
+      } catch {}
+    } else {
+      setDraftRestored(false);
+    }
+  }, [open, branchId, draftKey]);
+
+  useEffect(() => {
+    if (!open || !branchId) return;
+    const timer = setTimeout(() => {
+      const hasContent = lines.some(l => l.product_id || (l.quantity && l.quantity > 1) || l.unit_cost || l.retail_price || l.serials);
+      if (hasContent) {
+        try {
+          localStorage.setItem(draftKey, JSON.stringify({ form, lines, updatedAt: Date.now() }));
+        } catch {}
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [open, branchId, draftKey, form, lines]);
+
   useEffect(()=>{
     if(open&&branchId){
       const n=new Date();
@@ -3231,16 +3347,36 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
       const rno = `${prefix}${dateNumStr}-${timeNumStr}`;
       setForm(f=>({
         ...f,
-        receipt_no:rno,
+        receipt_no: f.receipt_no || rno,
         received_at:f.received_at || localDateStr,
         currency:f.currency || 'USD',
-        notes:isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':f.notes
+        notes:f.notes || (isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'')
       }));
       getInventoryReferences(branchId).then(async r=>{
-        const{data:prods}=await getBrowserClient().from('products').select('id,name,sku,cost_price,retail_price,wholesale_price,minimum_sale_price,cost_price_usd,retail_price_usd,wholesale_price_usd,minimum_sale_price_usd,currency').neq('status','archived');
+        // Barcha tovarlarni (1000 dan ortiq bo'lsa ham) to'liq yuklab olamiz
+        let allProds = [];
+        let chunkOffset = 0;
+        const chunkSize = 1000;
+        let hasMore = true;
+        while (hasMore) {
+          const { data: chunk, error: pErr } = await getBrowserClient()
+            .from('products')
+            .select('id,name,sku,cost_price,retail_price,wholesale_price,minimum_sale_price,cost_price_usd,retail_price_usd,wholesale_price_usd,minimum_sale_price_usd,currency')
+            .neq('status', 'archived')
+            .order('name')
+            .range(chunkOffset, chunkOffset + chunkSize - 1);
+          if (pErr) break;
+          if (chunk && chunk.length > 0) {
+            allProds = allProds.concat(chunk);
+            if (chunk.length < chunkSize) hasMore = false;
+            else chunkOffset += chunkSize;
+          } else {
+            hasMore = false;
+          }
+        }
         const{data:cats}=await getBrowserClient().from('categories').select('id,name,slug,parent_id').eq('is_active',true).order('sort_order');
         const{data:brands}=await getBrowserClient().from('brands').select('id,name').eq('is_active',true).order('name');
-        const fullProducts=(prods||[]).map(p=>{const ref=(r.products||[]).find(x=>x.id===p.id);return{...p,image:ref?.image||null,track_individual_units:ref?.track_individual_units??true}});
+        const fullProducts=(allProds||[]).map(p=>{const ref=(r.products||[]).find(x=>x.id===p.id);return{...p,image:ref?.image||null,track_individual_units:ref?.track_individual_units??true}});
         setRefs({...r,products:fullProducts,categories:cats||[],brands:brands||[]});
         
         let initialSupplierId = isInventory ? '' : (r.suppliers[0]?.id || '');
@@ -3722,6 +3858,8 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
         paid_amount: isInventory ? 0 : (Number(form.paid_amount) || 0)
       }, payloadLines);
 
+      try { localStorage.removeItem(draftKey); } catch {}
+      setDraftRestored(false);
       setLines([{
         product_id:'',color_name:'',variant_id:'',quantity:1,unit_cost:'',unit_cost_usd:'',serials:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',minimum_sale_price:'',minimum_sale_price_usd:'',priceConfirmed:false,variants:[],variantConfigs:{},variantImageFiles:[],components:[]
       }]);
@@ -3887,8 +4025,52 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     return sum + (Number(line.quantity) || 0);
   }, 0);
 
-  return <Modal open={open} onClose={close} wide title={isInventory ? "Inventarizatsiya — mavjud tovarlarni kiritish" : "Yangi partiya qabul qilish"}>
+  const handleClose = () => {
+    const hasContent = lines.some(l => l.product_id || (l.quantity && l.quantity > 1) || l.unit_cost || l.retail_price || l.serials);
+    if (hasContent) {
+      if (window.confirm('Kiritilgan ma’lumotlar qoralama sifatida saqlanib qoladi. Oynani yopasizmi?')) {
+        close();
+      }
+    } else {
+      close();
+    }
+  };
+
+  return <Modal open={open} onClose={handleClose} wide title={isInventory ? "Inventarizatsiya — mavjud tovarlarni kiritish" : "Yangi partiya qabul qilish"}>
     <form className="receipt-form" onSubmit={submit}>
+      {draftRestored && (
+        <div style={{
+          background: '#eff6ff',
+          border: '1px solid #bfdbfe',
+          borderRadius: 10,
+          padding: '10px 14px',
+          marginBottom: 14,
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          gap: 12,
+          fontSize: 13,
+          color: '#1e40af'
+        }}>
+          <span>ℹ️ Avval kiritilgan inventarizatsiya qoralamasi tiklandi.</span>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            style={{ fontSize: 12, color: '#dc2626', cursor: 'pointer', padding: '3px 8px', border: '1px solid #fecaca', borderRadius: 6, background: '#fff' }}
+            onClick={() => {
+              if (window.confirm('Qoralamani tozalab, bo‘sh shakl ochilsinmi?')) {
+                try { localStorage.removeItem(draftKey); } catch {}
+                setDraftRestored(false);
+                setLines([{
+                  product_id:'',color_name:'',variant_id:'',quantity:1,currency:isInventory?'UZS':'USD',unit_cost:'',unit_cost_usd:'',serials:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',minimum_sale_price:'',minimum_sale_price_usd:'',priceConfirmed:false,variants:[],variantConfigs:{},variantImageFiles:[],components:[]
+                }]);
+              }
+            }}
+          >
+            Qoralamani tozalash
+          </button>
+        </div>
+      )}
       {error&&<div className="employee-error">{error}</div>}
       <div className="receipt-form-grid">
         <label>
@@ -4213,10 +4395,66 @@ function CurrencyNumberInput({
   );
 }
 
+function normalizeSearchText(text) {
+  if (!text) return '';
+  return String(text)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/['‘’ʻʼ`]/g, '')
+    .replace(/а/g, 'a').replace(/б/g, 'b').replace(/в/g, 'v').replace(/г/g, 'g')
+    .replace(/д/g, 'd').replace(/е/g, 'e').replace(/ё/g, 'yo').replace(/ж/g, 'j')
+    .replace(/з/g, 'z').replace(/и/g, 'i').replace(/й/g, 'y').replace(/к/g, 'k')
+    .replace(/л/g, 'l').replace(/м/g, 'm').replace(/н/g, 'n').replace(/о/g, 'o')
+    .replace(/п/g, 'p').replace(/р/g, 'r').replace(/с/g, 's').replace(/т/g, 't')
+    .replace(/у/g, 'u').replace(/ф/g, 'f').replace(/х/g, 'x').replace(/ц/g, 'ts')
+    .replace(/ч/g, 'ch').replace(/ш/g, 'sh').replace(/щ/g, 'sh').replace(/ъ/g, '')
+    .replace(/ы/g, 'i').replace(/ь/g, '').replace(/э/g, 'e').replace(/ю/g, 'yu')
+    .replace(/я/g, 'ya').replace(/ў/g, 'o').replace(/қ/g, 'q').replace(/ғ/g, 'g').replace(/ҳ/g, 'h')
+    .replace(/[^a-z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function fuzzyMatchProduct(product, rawQuery) {
+  if (!rawQuery || !rawQuery.trim()) return true;
+  const qClean = normalizeSearchText(rawQuery);
+  if (!qClean) return true;
+
+  const nameClean = normalizeSearchText(product.name);
+  const skuClean = normalizeSearchText(product.sku);
+
+  // 1. Direct normalized substring
+  if (nameClean.includes(qClean) || skuClean.includes(qClean)) return true;
+
+  // 2. Direct raw lowercase substring (handles partial and exact casing)
+  const rawQ = rawQuery.trim().toLowerCase();
+  const rawName = String(product.name || '').toLowerCase();
+  const rawSku = String(product.sku || '').toLowerCase();
+  if (rawName.includes(rawQ) || rawSku.includes(rawQ)) return true;
+
+  // 3. Multi-word tokens: "dazm eva" -> all tokens must match
+  const tokens = qClean.split(' ').filter(Boolean);
+  if (tokens.length > 1) {
+    const allTokensMatch = tokens.every(tok => nameClean.includes(tok) || skuClean.includes(tok));
+    if (allTokensMatch) return true;
+  }
+
+  // 4. 3-character substring matches
+  if (qClean.length >= 3 && (nameClean.includes(qClean) || skuClean.includes(qClean))) {
+    return true;
+  }
+
+  return false;
+}
+
 function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,onSelect,confirmPrice,openCreateProduct,rate,currency='USD'}){
   const[search,setSearch]=useState('');
   const[dropdownOpen,setDropdownOpen]=useState(false);
   const[priceCurrency,setPriceCurrency]=useState(() => line.currency || currency || 'USD');
+  const[serverResults,setServerResults]=useState([]);
+  const[isSearchingServer,setIsSearchingServer]=useState(false);
+  const searchContainerRef = useRef(null);
 
   useEffect(()=>{
     if(line.currency) {
@@ -4226,13 +4464,71 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
     }
   },[line.currency, currency]);
 
+  // Click outside listener to close dropdown
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Async debounced server-side search fallback if query has 2+ characters
+  useEffect(() => {
+    const q = search.trim();
+    if (!q || q.length < 2) {
+      setServerResults([]);
+      setIsSearchingServer(false);
+      return;
+    }
+
+    setIsSearchingServer(true);
+    const timer = setTimeout(async () => {
+      try {
+        const { data } = await getBrowserClient()
+          .from('products')
+          .select('id,name,sku,cost_price,retail_price,wholesale_price,minimum_sale_price,cost_price_usd,retail_price_usd,wholesale_price_usd,minimum_sale_price_usd,currency')
+          .neq('status', 'archived')
+          .or(`name.ilike.%${q}%,sku.ilike.%${q}%`)
+          .limit(40);
+        setServerResults(data || []);
+      } catch (err) {
+        setServerResults([]);
+      } finally {
+        setIsSearchingServer(false);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [search]);
+
   const selectedProduct=products.find(p=>p.id===line.product_id);
   const matchedVariant = (line.variants || []).find(v =>
     (line.variant_id && v.id === line.variant_id) ||
     (line.color_name && v.color_name?.trim().toLowerCase() === line.color_name.trim().toLowerCase())
   );
   const existingVariantImage = matchedVariant?.image_url || matchedVariant?.media?.[0]?.public_url || null;
-  const filtered=search?products.filter(p=>p.name.toLowerCase().includes(search.toLowerCase())||p.sku.toLowerCase().includes(search.toLowerCase())).slice(0,15):products.slice(0,15);
+
+  // Merge client fuzzy matches and server results (deduplicated)
+  const filtered = useMemo(() => {
+    const localMatches = search.trim()
+      ? products.filter(p => fuzzyMatchProduct(p, search)).slice(0, 50)
+      : products.slice(0, 30);
+
+    if (!serverResults.length) return localMatches;
+
+    const seenIds = new Set(localMatches.map(p => p.id));
+    const merged = [...localMatches];
+    for (const sp of serverResults) {
+      if (!seenIds.has(sp.id)) {
+        seenIds.add(sp.id);
+        merged.push(sp);
+      }
+    }
+    return merged.slice(0, 60);
+  }, [products, search, serverResults]);
 
   return <div className="receipt-product card" style={{padding:16,marginBottom:14,border:'1px solid var(--line)',borderRadius:14,background:index%2===1?'#fcfdfd':'#fff'}}>
     {/* Qator sarlavhasi va o'chirish tugmasi */}
@@ -4290,14 +4586,43 @@ function ReceiptProductLine({line,index,totalLines,products,setLine,removeLine,o
           <button type="button" className="btn btn-sm" style={{padding:'4px 10px',fontSize:11}} onClick={()=>{onSelect(index,'');setSearch('')}}>O'zgartirish</button>
         </div>
       ) : (
-        <div className="receipt-product-search">
+        <div className="receipt-product-search" ref={searchContainerRef}>
           <div className="receipt-search-input">
             <Search size={14}/>
-            <input value={search} onChange={e=>{setSearch(e.target.value);setDropdownOpen(true)}} onFocus={()=>setDropdownOpen(true)} placeholder="Tovar nomi yoki SKU bo‘yicha qidiring..."/>
+            <input
+              value={search}
+              onChange={e=>{setSearch(e.target.value);setDropdownOpen(true)}}
+              onFocus={()=>setDropdownOpen(true)}
+              placeholder="Tovar nomi, SKU yoki ixtiyoriy 3 ta harf bo‘yicha qidiring..."
+            />
+            {isSearchingServer && <Loader2 size={13} className="tw-animate-spin" style={{color:'#64748b'}}/>}
           </div>
-          {dropdownOpen&&<div className="receipt-product-dropdown">
-            {filtered.map(p=><button type="button" key={p.id} onClick={()=>{onSelect(index,p.id);setDropdownOpen(false);setSearch('')}}><b>{p.name}</b><small>{p.sku}</small></button>)}
-            {filtered.length===0&&<span className="receipt-dropdown-empty">Tovar topilmadi</span>}
+          {dropdownOpen&&<div className="receipt-product-dropdown" style={{maxHeight:320,overflowY:'auto'}}>
+            {search.trim() && (
+              <div style={{padding:'6px 12px',background:'#f8fafc',fontSize:11,fontWeight:600,color:'#64748b',borderBottom:'1px solid #f1f5f9',display:'flex',justifyContent:'space-between'}}>
+                <span>Qidiruv natijasi: {filtered.length} ta tovar</span>
+                {isSearchingServer && <span style={{fontSize:10,color:'#0284c7'}}>Serverdan qidirilmoqda…</span>}
+              </div>
+            )}
+            {filtered.map(p=>(
+              <button
+                type="button"
+                key={p.id}
+                onClick={()=>{onSelect(index,p.id,p);setDropdownOpen(false);setSearch('')}}
+                style={{display:'flex',flexDirection:'column',gap:2,padding:'8px 12px',borderBottom:'1px solid #f8fafc',textAlign:'left'}}
+              >
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'baseline',width:'100%'}}>
+                  <b style={{fontSize:13,color:'#0f172a'}}>{p.name}</b>
+                  <span style={{fontSize:11,color:'#16a34a',fontWeight:700,marginLeft:8}}>
+                    {p.currency === 'USD' ? `$${Number(p.cost_price_usd||0).toFixed(2)}` : `${new Intl.NumberFormat('uz-UZ').format(p.cost_price||0)} so'm`}
+                  </span>
+                </div>
+                <small style={{color:'#64748b',fontSize:11}}>
+                  {p.sku || 'SKUsiz'} · Sotish: {p.currency === 'USD' ? `$${Number(p.retail_price_usd||0).toFixed(2)}` : `${new Intl.NumberFormat('uz-UZ').format(p.retail_price||0)} so'm`}
+                </small>
+              </button>
+            ))}
+            {filtered.length===0&&<span className="receipt-dropdown-empty">"{search}" bo‘yicha tovar topilmadi</span>}
             <button type="button" className="receipt-dropdown-create" onClick={()=>{setDropdownOpen(false);openCreateProduct()}}><Plus size={13}/>Yangi tovar yaratish</button>
           </div>}
         </div>

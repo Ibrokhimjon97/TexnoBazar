@@ -34,12 +34,13 @@ import ExchangeRateWorkspace from'./ExchangeRateWorkspace';
 import SalesHistoryWorkspace from'./SalesHistoryWorkspace';
 import ManagerBackupWorkspace from'./ManagerBackupWorkspace';
 import AttendanceWorkspace from'./AttendanceWorkspace';
+import DeliveryWorkspace from'./DeliveryWorkspace';
 
 const nav=[
   ['Asosiy',Home,'home'],['Partiyalar',PackagePlus,'batches'],['Tovarlar',Warehouse,'stock'],
   ['Zahira / Tiklash',Archive,'backup'],
   ['Transfer',ArrowLeftRight,'transfer'],['Hisobdan chiqarish',FileX2,'writeoff'],
-  ['Qaytarish',RotateCcw,'returns'],['Ta’mirlash',Wrench,'repairs'],['Kassa',WalletCards,'cash'],['Davomat',CalendarCheck,'attendance'],['Online / Kuryer',Truck,'orders'],['Sotuvlar tarixi',ClipboardCheck,'sales-history'],['AI yordamchi',Sparkles,'ai-chat'],
+  ['Qaytarish',RotateCcw,'returns'],['Ta’mirlash',Wrench,'repairs'],['Kassa',WalletCards,'cash'],['Dostavka',Truck,'delivery'],['Davomat',CalendarCheck,'attendance'],['Online / Kuryer',Truck,'orders'],['Sotuvlar tarixi',ClipboardCheck,'sales-history'],['AI yordamchi',Sparkles,'ai-chat'],
   ['Moliya',Landmark,'finance'],['Valyuta',DollarSign,'exchange'],['Qarzdorlik',ShoppingBag,'debt'],
 ];
 export default function App(){
@@ -124,6 +125,8 @@ export default function App(){
             <RepairWorkspace {...common}/>
           ):page==='cash'?(
             <CashWorkspace {...common} focusPendingSaleId={focusPendingSaleId} clearFocus={()=>setFocusPendingSaleId(null)}/>
+          ):page==='delivery'?(
+            <DeliveryWorkspace {...common}/>
           ):page==='attendance'?(
             <AttendanceWorkspace {...common}/>
           ):page==='orders'?(

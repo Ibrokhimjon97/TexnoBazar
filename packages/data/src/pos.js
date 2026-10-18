@@ -18,6 +18,9 @@ export function listPosUnits({ branchId, query = null, page = 1, pageSize = 30 }
 export function createPosPendingSale({ branchId, lines, payments, notes = null, customer = null }, idempotencyKey = crypto.randomUUID()) {
   return rpc('create_pos_pending_sale', { p_branch_id: branchId, p_lines: lines, p_payments: payments, p_idempotency_key: idempotencyKey, p_notes: notes || null, p_customer: customer || null });
 }
+export function updatePosPendingSale({ pendingId, lines, payments, notes = null, customer = null }) {
+  return rpc('update_pos_pending_sale', { p_pending_id: pendingId, p_lines: lines, p_payments: payments, p_notes: notes || null, p_customer: customer || null });
+}
 export const releaseExpiredPosSales = branchId => rpc('release_expired_pos_sales', { p_branch_id: branchId });
 export const getPosPendingSale = id => rpc('get_pos_pending_sale', { p_pending_id: id });
 export function listPosPendingSales({ branchId, status = null, query = null, page = 1, pageSize = 30 }) {

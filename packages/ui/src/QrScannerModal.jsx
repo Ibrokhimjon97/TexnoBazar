@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Camera, FlipHorizontal, RefreshCw, X, Zap, ZapOff, ZoomIn, Focus } from 'lucide-react';
 
+const isIOS = typeof navigator !== 'undefined' && (
+  /iPad|iPhone|iPod/.test(navigator.userAgent || '') ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+);
+
 /**
  * Kamera turlarini aniqlash va ball berish.
  * Asosiy maqsad: ko'p kamerali telefonlarda hira 0.5x (keng burchak) o'rniga
@@ -60,8 +65,7 @@ function classifyAndScoreCameras(devices) {
       isCamera2Main ||
       (l.includes('wide') && !isUltraWide) || // Masalan iPhone'da: "Back Wide Camera" bu Asosiy 1x kamera!
       (l.includes('back') && !isCamera2Aux) ||
-      (l.includes('rear') && !isCamera2Aux) ||
-      index === 0
+      (l.includes('rear') && !isCamera2Aux)
     );
 
     // Ball berish — Asosiy 1x kamerani birinchi o'ringa olib chiqish
@@ -83,7 +87,6 @@ function classifyAndScoreCameras(devices) {
       if (l.includes('1x')) score += 50;
     } else {
       if (l.includes('back') || l.includes('rear')) score += 30;
-      if (index === 0) score += 10;
     }
 
     // Foydalanuvchiga tushunarli chiroyli nom
@@ -331,9 +334,12 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
 
         // Qaysi kamerani tanlash kerak:
         // 1. Agar foydalanuvchi ma'lum kamerani tanlagan bo'lsa (activeCameraId)
-        // 2. Aks holda, ko'p kamerali telefonlarda eng yuqori ballli ASOSIY (1x) orqa kamerani tanlaymiz (keng burchak 0.5x emas!)
+        // 2. Aks holda:
+        //    - Android'da ko'p kamerali telefonlarda eng yuqori ballli ASOSIY (1x) orqa kamerani ID bo'yicha tanlaymiz (keng burchak 0.5x emas!).
+        //    - iPhone (iOS)'da esa brauzer indekslashida old kamera 0-indeksda kelishi sababli, iPhone uchun { facingMode: 'environment' }
+        //      ishlatiladi. Bu iPhone'da doim orqa kamerani ochadi va selfi kamera ochilib qolishini butunlay bartaraf etadi.
         let selectedId = activeCameraId;
-        if (!selectedId && facingMode === 'environment') {
+        if (!selectedId && !isIOS && facingMode === 'environment') {
           const bestMainCam = classified.find(c => !c.isFront && !c.isUltraWide && !c.isMacro) || classified[0];
           if (bestMainCam) {
             selectedId = bestMainCam.id;
@@ -374,8 +380,20 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
 
         let startedSuccessfully = false;
 
-        // 1-urinish: Asosiy kameraning aniq ID si orqali ochish
-        if (selectedId) {
+        // 1-urinish (iOS): Agar iPhone/iPad bo'lsa va activeCameraId qo'lda tanlanmagan bo'lsa,
+        // iOS Safari uchun eng ishonchli va to'g'ri usul — { facingMode: 'environment' } orqali orqa Asosiy kamerani ochish.
+        if (isIOS && !activeCameraId && !stopped) {
+          try {
+            const mode = facingMode === 'user' ? { facingMode: 'user' } : { facingMode: 'environment' };
+            await html5QrCode.start(mode, qrConfig, onScanSuccess, onScanFailure);
+            startedSuccessfully = true;
+          } catch (errIos) {
+            console.warn('iOS facingMode orqali ochilmadi, ID orqali uriniladi:', errIos);
+          }
+        }
+
+        // 2-urinish: Asosiy kameraning aniq ID si orqali ochish (Android va qo'lda kamera almashtirilganda)
+        if (!startedSuccessfully && selectedId && !stopped) {
           try {
             await html5QrCode.start(selectedId, qrConfig, onScanSuccess, onScanFailure);
             startedSuccessfully = true;
@@ -384,7 +402,7 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
           }
         }
 
-        // 2-urinish: facingMode orqali orqa kamera (environment)
+        // 3-urinish: facingMode orqali orqa kamera (environment)
         if (!startedSuccessfully && !stopped) {
           try {
             const mode = facingMode === 'user' ? { facingMode: 'user' } : { facingMode: 'environment' };
@@ -395,7 +413,7 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
           }
         }
 
-        // 3-urinish: Birinchi mavjud qurilma
+        // 4-urinish: Birinchi mavjud qurilma
         if (!startedSuccessfully && !stopped && rawDevices && rawDevices[0]) {
           try {
             await html5QrCode.start(rawDevices[0].id, qrConfig, onScanSuccess, onScanFailure);
@@ -424,6 +442,11 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
             const videoEl = containerRef.current?.querySelector('video');
             const track = videoEl?.srcObject?.getVideoTracks?.()?.[0];
             if (track) {
+              const settings = track.getSettings?.() || {};
+              if (settings.deviceId && !activeCameraId) {
+                setActiveCameraId(settings.deviceId);
+              }
+
               const capabilities = track.getCapabilities?.() || {};
               const advanced = [];
 

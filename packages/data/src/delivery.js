@@ -41,3 +41,40 @@ export const getOrderUnitAssignments = orderId => rpc('get_order_unit_assignment
 export const managerReassignOrderUnit = (orderLineId, qrCode) => rpc('manager_reassign_order_unit', { p_order_line_id: orderLineId, p_qr_code: qrCode });
 export const courierVerifyOrderUnit = (orderId, qrCode) => rpc('courier_verify_order_unit', { p_order_id: orderId, p_qr_code: qrCode });
 export const getCourierOrderVerification = orderId => rpc('get_courier_order_verification', { p_order_id: orderId });
+
+// POS Deliveries
+export const createPosDelivery = ({
+  saleId,
+  customerName,
+  customerPhone,
+  deliveryAddress,
+  paymentType = 'cash',
+  codAmount = 0,
+  notes = null
+}) => rpc('create_pos_delivery', {
+  p_sale_id: saleId,
+  p_customer_name: customerName,
+  p_customer_phone: customerPhone,
+  p_delivery_address: deliveryAddress,
+  p_payment_type: paymentType,
+  p_cod_amount: codAmount,
+  p_notes: notes
+});
+
+export const listPosDeliveries = ({ branchId, status = null, query = null, page = 1, pageSize = 50 } = {}) =>
+  rpc('list_pos_deliveries', {
+    p_branch_id: branchId,
+    p_status: status || null,
+    p_query: query || null,
+    p_limit: pageSize,
+    p_offset: (page - 1) * pageSize
+  });
+
+export const managerAcceptDeliveryCash = deliveryId =>
+  rpc('manager_accept_delivery_cash', { p_delivery_id: deliveryId });
+
+export const managerUpdateDeliveryStatus = ({ deliveryId, status, notes = null }) =>
+  rpc('manager_update_delivery_status', { p_delivery_id: deliveryId, p_status: status, p_notes: notes });
+
+export const managerCancelDelivery = ({ deliveryId, reason }) =>
+  rpc('manager_cancel_delivery', { p_delivery_id: deliveryId, p_reason: reason });
