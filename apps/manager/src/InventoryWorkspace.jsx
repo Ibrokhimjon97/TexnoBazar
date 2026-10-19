@@ -7,7 +7,7 @@ import RichTextEditor from'./RichTextEditor';
 import{CreateProductInline}from'./InventoryRegisterModal';
 import InventoryExcelImportModal from'./InventoryExcelImportModal';
 import BatchPriceExcelModal from'./BatchPriceExcelModal';
-import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia,exportBatchesBackup,exportReceiptBackup,inspectBatchesBackupFile,restoreBatchesBackupFile,saveProductComponents,getProductComponents}from'@texnobazar/data';
+import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,convertStockReceiptsCurrency,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia,exportBatchesBackup,exportReceiptBackup,inspectBatchesBackupFile,restoreBatchesBackupFile,saveProductComponents,getProductComponents}from'@texnobazar/data';
 const err=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 // Visual marker only: INV-* kirimlar inventarizatsiya orqali ro‘yxatga olingan,
 // qolganlari esa oddiy yetkazib berish partiyasi.
@@ -15,7 +15,8 @@ const isInventoryReceipt=receiptNo=>/^INV-/i.test(String(receiptNo||'').trim());
 export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInventory,toast,autoOpenReceiptId,onAutoOpenReceiptHandled,refreshTrigger}){
   const getTodayDate=()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth(),d.getDate());};
   const isSameDay=(d1,d2)=>{if(!d1||!d2)return false;return d1.getFullYear()===d2.getFullYear()&&d1.getMonth()===d2.getMonth()&&d1.getDate()===d2.getDate();};
-  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[aggregates,setAggregates]=useState({totalUnits:0,totalCost:0,totalMinPrice:0,batchCount:0,invCount:0}),[query,setQuery]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[locationFilter,setLocationFilter]=useState('all'),[locations,setLocations]=useState([]),[sortBy,setSortBy]=useState('newest'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
+  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[aggregates,setAggregates]=useState({totalUnits:0,totalCost:0,totalMinPrice:0,batchCount:0,invCount:0}),[query,setQuery]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[currencyFilter,setCurrencyFilter]=useState('all'),[locationFilter,setLocationFilter]=useState('all'),[locations,setLocations]=useState([]),[sortBy,setSortBy]=useState('newest'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
+  const[selectedIds,setSelectedIds]=useState([]),[convertingCurrency,setConvertingCurrency]=useState(false);
   const[passwordModal,setPasswordModal]=useState(null);
   const[selectedDate,setSelectedDate]=useState(()=>getTodayDate());
   const[visibleCount,setVisibleCount]=useState(30);
@@ -28,6 +29,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   const[restoreModalOpen,setRestoreModalOpen]=useState(false);
   const[excelImportOpen,setExcelImportOpen]=useState(false);
   const[batchPriceModalOpen,setBatchPriceModalOpen]=useState(false);
+  const reqIdRef=useRef(0);
 
   useEffect(()=>{
     if(!branchId)return;
@@ -346,6 +348,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   useEffect(()=>{getLatestExchangeRate().then(r=>setRate(Number(r)||null)).catch(()=>{})},[]);
   const load=async(dateParam=selectedDate)=>{
     if(!branchId)return;
+    const reqId = ++reqIdRef.current;
     setLoading(true);
     setError('');
     try{
@@ -363,6 +366,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         date: formattedDate,
         pageSize: 1000
       });
+      if(reqId !== reqIdRef.current) return;
       const items = r.items || [];
       setRows(items);
       setTotal(Number(r.total) || 0);
@@ -377,13 +381,17 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         invCount: Number(r.inv_count ?? items.filter(x => isInventoryReceipt(x.receipt_no)).length),
       });
     }catch(e){
-      setError(err(e));
+      if(reqId === reqIdRef.current){
+        setError(err(e));
+      }
     }finally{
-      setLoading(false);
+      if(reqId === reqIdRef.current){
+        setLoading(false);
+      }
     }
   };
-  useEffect(()=>{const t=setTimeout(()=>load(selectedDate),query?250:0);return()=>clearTimeout(t)},[branchId,query,locationFilter,selectedDate]);
-  useEffect(()=>{setVisibleCount(30);},[selectedDate,query,typeFilter,locationFilter,sortBy]);
+  useEffect(()=>{const t=setTimeout(()=>load(selectedDate),query?350:0);return()=>clearTimeout(t)},[branchId,query,locationFilter,selectedDate]);
+  useEffect(()=>{setVisibleCount(30);},[selectedDate,query,typeFilter,currencyFilter,locationFilter,sortBy]);
   const open=async(id,isEdit=false)=>{try{setDetail(await getStockReceipt(id));setDetailEdit(Boolean(isEdit));}catch(e){setError(err(e))}};
 
   const handleNewlyCreatedReceipt=async(receiptId)=>{
@@ -517,6 +525,8 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   },[serverBatchDates,rows]);
   const batchCount=useMemo(()=>rows.filter(x=>!isInventoryReceipt(x.receipt_no)).length,[rows]);
   const invCount=useMemo(()=>rows.filter(x=>isInventoryReceipt(x.receipt_no)).length,[rows]);
+  const uzsCount=useMemo(()=>rows.filter(x=>String(x.currency||'USD').toUpperCase()==='UZS').length,[rows]);
+  const usdCount=useMemo(()=>rows.filter(x=>String(x.currency||'USD').toUpperCase()==='USD').length,[rows]);
   const totalCostAll=useMemo(()=>rows.reduce((s,x)=>s+Number(x.total_cost||0),0),[rows]);
   const totalMinAll=useMemo(()=>rows.reduce((s,x)=>s+Number(x.total_min_price||0),0),[rows]);
   const cleanQ = query ? query.trim() : '';
@@ -524,6 +534,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     return rows.filter(x=>{
       if(typeFilter==='batch'&&isInventoryReceipt(x.receipt_no))return false;
       if(typeFilter==='inventory'&&!isInventoryReceipt(x.receipt_no))return false;
+      if(currencyFilter!=='all'&&String(x.currency||'USD').toUpperCase()!==currencyFilter)return false;
       if(locationFilter!=='all'&&x.receiving_location_id!==locationFilter)return false;
       // Faqat qidiruv bo'lmagandagina tanlangan sana bo'yicha cheklaymiz. Qidiruv paytida barcha kunlardagi yozuvlar chiqadi!
       if(selectedDate && !cleanQ){
@@ -535,7 +546,58 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       }
       return true;
     });
-  },[rows,selectedDate,typeFilter,locationFilter,cleanQ]);
+  },[rows,selectedDate,typeFilter,currencyFilter,locationFilter,cleanQ]);
+
+  const allVisibleSelected = displayRows.length > 0 && displayRows.every(r => selectedIds.includes(r.id));
+  const someVisibleSelected = displayRows.some(r => selectedIds.includes(r.id));
+
+  const toggleSelectAll = () => {
+    if (allVisibleSelected) {
+      const displaySet = new Set(displayRows.map(r => r.id));
+      setSelectedIds(prev => prev.filter(id => !displaySet.has(id)));
+    } else {
+      const next = new Set([...selectedIds, ...displayRows.map(r => r.id)]);
+      setSelectedIds([...next]);
+    }
+  };
+
+  const toggleSelectOne = (id) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const handleConvertSelected = async (targetCurrency, specificIds = null) => {
+    const idsToConvert = specificIds || selectedIds;
+    if (!idsToConvert || idsToConvert.length === 0) return;
+    const targetName = targetCurrency === 'USD' ? 'USD ($ - Dollar)' : 'UZS (So‘m)';
+    const count = idsToConvert.length;
+    const currentRate = Number(rate || 12800);
+
+    const msg = count === 1
+      ? `Tanlangan partiya / inventarizatsiya valyutasini ${targetName} ga o‘tkazishni tasdiqlaysizmi?\n\n` +
+        `• Joriy valyuta kursi: 1 USD = ${currentRate.toLocaleString('uz-UZ')} UZS\n` +
+        (targetCurrency === 'USD'
+          ? `• Tovarlarning UZS da saqlangan tannarxi bugungi kursda USD ga o‘zgaradi va USD da KONSTANTA bo‘lib qoladi (kelgusida kurs o‘zgarsa, so‘mdagi qiymat avtomatik qayta hisoblanadi).`
+          : `• Tovarlarning USD dagi tannarxi bugungi kursda UZS ga o‘zgaradi va UZS da KONSTANTA bo‘lib qoladi.`)
+      : `${count} ta partiya / inventarizatsiya valyutasini ${targetName} ga o‘tkazishni tasdiqlaysizmi?\n\n` +
+        `• Joriy valyuta kursi: 1 USD = ${currentRate.toLocaleString('uz-UZ')} UZS\n` +
+        (targetCurrency === 'USD'
+          ? `• Barcha tanlangan partiyalardagi tovarlar tannarxi bugungi kursda USD ga aylanadi va USD da KONSTANTA bo‘ladi.`
+          : `• Barcha tanlangan partiyalardagi tovarlar tannarxi bugungi kursda UZS ga aylanadi va UZS da KONSTANTA bo‘ladi.`);
+
+    if (!confirm(msg)) return;
+
+    setConvertingCurrency(true);
+    try {
+      const res = await convertStockReceiptsCurrency(idsToConvert, targetCurrency);
+      toast?.(`${res.updated_receipts} ta partiya (${res.updated_products} ta tovar) valyutasi muvaffaqiyatli ${targetName} ga o‘tkazildi! (Kurs: ${res.rate})`);
+      setSelectedIds(prev => prev.filter(id => !idsToConvert.includes(id)));
+      await load(selectedDate);
+    } catch (e) {
+      alert('Valyutani o‘tkazishda xatolik: ' + err(e));
+    } finally {
+      setConvertingCurrency(false);
+    }
+  };
 
   const sortedRows=useMemo(()=>{
     const list=[...displayRows];
@@ -685,16 +747,56 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     <div><b><DualPrice value={aggregates.totalMinPrice || totalMinAll} rate={rate}/></b><span>Barcha tovarlar min. sotish</span></div>
   </div>
   <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:10,marginBottom:12}}>
-    <div className="batch-origin-tabs" style={{margin:0}}>
-      <button type="button" className={`btn ${typeFilter==='all'?'btn-primary':'btn-outline'}`} onClick={()=>setTypeFilter('all')}>
-        Barchasi ({rows.length})
-      </button>
-      <button type="button" className={`btn ${typeFilter==='batch'?'btn-primary':'btn-outline'}`} onClick={()=>setTypeFilter('batch')}>
-        Partiyalar ({batchCount})
-      </button>
-      <button type="button" className={`btn ${typeFilter==='inventory'?'btn-primary':'btn-outline'}`} style={typeFilter==='inventory'?{background:'#7c3aed',borderColor:'#7c3aed',color:'#fff'}:{borderColor:'#ddd6fe',color:'#6d28d9'}} onClick={()=>setTypeFilter('inventory')}>
-        Inventarizatsiya ({invCount})
-      </button>
+    <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+      <div className="batch-origin-tabs" style={{margin:0}}>
+        <button type="button" className={`btn ${typeFilter==='all'?'btn-primary':'btn-outline'}`} onClick={()=>setTypeFilter('all')}>
+          Barchasi ({rows.length})
+        </button>
+        <button type="button" className={`btn ${typeFilter==='batch'?'btn-primary':'btn-outline'}`} onClick={()=>setTypeFilter('batch')}>
+          Partiyalar ({batchCount})
+        </button>
+        <button type="button" className={`btn ${typeFilter==='inventory'?'btn-primary':'btn-outline'}`} style={typeFilter==='inventory'?{background:'#7c3aed',borderColor:'#7c3aed',color:'#fff'}:{borderColor:'#ddd6fe',color:'#6d28d9'}} onClick={()=>setTypeFilter('inventory')}>
+          Inventarizatsiya ({invCount})
+        </button>
+      </div>
+      <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap'}}>
+        <button
+          type="button"
+          className="btn btn-sm"
+          style={{
+            borderRadius: 20,
+            padding: '5px 12px',
+            fontSize: 12,
+            fontWeight: 700,
+            background: currencyFilter==='UZS' ? '#16a34a' : '#f0fdf4',
+            color: currencyFilter==='UZS' ? '#fff' : '#15803d',
+            border: '1px solid ' + (currencyFilter==='UZS' ? '#16a34a' : '#bbf7d0'),
+            cursor:'pointer'
+          }}
+          onClick={()=>setCurrencyFilter(currencyFilter==='UZS' ? 'all' : 'UZS')}
+          title="Faqat UZS (so‘m) da yaratilgan partiya va inventarizatsiyalarni ko‘rsatish"
+        >
+          🇺🇿 UZS da yaratilgan ({uzsCount})
+        </button>
+        <button
+          type="button"
+          className="btn btn-sm"
+          style={{
+            borderRadius: 20,
+            padding: '5px 12px',
+            fontSize: 12,
+            fontWeight: 700,
+            background: currencyFilter==='USD' ? '#0284c7' : '#f0f9ff',
+            color: currencyFilter==='USD' ? '#fff' : '#0369a1',
+            border: '1px solid ' + (currencyFilter==='USD' ? '#0284c7' : '#bae6fd'),
+            cursor:'pointer'
+          }}
+          onClick={()=>setCurrencyFilter(currencyFilter==='USD' ? 'all' : 'USD')}
+          title="Faqat USD ($) da yaratilgan partiya va inventarizatsiyalarni ko‘rsatish"
+        >
+          💵 USD ($) da yaratilgan ({usdCount})
+        </button>
+      </div>
     </div>
     <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
       <button
@@ -745,6 +847,20 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         placeholder="Tovar nomi, SKU, umumiy QR kod, partiya raqami, ta'minotchi..."
       />
     </div>
+    <div className="batch-filter-pill" style={{display:'flex',alignItems:'center',gap:6,background:'#fff',padding:'5px 12px',borderRadius:12,border:currencyFilter!=='all'?'1.5px solid #0284c7':'1px solid var(--line,#e2e8f0)',fontSize:13}}>
+      <Tag size={15} style={{color:currencyFilter==='USD'?'#0284c7':currencyFilter==='UZS'?'#16a34a':'var(--muted)'}}/>
+      <span style={{fontSize:12,color:currencyFilter!=='all'?'#0f172a':'var(--muted)',fontWeight:600}}>Valyuta:</span>
+      <select
+        className="select"
+        style={{border:'none',padding:'3px 6px',fontSize:13,background:'transparent',cursor:'pointer',fontWeight:700,color:currencyFilter==='USD'?'#0284c7':currencyFilter==='UZS'?'#16a34a':'var(--navy,#0f172a)'}}
+        value={currencyFilter}
+        onChange={e=>setCurrencyFilter(e.target.value)}
+      >
+        <option value="all">Barcha valyutalar ({rows.length})</option>
+        <option value="UZS">UZS (So‘m) ({uzsCount})</option>
+        <option value="USD">USD (Dollar $) ({usdCount})</option>
+      </select>
+    </div>
     <div className="batch-filter-pill" style={{display:'flex',alignItems:'center',gap:6,background:'#fff',padding:'5px 12px',borderRadius:12,border:'1px solid var(--line,#e2e8f0)',fontSize:13}}>
       <MapPin size={15} style={{color:'var(--orange,#ea580c)'}}/>
       <span style={{fontSize:12,color:'var(--muted)',fontWeight:600}}>Joylashuv:</span>
@@ -777,6 +893,136 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       </select>
     </div>
   </div>
+
+  {/* Ommaviy valyutani konvertatsiya qilish paneli (kamida 1 ta partiya tanlanganda ochiladi) */}
+  {selectedIds.length > 0 && (
+    <div style={{
+      position: 'sticky',
+      top: 10,
+      zIndex: 60,
+      background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+      color: '#fff',
+      borderRadius: 14,
+      padding: '12px 18px',
+      marginBottom: 16,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: 14,
+      boxShadow: '0 12px 28px -6px rgba(15,23,42,0.45), 0 0 0 1px rgba(255,255,255,0.1)',
+      flexWrap: 'wrap'
+    }}>
+      <div style={{display:'flex',alignItems:'center',gap:12,flexWrap:'wrap'}}>
+        <label style={{display:'inline-flex',alignItems:'center',gap:8,cursor:'pointer',userSelect:'none'}}>
+          <input
+            type="checkbox"
+            checked={allVisibleSelected}
+            onChange={toggleSelectAll}
+            style={{width:19,height:19,cursor:'pointer',accentColor:'#ea580c'}}
+          />
+          <span style={{fontSize:14,fontWeight:700}}>
+            <b>{selectedIds.length} ta</b> tanlandi
+          </span>
+        </label>
+        <button
+          type="button"
+          onClick={toggleSelectAll}
+          style={{background:'none',border:'none',color:'#38bdf8',fontSize:13,fontWeight:600,cursor:'pointer',textDecoration:'underline',padding:0}}
+        >
+          {allVisibleSelected ? 'Tanlovni bekor qilish' : `Filtrdagi barcha (${displayRows.length} ta) yozuvni tanlash`}
+        </button>
+      </div>
+
+      <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+        <div style={{fontSize:12,background:'rgba(255,255,255,0.12)',padding:'4px 10px',borderRadius:8,color:'#e2e8f0'}}>
+          Bugungi kurs: <b>1$ = {Number(rate || 12800).toLocaleString('uz-UZ')} so‘m</b>
+        </div>
+        <button
+          type="button"
+          className="btn"
+          style={{
+            background:'#0284c7',
+            color:'#fff',
+            borderColor:'#0284c7',
+            display:'inline-flex',
+            alignItems:'center',
+            gap:6,
+            fontWeight:700,
+            fontSize:13,
+            padding:'7px 14px',
+            boxShadow:'0 2px 8px rgba(2,132,199,0.35)'
+          }}
+          disabled={convertingCurrency}
+          onClick={() => handleConvertSelected('USD')}
+          title="Tanlangan partiyalarning tannarxini bugungi kursda USD ($) ga o'tkazish (USD da konstanta bo'ladi)"
+        >
+          {convertingCurrency ? <Loader2 size={15} className="spinner"/> : <ArrowRight size={15}/>}
+          USD ($) ga o‘tkazish
+        </button>
+        <button
+          type="button"
+          className="btn"
+          style={{
+            background:'#16a34a',
+            color:'#fff',
+            borderColor:'#16a34a',
+            display:'inline-flex',
+            alignItems:'center',
+            gap:6,
+            fontWeight:700,
+            fontSize:13,
+            padding:'7px 14px',
+            boxShadow:'0 2px 8px rgba(22,163,74,0.35)'
+          }}
+          disabled={convertingCurrency}
+          onClick={() => handleConvertSelected('UZS')}
+          title="Tanlangan partiyalarning tannarxini bugungi kursda UZS (so'm) ga o'tkazish"
+        >
+          {convertingCurrency ? <Loader2 size={15} className="spinner"/> : <ArrowRight size={15}/>}
+          UZS (so‘m) ga o‘tkazish
+        </button>
+        <button
+          type="button"
+          className="btn btn-outline"
+          style={{color:'#cbd5e1',borderColor:'#475569',fontSize:13,padding:'7px 12px'}}
+          onClick={() => setSelectedIds([])}
+          disabled={convertingCurrency}
+        >
+          Bekor qilish
+        </button>
+      </div>
+    </div>
+  )}
+
+  {/* Tezkor "Barchasini tanlash" va filtr ko'rsatkichi qatori */}
+  {sortedRows.length > 0 && (
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'6px 2px 12px',flexWrap:'wrap',gap:8}}>
+      <label style={{display:'inline-flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13,fontWeight:600,color:'#334155',userSelect:'none'}}>
+        <input
+          type="checkbox"
+          checked={allVisibleSelected}
+          onChange={toggleSelectAll}
+          style={{width:17,height:17,cursor:'pointer',accentColor:'#ea580c'}}
+        />
+        <span>
+          {allVisibleSelected ? 'Filtrdagi barcha yozuvlar tanlandi' : 'Barchasini tanlash'} ({displayRows.length} ta yozuv)
+        </span>
+      </label>
+      <div style={{display:'flex',alignItems:'center',gap:12,fontSize:12,color:'#64748b',fontWeight:500}}>
+        {currencyFilter !== 'all' && (
+          <span>
+            Filtr: <b style={{color:currencyFilter==='USD'?'#0284c7':'#16a34a'}}>{currencyFilter==='USD'?'USD ($) da yaratilganlar':'UZS da yaratilganlar'}</b>
+          </span>
+        )}
+        {selectedIds.length > 0 && (
+          <span style={{color:'#0284c7',fontWeight:700}}>
+            Tanlangan: {selectedIds.length} ta
+          </span>
+        )}
+      </div>
+    </div>
+  )}
+
   {loading?<div className="inventory-state">Yuklanmoqda…</div>:error?<ErrorState message={error} retry={load}/>:sortedRows.length===0?(
     <div>
       <Empty
@@ -795,11 +1041,37 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     <>
       <div className="batch-list">{visibleRows.map(x=>{
     const isInv=isInventoryReceipt(x.receipt_no);
-    return <article className="card" key={x.id} style={isInv?{borderLeft:'4px solid #7c3aed'}:{borderLeft:'4px solid var(--orange)'}}>
+    const itemCurrency=String(x.currency||'USD').toUpperCase();
+    const isSelected=selectedIds.includes(x.id);
+    return <article className="card" key={x.id} style={{
+      ...(isInv?{borderLeft:'4px solid #7c3aed'}:{borderLeft:'4px solid var(--orange)'}),
+      ...(isSelected?{background:'#f8fafc',outline:'2px solid #0284c7',outlineOffset:1}:{})
+    }}>
       <div className="batch-card-header">
-        <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+        <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={()=>toggleSelectOne(x.id)}
+            style={{width:18,height:18,cursor:'pointer',accentColor:'#ea580c'}}
+            title="Tanlash"
+          />
           <span className={'batch-origin '+(isInv?'batch-origin-inventory':'batch-origin-batch')} style={isInv?{background:'#f3e8ff',color:'#6b21a8',border:'1px solid #d8b4fe'}:{}}>
             {isInv?'Inventarizatsiya':'Partiya'}
+          </span>
+          <span style={{
+            display:'inline-flex',
+            alignItems:'center',
+            gap:4,
+            background: itemCurrency === 'USD' ? '#f0f9ff' : '#f0fdf4',
+            color: itemCurrency === 'USD' ? '#0369a1' : '#15803d',
+            border: `1px solid ${itemCurrency === 'USD' ? '#bae6fd' : '#bbf7d0'}`,
+            padding:'2px 8px',
+            borderRadius:6,
+            fontSize:11,
+            fontWeight:800
+          }} title={`Yaratilgan valyutasi: ${itemCurrency}`}>
+            {itemCurrency === 'USD' ? '$ USD (Dollar)' : 'UZS (So‘m)'}
           </span>
           <span style={{
             display:'inline-flex',
@@ -885,6 +1157,27 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       <div className="batch-card-bottom">
         <span>{x.line_count} xil tovar · Tan: <DualPrice value={Number(x.total_cost||0)} rate={rate}/> · Sotish: <DualPrice value={Number(x.total_retail||0)} rate={rate}/></span>
         <div className="batch-card-actions">
+          <button
+            type="button"
+            className="btn btn-outline"
+            style={{
+              padding:'4px 8px',
+              fontSize:12,
+              color: itemCurrency==='USD' ? '#16a34a' : '#0284c7',
+              borderColor: itemCurrency==='USD' ? '#86efac' : '#7dd3fc',
+              background: itemCurrency==='USD' ? '#f0fdf4' : '#f0f9ff',
+              display:'inline-flex',
+              alignItems:'center',
+              gap:4,
+              height:28,
+              fontWeight:700
+            }}
+            title={itemCurrency==='USD' ? "Valyutani UZS (so‘m) ga o‘tkazish" : "Valyutani bugungi kursda USD ($) ga o‘tkazish (tannarx USD da konstanta bo‘ladi)"}
+            disabled={convertingCurrency}
+            onClick={()=>handleConvertSelected(itemCurrency==='USD'?'UZS':'USD', [x.id])}
+          >
+            <ArrowRight size={13}/>{itemCurrency==='USD' ? 'UZS ga' : 'USD ($) ga'}
+          </button>
           <button type="button" className="btn btn-outline" style={{padding:'4px 8px',fontSize:12,color:'#16a34a',borderColor:'#86efac',background:'#f0fdf4',display:'inline-flex',alignItems:'center',gap:4,height:28,fontWeight:600}} title="Ushbu partiyadagi tovarlarni Excel (.xlsx) formatida yuklash" disabled={exportingExcel} onClick={()=>handleExportExcel(x)}>
             <FileSpreadsheet size={13}/>Excel
           </button>
@@ -1119,18 +1412,24 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
   const selectAllFiltered=async()=>{
     try{
       setLoading(true);
-      const client=getBrowserClient();
-      let q=client.from('products').select('id').neq('status','archived');
-      if(applied.category){
-        const subCats=(refs.categories||[]).filter(c=>c.parent_id===applied.category).map(c=>c.id);
-        q=q.in('category_id',[applied.category,...subCats]);
+      const r=await listInventoryBalances({
+        branchId,
+        locationId: applied.location || null,
+        query: applied.query || null,
+        categoryId: applied.category || null,
+        minPrice: applied.minPrice || null,
+        maxPrice: applied.maxPrice || null,
+        availability: applied.availability || null,
+        page: 1,
+        pageSize: 5000
+      });
+      let items = r?.items || [];
+      if (applied.color) {
+        const productIdsWithColor = new Set(colors.filter(v => v.color_name === applied.color).map(v => v.product_id));
+        items = items.filter(i => productIdsWithColor.has(i.product_id));
       }
-      if(applied.query){
-        q=q.or(`name.ilike.%${applied.query}%,sku.ilike.%${applied.query}%`);
-      }
-      const{data,error:qErr}=await q;
-      if(qErr)throw qErr;
-      setSelected((data||[]).map(p=>p.id));
+      const ids = [...new Set(items.map(p => p.product_id).filter(Boolean))];
+      setSelected(ids);
     }catch(e){
       setError(err(e));
     }finally{
@@ -1141,12 +1440,14 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
     if(!selected.length||!confirm(`${selected.length} ta mahsulotni butunlay o‘chirishni tasdiqlaysizmi?\n\nDIQQAT: Ushbu mahsulotlar va ularning ombordagi barcha birliklari o‘chiriladi. Bu amalni qaytarib bo‘lmaydi!`))return;
     setLoading(true);
     try{
-      const{error:rpcErr}=await getBrowserClient().rpc('delete_products_cascade',{p_product_ids:selected});
-      if(rpcErr){
-        for(const id of selected){
-          await getBrowserClient().rpc('delete_product_cascade',{p_product_id:id});
-        }
+      const client=getBrowserClient();
+      const chunkSize=150;
+      for(let i=0;i<selected.length;i+=chunkSize){
+        const chunk=selected.slice(i,i+chunkSize);
+        const{error:rpcErr}=await client.rpc('delete_products_cascade',{p_product_ids:chunk});
+        if(rpcErr)throw rpcErr;
       }
+      toast?.(`${selected.length} ta mahsulot muvaffaqiyatli o‘chirildi`);
       setSelected([]);
       await load();
     }catch(e){
@@ -2698,7 +2999,50 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
           <span><small>Ta’minotchi</small><b>{receipt.supplier_name}</b></span>
           <span><small>Qabul joyi</small><b>{receipt.location_name} {receipt.location_type==='warehouse'?'(Omborda)':receipt.location_type==='store'?'(Do‘konda)':''}</b></span>
           <span><small>Invoice</small><b>{receipt.invoice_number||'—'}</b></span>
-          <span><small>Valyuta</small><b>{receipt.currency}</b></span>
+          <span style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
+            <div>
+              <small>Valyuta</small>
+              <b style={{color:String(receipt.currency||'USD').toUpperCase()==='USD'?'#0284c7':'#16a34a'}}>
+                {String(receipt.currency||'USD').toUpperCase()==='USD'?'USD ($ - Dollar)':'UZS (So‘m)'}
+              </b>
+            </div>
+            {!editing && (
+              <button
+                type="button"
+                className="btn btn-sm btn-outline"
+                style={{
+                  fontSize:11,
+                  padding:'3px 9px',
+                  height:26,
+                  fontWeight:700,
+                  color:String(receipt.currency||'USD').toUpperCase()==='USD'?'#16a34a':'#0284c7',
+                  borderColor:String(receipt.currency||'USD').toUpperCase()==='USD'?'#86efac':'#7dd3fc',
+                  background:String(receipt.currency||'USD').toUpperCase()==='USD'?'#f0fdf4':'#f0f9ff',
+                  cursor:'pointer',
+                  display:'inline-flex',
+                  alignItems:'center',
+                  gap:4
+                }}
+                title={String(receipt.currency||'USD').toUpperCase()==='USD' ? "Valyutani UZS ga o'tkazish" : "Valyutani bugungi kursda USD ($) ga o'tkazish (tannarx USD da konstanta bo'ladi)"}
+                onClick={async()=>{
+                  const targetCurr = String(receipt.currency||'USD').toUpperCase()==='USD' ? 'UZS' : 'USD';
+                  const targetName = targetCurr==='USD' ? 'USD ($)' : 'UZS (So‘m)';
+                  const currentRate = Number(rate || 12800);
+                  if(!confirm(`"${receipt.receipt_no}" partiyasi valyutasini ${targetName} ga o‘tkazishni tasdiqlaysizmi?\n\nBugungi kurs: 1 USD = ${currentRate.toLocaleString('uz-UZ')} UZS\n` + (targetCurr==='USD' ? 'UZS dagi tannarx bugungi kursda USD ga aylanadi va konstanta bo‘ladi.' : 'USD dagi tannarx bugungi kursda UZS ga aylanadi va konstanta bo‘ladi.'))) return;
+                  try{
+                    const res = await convertStockReceiptsCurrency([receipt.id], targetCurr);
+                    toast?.(`Partiya valyutasi ${targetName} ga muvaffaqiyatli o‘tkazildi! (${res.updated_products} ta tovar yangilandi)`);
+                    const updated = await getStockReceipt(receipt.id);
+                    onUpdated?.(updated);
+                  }catch(e){
+                    alert('Valyutani o‘tkazishda xatolik: '+err(e));
+                  }
+                }}
+              >
+                <ArrowRight size={12}/>{String(receipt.currency||'USD').toUpperCase()==='USD' ? 'UZS ga o‘tkazish' : 'USD ($) ga o‘tkazish'}
+              </button>
+            )}
+          </span>
           {rate&&<span><small>Kurs</small><b>1$ = {new Intl.NumberFormat('uz-UZ').format(rate)} so'm</b></span>}
         </div>
         {editing?(
@@ -3353,13 +3697,30 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     if(open&&branchId){
       const n=new Date();
       const localDateStr = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-      setForm(f=>({
-        ...f,
-        receipt_no: f.receipt_no && f.receipt_no.length > 5 ? f.receipt_no : makeUniqueReceiptNo(isInventory),
-        received_at:f.received_at || localDateStr,
-        currency:f.currency || (isInventory ? 'UZS' : 'USD'),
-        notes:f.notes || (isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'')
-      }));
+      setForm(f=>{
+        const prefixOk = isInventory ? /^INV-/i.test(f.receipt_no || '') : /^PT-/i.test(f.receipt_no || '');
+        const validReceiptNo = (f.receipt_no && f.receipt_no.length > 5 && prefixOk)
+          ? f.receipt_no
+          : makeUniqueReceiptNo(isInventory);
+
+        return {
+          ...f,
+          receipt_no: validReceiptNo,
+          received_at: f.received_at || localDateStr,
+          currency: isInventory ? (f.currency || 'UZS') : (f.currency || 'USD'),
+          notes: isInventory
+            ? (f.notes || 'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi')
+            : (f.notes === 'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi' ? '' : f.notes)
+        };
+      });
+      if (isInventory) {
+        setLines(prev => {
+          if (Array.isArray(prev) && prev.length === 1 && !prev[0]?.product_id && !prev[0]?.unit_cost && prev[0]?.currency === 'USD') {
+            return [{ ...prev[0], currency: 'UZS' }];
+          }
+          return prev;
+        });
+      }
       getInventoryReferences(branchId).then(async r=>{
         // Barcha tovarlarni (1000 dan ortiq bo'lsa ham) to'liq yuklab olamiz
         let allProds = [];

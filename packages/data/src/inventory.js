@@ -23,3 +23,5 @@ export const listSupplierDebts = (branchId = null) => rpc('list_supplier_debts',
 export const updateReceiptPayment = (receiptId, paidAmount, paymentStatus = null) => rpc('update_receipt_payment', { p_receipt_id: receiptId, p_paid_amount: paidAmount, p_payment_status: paymentStatus });
 export const bulkUpdateBatchPrices = ({ branchId = null, currency = 'UZS', items = [] } = {}) => rpc('bulk_update_batch_prices', { p_branch_id: branchId, p_currency: currency, p_items: items });
 export const getProductStockDistribution = productId => rpc('get_product_stock_distribution', { p_product_id: productId });
+export const convertStockReceiptsCurrency = (receiptIds, targetCurrency) =>
+  rpc('convert_stock_receipts_currency', { p_receipt_ids: Array.isArray(receiptIds) ? receiptIds : [receiptIds], p_target_currency: targetCurrency });

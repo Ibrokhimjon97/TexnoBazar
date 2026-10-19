@@ -82,6 +82,7 @@ export default function BatchPriceExcelModal({
   const fileInputRef = useRef(null);
 
   // Flatten all batch items from receipts for quick in-memory matching and stats
+  // Flatten all batch items from receipts for quick in-memory matching and stats
   const existingItemsMap = useMemo(() => {
     const map = new Map();
     receipts.forEach((r) => {
@@ -116,11 +117,13 @@ export default function BatchPriceExcelModal({
           currency: itemCurrency,
         };
 
+        // Primary matching by QR code alone (Partiya umumiy kodi):
+        if (qr) {
+          map.set(`QR::${qr}`, itemObj);
+          map.set(qr, itemObj);
+        }
         if (qr && receiptNo) {
           map.set(`${receiptNo}::${qr}`, itemObj);
-        }
-        if (qr && !map.has(`QR::${qr}`)) {
-          map.set(`QR::${qr}`, itemObj);
         }
       });
     });
@@ -152,7 +155,7 @@ export default function BatchPriceExcelModal({
         views: [{ state: 'frozen', ySplit: 1 }],
       });
 
-      // EXACT columns from user screenshots:
+      // EXACT 7 columns matching user specifications (A..G):
       // A: Mahsulot nomi
       // B: Tan narxi (UZS) / Tan narxi (USD)
       // C: Sotish narxi (UZS) / Sotish narxi (USD)
@@ -160,7 +163,6 @@ export default function BatchPriceExcelModal({
       // E: Minimal sotish narxi (UZS) / Minimal sotish narxi (USD)
       // F: Valyuta
       // G: Partiya umumiy kodi
-      // H: Partiya raqami
       ws.columns = [
         { header: 'Mahsulot nomi', key: 'product_name', width: 34 },
         { header: isUzs ? 'Tan narxi (UZS)' : 'Tan narxi (USD)', key: 'unit_cost', width: 20 },
@@ -169,7 +171,6 @@ export default function BatchPriceExcelModal({
         { header: isUzs ? 'Minimal sotish narxi (UZS)' : 'Minimal sotish narxi (USD)', key: 'minimum_sale_price', width: 24 },
         { header: 'Valyuta', key: 'currency', width: 14 },
         { header: 'Partiya umumiy kodi', key: 'qr_code', width: 22 },
-        { header: 'Partiya raqami', key: 'receipt_no', width: 24 },
       ];
 
       // Style Header (matching screenshots with dark navy header #0F172A)
@@ -222,7 +223,6 @@ export default function BatchPriceExcelModal({
               minimum_sale_price: minPrice,
               currency: activeTab,
               qr_code: it.qr_code || '',
-              receipt_no: r.receipt_no || '',
             });
             rowsAdded++;
 
@@ -242,13 +242,12 @@ export default function BatchPriceExcelModal({
               } else if (colNumber >= 2 && colNumber <= 5) {
                 cell.alignment = { horizontal: 'right', vertical: 'middle' };
                 cell.numFmt = isUzs ? '#,##0' : '$#,##0.00';
-              } else {
+              } else if (colNumber === 6) {
                 cell.alignment = { horizontal: 'center', vertical: 'middle' };
-                if (colNumber === 6) {
-                  cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: isUzs ? 'FF16A34A' : 'FF2563EB' } };
-                } else if (colNumber === 7) {
-                  cell.font = { name: 'Calibri', size: 10, bold: true };
-                }
+                cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: isUzs ? 'FF16A34A' : 'FF2563EB' } };
+              } else if (colNumber === 7) {
+                cell.alignment = { horizontal: 'center', vertical: 'middle' };
+                cell.font = { name: 'Consolas', size: 10, bold: true, color: { argb: 'FF0F172A' } };
               }
             });
           });
@@ -267,7 +266,6 @@ export default function BatchPriceExcelModal({
                 minimum_sale_price: 1860000,
                 currency: 'UZS',
                 qr_code: 'GW6065',
-                receipt_no: 'INV-20261018-174839',
               },
               {
                 product_name: 'Panda divan kojalik',
@@ -277,7 +275,6 @@ export default function BatchPriceExcelModal({
                 minimum_sale_price: 0,
                 currency: 'UZS',
                 qr_code: 'VQ3292',
-                receipt_no: 'INV-20261018-173714',
               },
             ]
           : [
@@ -289,7 +286,6 @@ export default function BatchPriceExcelModal({
                 minimum_sale_price: 0.0,
                 currency: 'USD',
                 qr_code: 'WC0402',
-                receipt_no: 'INV-20261018-177247',
               },
               {
                 product_name: 'Egizak velokolyaska SZ877 adil',
@@ -299,7 +295,6 @@ export default function BatchPriceExcelModal({
                 minimum_sale_price: 0.0,
                 currency: 'USD',
                 qr_code: 'GG4684',
-                receipt_no: 'INV-20261018-172027',
               },
             ];
 
@@ -319,8 +314,12 @@ export default function BatchPriceExcelModal({
             } else if (colNumber >= 2 && colNumber <= 5) {
               cell.alignment = { horizontal: 'right', vertical: 'middle' };
               cell.numFmt = isUzs ? '#,##0' : '$#,##0.00';
-            } else {
+            } else if (colNumber === 6) {
               cell.alignment = { horizontal: 'center', vertical: 'middle' };
+              cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: isUzs ? 'FF16A34A' : 'FF2563EB' } };
+            } else if (colNumber === 7) {
+              cell.alignment = { horizontal: 'center', vertical: 'middle' };
+              cell.font = { name: 'Consolas', size: 10, bold: true, color: { argb: 'FF0F172A' } };
             }
           });
         });
@@ -395,12 +394,12 @@ export default function BatchPriceExcelModal({
           if (!colMap.currency) colMap.currency = colIdx;
         } else if (raw.includes('umumiy') || raw.includes('qr') || raw.includes('kod')) {
           if (!colMap.qrCode) colMap.qrCode = colIdx;
-        } else if (raw.includes('raqam') || raw.includes('partiya')) {
+        } else if (raw.includes('raqam') || (raw.includes('partiya') && !raw.includes('kod') && !raw.includes('umumiy'))) {
           if (!colMap.receiptNo) colMap.receiptNo = colIdx;
         }
       });
 
-      // Positional fallbacks if exact headers not detected (matching A..H)
+      // Positional fallbacks if exact headers not detected (matching A..G: 7 columns)
       if (!colMap.name) colMap.name = 1;
       if (!colMap.cost) colMap.cost = 2;
       if (!colMap.retail) colMap.retail = 3;
@@ -408,7 +407,7 @@ export default function BatchPriceExcelModal({
       if (!colMap.minPrice) colMap.minPrice = 5;
       if (!colMap.currency) colMap.currency = 6;
       if (!colMap.qrCode) colMap.qrCode = 7;
-      if (!colMap.receiptNo) colMap.receiptNo = 8;
+      // Note: colMap.receiptNo is NOT set as fallback because the template has 7 columns
 
       const rows = [];
       const totalRows = ws.rowCount;
@@ -422,8 +421,8 @@ export default function BatchPriceExcelModal({
       for (let r = 2; r <= totalRows; r++) {
         const row = ws.getRow(r);
         const nameVal = row.getCell(colMap.name).value;
-        const qrVal = row.getCell(colMap.qrCode).value;
-        const receiptVal = row.getCell(colMap.receiptNo).value;
+        const qrVal = colMap.qrCode ? row.getCell(colMap.qrCode).value : null;
+        const receiptVal = colMap.receiptNo ? row.getCell(colMap.receiptNo).value : null;
         const costVal = row.getCell(colMap.cost).value;
         const retailVal = row.getCell(colMap.retail).value;
         const wholesaleVal = row.getCell(colMap.wholesale).value;
@@ -443,10 +442,13 @@ export default function BatchPriceExcelModal({
         const wholesalePrice = cleanPriceNumber(wholesaleVal?.result ?? wholesaleVal);
         const minPrice = cleanPriceNumber(minVal?.result ?? minVal);
 
-        // Find match in current memory
-        const matchKey1 = `${receiptNo}::${qrCode}`;
-        const matchKey2 = `QR::${qrCode}`;
-        const existing = existingItemsMap.get(matchKey1) || existingItemsMap.get(matchKey2) || null;
+        // Find match in current memory:
+        // Priority 1: Partiya umumiy kodi (qrCode)
+        // Priority 2: Receipt + QR composite if available
+        const existing =
+          (qrCode ? (existingItemsMap.get(`QR::${qrCode}`) || existingItemsMap.get(qrCode)) : null) ||
+          (receiptNo && qrCode ? existingItemsMap.get(`${receiptNo}::${qrCode}`) : null) ||
+          null;
 
         let hasChange = true;
         let oldCost = null;
@@ -478,7 +480,7 @@ export default function BatchPriceExcelModal({
         rows.push({
           idx: r - 1,
           product_name: productName || existing?.product_name || 'Nomsiz tovar',
-          receipt_no: receiptNo || existing?.receipt_no || '',
+          receipt_no: existing?.receipt_no || receiptNo || '',
           qr_code: qrCode || existing?.qr_code || '',
           currency: rowCurrency === 'USD' ? 'USD' : 'UZS',
           unit_cost: unitCost,
@@ -526,7 +528,7 @@ export default function BatchPriceExcelModal({
 
     try {
       const itemsPayload = parsedRows.map((r) => ({
-        receipt_no: r.receipt_no,
+        receipt_no: r.existing?.receipt_no || r.receipt_no || null,
         qr_code: r.qr_code,
         product_name: r.product_name,
         currency: r.currency || activeTab,
@@ -916,7 +918,7 @@ export default function BatchPriceExcelModal({
                   type="text"
                   className="input"
                   style={{ paddingLeft: 32, width: '100%', fontSize: 13 }}
-                  placeholder="Tovar nomi, QR kod yoki partiya raqami bo'yicha qidirish…"
+                  placeholder="Tovar nomi yoki partiya umumiy kodi bo'yicha qidirish…"
                   value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
                 />
@@ -965,8 +967,7 @@ export default function BatchPriceExcelModal({
                   <tr>
                     <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600 }}>№</th>
                     <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600 }}>Mahsulot nomi</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 600 }}>Partiya kodi (QR)</th>
-                    <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 600 }}>Partiya raqami</th>
+                    <th style={{ padding: '8px 10px', textAlign: 'center', fontWeight: 600 }}>Partiya umumiy kodi</th>
                     <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600 }}>
                       Tan narxi ({activeTab})
                     </th>
@@ -1001,7 +1002,12 @@ export default function BatchPriceExcelModal({
                       >
                         <td style={{ padding: '8px 10px', color: '#64748b' }}>{r.idx}</td>
                         <td style={{ padding: '8px 10px', fontWeight: 600, color: '#0f172a' }}>
-                          {r.product_name}
+                          <div>{r.product_name}</div>
+                          {r.receipt_no && (
+                            <div style={{ fontSize: 10.5, color: '#94a3b8', fontWeight: 400 }}>
+                              {r.receipt_no}
+                            </div>
+                          )}
                         </td>
                         <td style={{ padding: '8px 10px', textAlign: 'center' }}>
                           <code
@@ -1015,9 +1021,6 @@ export default function BatchPriceExcelModal({
                           >
                             {r.qr_code || '—'}
                           </code>
-                        </td>
-                        <td style={{ padding: '8px 10px', textAlign: 'center', color: '#64748b' }}>
-                          {r.receipt_no || '—'}
                         </td>
 
                         {/* Cost */}
