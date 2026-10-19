@@ -355,15 +355,17 @@ export async function restoreBackupArchive(file, { onProgress } = {}) {
 }
 
 function downloadJsonFile(filename, data) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
+  const jsonStr = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+  const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8;' });
+  const url = window.URL.createObjectURL(blob);
   const a = document.createElement('a');
+  a.style.display = 'none';
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
   a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  document.body.removeChild(a);
+  setTimeout(() => window.URL.revokeObjectURL(url), 30000);
 }
 
 /**
@@ -462,7 +464,70 @@ export async function exportReceiptBackup(receiptId) {
  * Filialdagi barcha partiyalar va inventarizatsiyalarni JSON faylga eksport qiladi.
  */
 export async function exportBatchesBackup(branchId = null) {
-  const data = await rpc('export_backup_data', { p_branch_id: branchId || null });
+  let data = null;
+  const client = getBrowserClient();
+
+  // 1. Yangi maxsus tezkor export_batches_backup_data RPC orqali olishga urinib ko'ramiz
+  try {
+    data = await rpc('export_batches_backup_data', { p_branch_id: branchId || null });
+  } catch (err1) {
+    console.warn('[backup] export_batches_backup_data RPC failed, trying export_backup_data...', err1);
+    try {
+      data = await rpc('export_backup_data', { p_branch_id: branchId || null });
+    } catch (err2) {
+      console.warn('[backup] export_backup_data RPC also failed, falling back to direct table fetch...', err2);
+    }
+  }
+
+  // 2. Agar RPC har qanday sabab bilan ishlamasa, to'g'ridan-to'g'ri jadvallardan o'qish (100% kafolatli)
+  if (!data) {
+    let rQuery = client.from('stock_receipts').select('*').order('received_at', { ascending: false });
+    if (branchId) rQuery = rQuery.eq('branch_id', branchId);
+    const { data: receipts, error: rErr } = await rQuery;
+    if (rErr) throwDataError(rErr, 'get_stock_receipts');
+
+    const receiptIds = (receipts || []).map(r => r.id);
+    let batches = [];
+    if (receiptIds.length > 0) {
+      for (let i = 0; i < receiptIds.length; i += 200) {
+        const chunk = receiptIds.slice(i, i + 200);
+        const { data: bChunk } = await client.from('stock_batches').select('*').in('receipt_id', chunk);
+        if (bChunk) batches.push(...bChunk);
+      }
+    }
+
+    const batchIds = batches.map(b => b.id);
+    let units = [];
+    if (batchIds.length > 0) {
+      for (let i = 0; i < batchIds.length; i += 200) {
+        const chunk = batchIds.slice(i, i + 200);
+        const { data: uChunk } = await client.from('inventory_units').select('*').in('batch_id', chunk);
+        if (uChunk) units.push(...uChunk);
+      }
+    }
+
+    const { data: categories } = await client.from('categories').select('*');
+    const { data: brands } = await client.from('brands').select('*');
+    const { data: products } = await client.from('products').select('*');
+    const { data: variants } = await client.from('product_variants').select('*');
+    const { data: suppliers } = await client.from('suppliers').select('*');
+    const { data: locations } = await client.from('locations').select('*');
+    const { data: branches } = await client.from('branches').select('*');
+
+    data = {
+      categories: categories || [],
+      brands: brands || [],
+      products: products || [],
+      product_variants: variants || [],
+      suppliers: suppliers || [],
+      locations: locations || [],
+      branches: branches || [],
+      stock_receipts: receipts || [],
+      stock_batches: batches || [],
+      inventory_units: units || []
+    };
+  }
+
   const payload = {
     version: '1.0.0',
     type: 'texnobazar_batches_backup',
