@@ -3258,14 +3258,21 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
 }
 export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
   const isInventory = mode === 'inventory';
+  const makeUniqueReceiptNo = (isInv) => {
+    const n = new Date();
+    const prefix = isInv ? 'INV-' : 'PT-';
+    const pad = num => String(num).padStart(2, '0');
+    const dateNumStr = `${n.getFullYear()}${pad(n.getMonth() + 1)}${pad(n.getDate())}`;
+    const timeNumStr = `${pad(n.getHours())}${pad(n.getMinutes())}${pad(n.getSeconds())}`;
+    const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+    return `${prefix}${dateNumStr}-${timeNumStr}-${rand}`;
+  };
+
   const[refs,setRefs]=useState({locations:[],suppliers:[],products:[]});
   const[form,setForm]=useState(()=>{
     const n=new Date();
-    const prefix = isInventory ? 'INV-' : 'PT-';
     const localDateStr = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-    const dateNumStr = `${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, '0')}${String(n.getDate()).padStart(2, '0')}`;
-    const timeNumStr = `${String(n.getHours()).padStart(2, '0')}${String(n.getMinutes()).padStart(2, '0')}${String(n.getSeconds()).padStart(2, '0')}`;
-    const rno = `${prefix}${dateNumStr}-${timeNumStr}`;
+    const rno = makeUniqueReceiptNo(isInventory);
     const savedLoc = isInventory && typeof window !== 'undefined'
       ? (localStorage.getItem('tb_last_inventory_loc_' + (branchId || '')) || localStorage.getItem('tb_last_inventory_loc') || '')
       : '';
@@ -3313,7 +3320,12 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
           if (Array.isArray(parsed?.lines) && parsed.lines.some(l => l.product_id || (l.quantity && l.quantity > 1) || l.unit_cost || l.retail_price || l.serials)) {
             setLines(parsed.lines);
             if (parsed.form) {
-              setForm(prev => ({ ...prev, ...parsed.form }));
+              const { receipt_no: _staleNo, ...restForm } = parsed.form;
+              setForm(prev => ({
+                ...prev,
+                ...restForm,
+                receipt_no: makeUniqueReceiptNo(isInventory)
+              }));
             }
             setDraftRestored(true);
           }
@@ -3322,7 +3334,7 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
     } else {
       setDraftRestored(false);
     }
-  }, [open, branchId, draftKey]);
+  }, [open, branchId, draftKey, isInventory]);
 
   useEffect(() => {
     if (!open || !branchId) return;
@@ -3340,16 +3352,12 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
   useEffect(()=>{
     if(open&&branchId){
       const n=new Date();
-      const prefix = isInventory ? 'INV-' : 'PT-';
       const localDateStr = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`;
-      const dateNumStr = `${n.getFullYear()}${String(n.getMonth() + 1).padStart(2, '0')}${String(n.getDate()).padStart(2, '0')}`;
-      const timeNumStr = `${String(n.getHours()).padStart(2, '0')}${String(n.getMinutes()).padStart(2, '0')}${String(n.getSeconds()).padStart(2, '0')}`;
-      const rno = `${prefix}${dateNumStr}-${timeNumStr}`;
       setForm(f=>({
         ...f,
-        receipt_no: f.receipt_no || rno,
+        receipt_no: f.receipt_no && f.receipt_no.length > 5 ? f.receipt_no : makeUniqueReceiptNo(isInventory),
         received_at:f.received_at || localDateStr,
-        currency:f.currency || 'USD',
+        currency:f.currency || (isInventory ? 'UZS' : 'USD'),
         notes:f.notes || (isInventory?'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi':'')
       }));
       getInventoryReferences(branchId).then(async r=>{
@@ -3863,6 +3871,14 @@ export function ReceiptModal({open,close,branchId,created,mode='batch',toast}){
       setLines([{
         product_id:'',color_name:'',variant_id:'',quantity:1,unit_cost:'',unit_cost_usd:'',serials:'',retail_price:'',retail_price_usd:'',wholesale_price:'',wholesale_price_usd:'',minimum_sale_price:'',minimum_sale_price_usd:'',priceConfirmed:false,variants:[],variantConfigs:{},variantImageFiles:[],components:[]
       }]);
+      const nextRno = makeUniqueReceiptNo(isInventory);
+      setForm(f => ({
+        ...f,
+        receipt_no: nextRno,
+        invoice_number: '',
+        paid_amount: '',
+        notes: isInventory ? 'Do‘konda/skladda mavjud tovarlar inventarizatsiyasi' : ''
+      }));
       await created(createdRes);
     }catch(e){
       setError(err(e));

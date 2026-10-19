@@ -836,12 +836,10 @@ export default function InventoryExcelImportModal({
     if (!parsedRows.length) return [];
     const groups = new Map();
 
-    const timestampPrefix = () => {
-      const d = new Date();
-      const pad = n => String(n).padStart(2, '0');
-      return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-    };
-
+    const d = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+    const timestamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}-${rand}`;
     const autoPrefix = importMode === 'inventory' ? 'INV' : 'PT';
 
     parsedRows.forEach(row => {
@@ -855,7 +853,7 @@ export default function InventoryExcelImportModal({
         groupKey = `${row.receiptNo}___${row.locationId}___${row.currency}`;
         groupReceiptNo = row.receiptNo;
       } else {
-        groupKey = `${autoPrefix}-${timestampPrefix()}-${locSuffix}-${row.currency}`;
+        groupKey = `${autoPrefix}-${timestamp}-${locSuffix}-${row.currency}`;
         groupReceiptNo = groupKey;
       }
 
