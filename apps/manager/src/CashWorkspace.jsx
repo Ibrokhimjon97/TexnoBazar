@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Clock3, FileText, Layers, Printer, ReceiptText, Search, Trash2, WalletCards, X, Truck, Tag, DollarSign, Check, CreditCard } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock3, FileText, Layers, Printer, ReceiptText, RotateCcw, Search, Trash2, WalletCards, X, Truck, Tag, DollarSign, Check, CreditCard } from 'lucide-react';
 import { DualPrice, Empty, Modal, Status, useExchangeRate, ThermalReceiptPreview, printThermalReceipt, ProductDeliveryStickersModal } from '@texnobazar/ui';
 import {
   confirmPosSale,
@@ -13,6 +13,9 @@ import {
   listPosPendingSales,
   rejectPosPendingSale,
   releaseExpiredPosSales,
+  completePosCashRefund,
+  listSaleReturns,
+  cancelSaleReturn,
   getBrowserClient
 } from '@texnobazar/data';
 
@@ -43,13 +46,20 @@ export default function CashWorkspace({ branchId, toast, onSummary, focusPending
     <section className="cash-real-workspace">
       <div className="m-page-head">
         <h2>Kassa</h2>
-        <p>Sotuvchi rezervlari va kuryer pullari</p>
+        <p>Sotuvchi rezervlari, qaytarishlar va kuryer pullari</p>
       </div>
       <div className="cash-real-tabs" style={{ marginBottom: 14 }}>
         <button className={tab === 'pos' ? 'active' : ''} onClick={() => setTab('pos')}>Sotuvchi kassa</button>
+        <button className={tab === 'returns' ? 'active' : ''} onClick={() => setTab('returns')}>Qaytarishlar (Naqd pul)</button>
         <button className={tab === 'courier' ? 'active' : ''} onClick={() => setTab('courier')}>Kuryer pullari</button>
       </div>
-      {tab === 'pos' ? <PosCashTab branchId={branchId} toast={toast} onSummary={onSummary} focusPendingSaleId={focusPendingSaleId} clearFocus={clearFocus} /> : <CourierCashTab branchId={branchId} toast={toast} />}
+      {tab === 'pos' ? (
+        <PosCashTab branchId={branchId} toast={toast} onSummary={onSummary} focusPendingSaleId={focusPendingSaleId} clearFocus={clearFocus} />
+      ) : tab === 'returns' ? (
+        <ReturnsCashTab branchId={branchId} toast={toast} />
+      ) : (
+        <CourierCashTab branchId={branchId} toast={toast} />
+      )}
     </section>
   );
 }
@@ -1337,3 +1347,293 @@ function CourierCashTab({ branchId, toast }) {
     </>
   );
 }
+
+function ReturnsCashTab({ branchId, toast }) {
+  const rate = useExchangeRate();
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [actionBusy, setActionBusy] = useState(false);
+  const [confirmReturn, setConfirmReturn] = useState(null);
+  const [rejectReturn, setRejectReturn] = useState(null);
+  const [rejectReason, setRejectReason] = useState('');
+
+  const load = async () => {
+    if (!branchId) return;
+    setLoading(true);
+    setError('');
+    try {
+      const all = await listSaleReturns({ branchId });
+      setRows(all || []);
+    } catch (e) {
+      setError(msg(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, [branchId]);
+
+  const requestedRows = rows.filter(r => r.status === 'requested');
+  const otherRows = rows.filter(r => r.status !== 'requested').slice(0, 10);
+
+  const handleCompleteRefund = async () => {
+    if (!confirmReturn) return;
+    setActionBusy(true);
+    try {
+      const res = await completePosCashRefund({ returnId: confirmReturn.id });
+      toast?.(res.message || 'Naqd pul qaytarildi va tovar qoldiqqa olindi!');
+      setConfirmReturn(null);
+      await load();
+    } catch (e) {
+      toast?.(msg(e));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleRejectReturn = async () => {
+    if (!rejectReturn) return;
+    if (!rejectReason.trim()) {
+      toast?.('Rad etish sababini kiriting!');
+      return;
+    }
+    setActionBusy(true);
+    try {
+      await cancelSaleReturn(rejectReturn.id, rejectReason.trim());
+      toast?.('Qaytarish so‘rovi rad etildi');
+      setRejectReturn(null);
+      setRejectReason('');
+      await load();
+    } catch (e) {
+      toast?.(msg(e));
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  return (
+    <div className="returns-cash-tab" style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div className="between" style={{ background: '#f8fafc', padding: '14px 18px', borderRadius: 12, border: '1px solid var(--line)' }}>
+        <div>
+          <b style={{ fontSize: 15, color: 'var(--navy)' }}>Kassada naqd pul qaytarish so‘rovlari</b>
+          <p style={{ margin: '2px 0 0', fontSize: 12.5, color: 'var(--muted)' }}>
+            Sotuvchilar tomonidan mijozga naqd pul qaytarish uchun yuborilgan so‘rovlar.
+            Kassa pulni qaytargach, tovar do‘kon balansiga qaytadi va asl xarid kunidagi savdo aylanmasidan shu pul chiqariladi.
+          </p>
+        </div>
+        <button type="button" className="btn btn-outline btn-sm" onClick={load} disabled={loading}>
+          <RotateCcw size={14} /> Yangilash
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="cash-real-state"><p>Qaytarish so‘rovlari yuklanmoqda…</p></div>
+      ) : error ? (
+        <div className="cash-real-state"><AlertTriangle /><p>{error}</p></div>
+      ) : (
+        <>
+          {requestedRows.length === 0 ? (
+            <Empty
+              title="Kutilayotgan qaytarishlar yo‘q"
+              text="Hozirda sotuvchilardan kassaga naqd pul qaytarish bo‘yicha yangi so‘rov yo‘q."
+            />
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {requestedRows.map(row => {
+                const line = (row.sale_return_lines || [])[0];
+                return (
+                  <div
+                    key={row.id}
+                    className="card"
+                    style={{
+                      padding: 18,
+                      border: '2px solid #fecdd3',
+                      background: '#fff',
+                      borderRadius: 14,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: 12
+                    }}
+                  >
+                    <div className="between" style={{ borderBottom: '1px solid var(--line)', paddingBottom: 10 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <span style={{ background: '#fee2e2', color: '#dc2626', padding: '4px 8px', borderRadius: 6, fontWeight: 700, fontSize: 12 }}>
+                          {row.return_no}
+                        </span>
+                        <Status type="orange">Kassadan naqd pul kutilmoqda</Status>
+                      </div>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{date(row.created_at)}</span>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Qaytarish sababi:</span>
+                        <b style={{ fontSize: 14, color: 'var(--navy)' }}>{row.reason || 'Sabab ko‘rsatilmagan'}</b>
+                        {line && (
+                          <small style={{ color: 'var(--muted)', marginTop: 2 }}>
+                            QR kod / dona: <code>{line.unit_id}</code>
+                          </small>
+                        )}
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <small style={{ fontSize: 12, color: 'var(--muted)', display: 'block' }}>Mijozga qaytariladigan naqd pul:</small>
+                        <b style={{ fontSize: 22, color: '#dc2626', fontWeight: 800 }}>
+                          <DualPrice value={Number(row.refund_amount || 0)} rate={rate} />
+                        </b>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 4 }}>
+                      <button
+                        type="button"
+                        className="btn btn-outline"
+                        disabled={actionBusy}
+                        onClick={() => { setRejectReturn(row); setRejectReason(''); }}
+                      >
+                        Rad etish
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ background: '#16a34a', borderColor: '#16a34a', fontWeight: 700 }}
+                        disabled={actionBusy}
+                        onClick={() => setConfirmReturn(row)}
+                      >
+                        <Check size={16} /> Naqd pulni qaytarish va yakunlash
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {otherRows.length > 0 && (
+            <div style={{ marginTop: 20 }}>
+              <h4 style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 10 }}>Yaqinda yakunlangan qaytarishlar</h4>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {otherRows.map(row => (
+                  <div
+                    key={row.id}
+                    style={{
+                      padding: '10px 14px',
+                      background: 'var(--surface-2, #f8fafc)',
+                      borderRadius: 8,
+                      border: '1px solid var(--line)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      fontSize: 13
+                    }}
+                  >
+                    <div>
+                      <b>{row.return_no}</b> · <Status type={row.status === 'completed' ? 'green' : 'gray'}>{row.status}</Status>
+                      <small style={{ display: 'block', color: 'var(--muted)' }}>{row.reason}</small>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <b><DualPrice value={Number(row.refund_amount || 0)} rate={rate} /></b>
+                      <small style={{ display: 'block', color: 'var(--muted)' }}>{date(row.completed_at || row.created_at)}</small>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Confirm Refund Modal */}
+      {confirmReturn && (
+        <Modal
+          open={Boolean(confirmReturn)}
+          onClose={() => !actionBusy && setConfirmReturn(null)}
+          title="Naqd pulni qaytarishni tasdiqlash"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <p style={{ margin: 0, fontSize: 14, color: 'var(--navy)' }}>
+              Haqiqatan ham mijozga <b>#{confirmReturn.return_no}</b> so‘rovi bo‘yicha quyidagi summani naqd qaytarmoqchimisiz?
+            </p>
+
+            <div style={{ padding: '14px 18px', background: '#fef2f2', border: '1px solid #fecdd3', borderRadius: 10, textAlign: 'center' }}>
+              <small style={{ color: '#991b1b', fontSize: 12 }}>Kassadan beriladigan naqd pul:</small>
+              <h2 style={{ margin: '4px 0 0', color: '#b91c1c', fontSize: 26, fontWeight: 800 }}>
+                {formatDualMoney(Number(confirmReturn.refund_amount || 0), rate)}
+              </h2>
+            </div>
+
+            <div style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 12.5, color: '#166534' }}>
+              <b>Diqqat:</b> Pul qaytarilishi bilan tovar avtomatik do‘kon balansiga (+1 dona) qaytadi va <b>xaridor tovarni olgan kunning savdo aylanmasidan shu pul chiqariladi</b> (aylanma kamayadi).
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={actionBusy}
+                onClick={() => setConfirmReturn(null)}
+              >
+                Bekor qilish
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ background: '#16a34a', borderColor: '#16a34a', fontWeight: 700 }}
+                disabled={actionBusy}
+                onClick={handleCompleteRefund}
+              >
+                {actionBusy ? 'Yakunlanmoqda…' : 'Ha, pulni qaytarish'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Reject Refund Modal */}
+      {rejectReturn && (
+        <Modal
+          open={Boolean(rejectReturn)}
+          onClose={() => !actionBusy && setRejectReturn(null)}
+          title="Qaytarishni rad etish"
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <p style={{ margin: 0, fontSize: 14, color: 'var(--navy)' }}>
+              <b>#{rejectReturn.return_no}</b> so‘rovini rad etish sababini ko‘rsating:
+            </p>
+
+            <textarea
+              className="textarea"
+              rows={3}
+              placeholder="Masalan: Tovar shikastlangan, chek taqdim etilmadi va h.k."
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+              autoFocus
+            />
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+              <button
+                type="button"
+                className="btn btn-outline"
+                disabled={actionBusy}
+                onClick={() => setRejectReturn(null)}
+              >
+                Orqaga
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ background: '#dc2626', borderColor: '#dc2626' }}
+                disabled={actionBusy || !rejectReason.trim()}
+                onClick={handleRejectReturn}
+              >
+                {actionBusy ? 'Rad etilmoqda…' : 'Rad etish'}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+

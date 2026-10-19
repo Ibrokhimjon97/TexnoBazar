@@ -1,10 +1,11 @@
 import React,{useEffect,useMemo,useState}from'react';
-import{AlertTriangle,ArrowLeftRight,BarChart3,Boxes,ChevronLeft,ChevronRight,Clock,CreditCard,ExternalLink,Eye,EyeOff,FileText,Home,Layers,Mail,MapPin,Package,Plus,Printer,QrCode,ReceiptText,Search,Send,ShoppingCart,Store,Trash2,User,Warehouse,X}from'lucide-react';
+import{AlertTriangle,ArrowLeftRight,BarChart3,Boxes,ChevronLeft,ChevronRight,Clock,CreditCard,ExternalLink,Eye,EyeOff,FileText,Home,Layers,Mail,MapPin,Menu,Package,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Send,ShoppingCart,Store,Trash2,User,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,QrScanButton,Status,formatDualMoney,useExchangeRate,printThermalReceipt,ThermalReceiptPreview}from'@texnobazar/ui';
 import{createPosPendingSale,updatePosPendingSale,deletePosPendingSale,getPosBatchUnits,getPosPendingSale,getPosProductAvailability,getPosReferences,getPosUnitContext,getReceiptDeliveryStatus,getSaleReceipt,listMyPosPendingSalesByDate,listMyPosSales,listPosUnits,queueSaleReceipt,relocatePosUnits}from'@texnobazar/data';
 import ProfileWorkspace from'./ProfileWorkspace';
 import AttendanceWorkspace from'./AttendanceWorkspace';
 import ProductCatalogWorkspace from'./ProductCatalogWorkspace';
+import ReturnsWorkspace from'./ReturnsWorkspace';
 
 const msg=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 const when=value=>value?new Date(value).toLocaleString('uz-UZ'):'—';
@@ -28,6 +29,7 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
   const[editingPendingSale,setEditingPendingSale]=useState(null);
   const[cancelConfirmSale,setCancelConfirmSale]=useState(null);
   const[canceling,setCanceling]=useState(false);
+  const[menuOpen,setMenuOpen]=useState(false);
   const[relocateBatch,setRelocateBatch]=useState([]);
   // The unfinished basket survives accidental logout/refresh until a new sale starts.
   const cartKey=profile?.id&&branchId?`texnobazar:seller-cart:${profile.id}:${branchId}`:null;
@@ -103,9 +105,84 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   },[focusPendingSaleId]);
   return <><main className="pos-real-workspace">
-    {page!=='scan'&&page!=='products'&&page!=='profile'&&page!=='attendance'&&!loading&&!error&&<button type="button" className="pos-real-scan-cta pos-real-scan-sticky" onClick={()=>setPage('scan')}><QrCode/><span><b>QR/seriyani kiritish</b><small>Skaner qurilmasi yoki klaviatura orqali</small></span><ChevronRight/></button>}
-    {loading?<State text="POS ma’lumotlari yuklanmoqda…"/>:error?<State error text={error} retry={load}/>:page==='home'?<HomePage sales={sales} pending={pending} date={homeDate} setDate={changeHomeDate} profile={profile} openReceipt={openReceipt} openPending={openPending} go={setPage} rate={rate}/>:page==='products'?<ProductCatalogWorkspace branchId={branchId} onAddToCart={add} toast={toast}/>:page==='scan'?<Scanner branchId={branchId} query={query} setQuery={setQuery} units={units} add={add} addMultiple={addMultiple} cart={cart} addToRelocate={addToRelocate} relocateCount={relocateBatch.length} goRelocate={()=>setPage('relocate')} toast={toast} rate={rate}/>:page==='cart'?<Cart branchId={branchId} cart={cart} setCart={setCart} refs={refs} created={created} setCreated={setCreated} refresh={load} toast={toast} rate={rate} editingPendingSale={editingPendingSale} setEditingPendingSale={setEditingPendingSale}/>:page==='relocate'?<Relocate branchId={branchId} batch={relocateBatch} setBatch={setRelocateBatch} toast={toast} back={()=>setPage('scan')}/>:page==='attendance'?<AttendanceWorkspace branchId={branchId} profile={profile} toast={toast}/>:page==='profile'?<ProfileWorkspace toast={toast}/>:<Kpi branchId={branchId} openReceipt={openReceipt} rate={rate}/>}
-  </main><nav className="pos-real-nav">{[['home',Home,'Asosiy'],['products',Boxes,'Tovarlar'],['scan',QrCode,'Skaner'],['cart',ShoppingCart,'Savdo'],['attendance',Clock,'Davomat'],['kpi',BarChart3,'KPI'],['profile',User,'Profil']].map(([key,Icon,text])=><button type="button" key={key} className={page===key?'active':''} onClick={()=>setPage(key)}><span><Icon/>{key==='cart'&&cart.length>0&&<i>{cart.length}</i>}</span>{text}</button>)}</nav>
+    {page!=='scan'&&page!=='products'&&page!=='profile'&&page!=='attendance'&&page!=='returns'&&!loading&&!error&&<button type="button" className="pos-real-scan-cta pos-real-scan-sticky" onClick={()=>setPage('scan')}><QrCode/><span><b>QR/seriyani kiritish</b><small>Skaner qurilmasi yoki klaviatura orqali</small></span><ChevronRight/></button>}
+    {loading?<State text="POS ma’lumotlari yuklanmoqda…"/>:error?<State error text={error} retry={load}/>:page==='home'?<HomePage sales={sales} pending={pending} date={homeDate} setDate={changeHomeDate} profile={profile} openReceipt={openReceipt} openPending={openPending} go={setPage} rate={rate}/>:page==='products'?<ProductCatalogWorkspace branchId={branchId} onAddToCart={add} toast={toast}/>:page==='scan'?<Scanner branchId={branchId} query={query} setQuery={setQuery} units={units} add={add} addMultiple={addMultiple} cart={cart} addToRelocate={addToRelocate} relocateCount={relocateBatch.length} goRelocate={()=>setPage('relocate')} toast={toast} rate={rate}/>:page==='cart'?<Cart branchId={branchId} cart={cart} setCart={setCart} refs={refs} created={created} setCreated={setCreated} refresh={load} toast={toast} rate={rate} editingPendingSale={editingPendingSale} setEditingPendingSale={setEditingPendingSale}/>:page==='returns'?<ReturnsWorkspace branchId={branchId} toast={toast} goPage={setPage}/>:page==='relocate'?<Relocate branchId={branchId} batch={relocateBatch} setBatch={setRelocateBatch} toast={toast} back={()=>setPage('scan')}/>:page==='attendance'?<AttendanceWorkspace branchId={branchId} profile={profile} toast={toast}/>:page==='profile'?<ProfileWorkspace toast={toast}/>:<Kpi branchId={branchId} openReceipt={openReceipt} rate={rate}/>}
+  </main>
+  <nav className="pos-real-nav">
+    {[
+      ['home',Home,'Asosiy'],
+      ['products',Boxes,'Tovarlar'],
+      ['scan',QrCode,'Skaner'],
+      ['cart',ShoppingCart,'Savdo'],
+      ['returns',RotateCcw,'Qaytarish'],
+      ['attendance',Clock,'Davomat']
+    ].map(([key,Icon,text])=>(
+      <button
+        type="button"
+        key={key}
+        className={page===key?'active':''}
+        onClick={()=>{setMenuOpen(false);setPage(key);}}
+      >
+        <span><Icon/>{key==='cart'&&cart.length>0&&<i>{cart.length}</i>}</span>
+        {text}
+      </button>
+    ))}
+    <button
+      type="button"
+      className={page==='kpi'||page==='profile'||menuOpen?'active':''}
+      onClick={()=>setMenuOpen(v=>!v)}
+      aria-label="Ko‘proq menyu"
+    >
+      <span><Menu/></span>
+      Menyu
+    </button>
+  </nav>
+
+  {/* Hamburger Menu Modal for KPI and Profile */}
+  <Modal open={menuOpen} onClose={()=>setMenuOpen(false)} title="Qo‘shimcha menyu">
+    <div className="seller-hamburger-panel">
+      <div className="hamburger-user-card">
+        <div className="user-avatar-circle">
+          <User size={22}/>
+        </div>
+        <div>
+          <b>{profile?.full_name||'Sotuvchi'}</b>
+          <small>{profile?.email}</small>
+        </div>
+      </div>
+      <div className="hamburger-menu-options">
+        <button
+          type="button"
+          className={`hamburger-option-item ${page==='kpi'?'active':''}`}
+          onClick={()=>{setMenuOpen(false);setPage('kpi');}}
+        >
+          <div className="option-icon-box kpi">
+            <BarChart3 size={20}/>
+          </div>
+          <div className="option-text-box">
+            <b>Mening KPI ko‘rsatkichlarim</b>
+            <small>Kunlik va oylik shaxsiy savdo natijalari va daromad</small>
+          </div>
+          <ChevronRight size={18} className="chevron"/>
+        </button>
+
+        <button
+          type="button"
+          className={`hamburger-option-item ${page==='profile'?'active':''}`}
+          onClick={()=>{setMenuOpen(false);setPage('profile');}}
+        >
+          <div className="option-icon-box profile">
+            <User size={20}/>
+          </div>
+          <div className="option-text-box">
+            <b>Mening profilim</b>
+            <small>Shaxsiy ma’lumotlar, parol va xavfsizlik sozlamalari</small>
+          </div>
+          <ChevronRight size={18} className="chevron"/>
+        </button>
+      </div>
+    </div>
+  </Modal>
   <PendingDetail sale={pendingDetail} close={()=>setPendingDetail(null)} onEdit={startEditPendingSale} onDelete={setCancelConfirmSale} rate={rate}/>
   <Receipt receipt={receipt} close={()=>setReceipt(null)} rate={rate}/>
   <Modal open={Boolean(cancelConfirmSale)} onClose={()=>!canceling&&setCancelConfirmSale(null)} title="So‘rovni bekor qilish">

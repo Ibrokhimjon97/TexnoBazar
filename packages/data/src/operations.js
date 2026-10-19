@@ -42,6 +42,11 @@ export const RETURN_CONDITIONS=[
   ['defective','Nuqsonli'],
 ];
 export const findSaleReturnUnit=(branchId,code)=>rpc('find_sale_return_unit',{p_branch_id:branchId,p_code:code});
+export const listBranchSoldUnitsByDate=(branchId,date,query=null)=>rpc('list_branch_sold_units_by_date',{p_branch_id:branchId,p_date:date,p_query:query||null});
+export const executePosSameProductExchange=({branchId,returnedUnitId,replacementUnitId=null,reason=null})=>rpc('execute_pos_same_product_exchange',{p_branch_id:branchId,p_returned_unit_id:returnedUnitId,p_replacement_unit_id:replacementUnitId||null,p_reason:reason});
+export const createPosExchangeUpgrade=({branchId,returnedUnitId,newUnitId,reason=null})=>rpc('create_pos_exchange_upgrade',{p_branch_id:branchId,p_returned_unit_id:returnedUnitId,p_new_unit_id:newUnitId,p_reason:reason});
+export const requestPosCashRefund=({branchId,unitId,reason=null})=>rpc('request_pos_cash_refund',{p_branch_id:branchId,p_unit_id:unitId,p_reason:reason});
+export const completePosCashRefund=({returnId,resellLocationId=null})=>rpc('complete_pos_cash_refund',{p_return_id:returnId,p_resell_location_id:resellLocationId||null});
 export const executeSaleReturn=({branchId,unitId,condition,reason,refundAmount=null,resellLocationId=null,idempotencyKey=crypto.randomUUID()})=>rpc('execute_sale_return',{p_branch_id:branchId,p_unit_id:unitId,p_condition:condition,p_reason:reason,p_refund_amount:refundAmount,p_resell_location_id:resellLocationId||null,p_idempotency_key:idempotencyKey});
 export const listSaleReturnHistory=({branchId,from=null,to=null,query='',condition=null,status=null,page=1,pageSize=50})=>rpc('list_sale_return_history',{p_branch_id:branchId,p_from:from||null,p_to:to||null,p_query:query||null,p_condition:condition||null,p_status:status||null,p_limit:pageSize,p_offset:(page-1)*pageSize});
 export const getUnitLifecycle=code=>rpc('get_unit_lifecycle',{p_code:code});
