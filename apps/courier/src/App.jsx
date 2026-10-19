@@ -44,18 +44,56 @@ function OrderQrVerification({orderId,onAllConfirmed,busy}){
   const[status,setStatus]=useState(null),[loading,setLoading]=useState(true),[error,setError]=useState(''),[code,setCode]=useState(''),[scanBusy,setScanBusy]=useState(false),[lastResult,setLastResult]=useState(null);
   const load=async()=>{setLoading(true);setError('');try{const data=await getCourierOrderVerification(orderId);setStatus(data)}catch(e){setError(errorText(e,'Yuklanmadi.'))}finally{setLoading(false)}};
   useEffect(()=>{load()},[orderId]);
-  const submit=async e=>{e?.preventDefault?.();if(!code.trim())return;setScanBusy(true);setError('');setLastResult(null);try{const result=await courierVerifyOrderUnit(orderId,code.trim());setLastResult(result);setCode('');if(result.matched)await load();}catch(e){setError(errorText(e,'Tekshirilmadi.'))}finally{setScanBusy(false)}};
-  if(loading)return <div className="qr-verify-loading">Tekshirilmoqda\u2026</div>;
+  const submit=async e=>{
+    e?.preventDefault?.();
+    if(!code.trim())return;
+    setScanBusy(true);setError('');setLastResult(null);
+    try{
+      const result=await courierVerifyOrderUnit(orderId,code.trim());
+      setLastResult(result);
+      setCode('');
+      if(result.matched)await load();
+    }catch(e){
+      setError(errorText(e,'Tekshirilmadi.'));
+    }finally{
+      setScanBusy(false);
+    }
+  };
+  if(loading)return <div className="qr-verify-loading">Tekshirilmoqda…</div>;
   const allConfirmed=status?.all_confirmed;
   return <div className="qr-verify-block">
     <h3><Package/> Mahsulotlarni QR skaner bilan tasdiqlash</h3>
-    <p className="qr-verify-hint">Har bir mahsulotning QR kodini skaner qiling yoki qo'lda kiriting. Barcha mahsulotlar tasdiqlangandan keyin "Olib ketdim" tugmasi ochiladi.</p>
-    <div className="qr-verify-list">{status?.items?.map((line,i)=><div key={i} className={'qr-verify-item'+(line.confirmed?' done':'')}><span>{line.confirmed?<CheckCircle2/>:<Package/>}</span><div><b>{line.product_name}</b><small>{line.sku}</small></div></div>)}</div>
-    <form onSubmit={submit} className="qr-verify-form"><input className="qr-verify-input" value={code} onChange={e=>setCode(e.target.value)} placeholder="QR kod yoki seriya raqami" autoFocus/><button type="submit" disabled={scanBusy||!code.trim()} className="qr-verify-submit">{scanBusy?'\u2026':'Tekshirish'}</button></form>
+    <p className="qr-verify-hint">
+      Ombordagi tovar QR kodini skaner qiling. Agar tovar doʻkonda namuna sifatida turgan boʻlsa ham, ombordagi bir xil tovar QR kodi skanerlanganda tizim avtomatik almashtirib tasdiqlaydi.
+    </p>
+    <div className="qr-verify-list">
+      {status?.items?.map((line,i)=>(
+        <div key={i} className={'qr-verify-item'+(line.confirmed?' done':'')}>
+          <span>{line.confirmed?<CheckCircle2/>:<Package/>}</span>
+          <div style={{flex:1}}>
+            <b>{line.product_name}</b>
+            <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginTop:2}}>
+              <small>{line.sku}</small>
+              {line.location_name&&<span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:line.location_type==='store'?'#fef3c7':'#dbeafe',color:line.location_type==='store'?'#92400e':'#1e40af'}}>{line.location_type==='store'?'Do‘kondan (namuna)':`Ombor (${line.location_name})`}</span>}
+              {line.batch_code&&<span style={{fontSize:10,color:'#64748b'}}>Partiya: {line.batch_code}</span>}
+            </div>
+          </div>
+          {line.confirmed&&<span style={{fontSize:11,color:'#16a34a',fontWeight:700}}>✓ Tasdiqlandi</span>}
+        </div>
+      ))}
+    </div>
+    <form onSubmit={submit} className="qr-verify-form">
+      <input className="qr-verify-input" value={code} onChange={e=>setCode(e.target.value)} placeholder="Ombordagi tovar QR kodi yoki seriya raqami" autoFocus/>
+      <button type="submit" disabled={scanBusy||!code.trim()} className="qr-verify-submit">{scanBusy?'…':'Tekshirish'}</button>
+    </form>
     {lastResult&&!lastResult.matched&&<div className="qr-verify-error"><AlertCircle/> {lastResult.message||"Mos kelmadi"}</div>}
-    {lastResult?.matched&&<div className="qr-verify-success"><CheckCircle2/> {lastResult.product_name} tasdiqlandi ({lastResult.confirmed_count}/{lastResult.total_count})</div>}
+    {lastResult?.matched&&<div className="qr-verify-success" style={lastResult.swapped?{background:'#f0fdf4',border:'1px solid #86efac',color:'#166534',padding:'8px 12px',borderRadius:8}:undefined}>
+      <CheckCircle2 size={16}/> <b>{lastResult.product_name}</b> {lastResult.swapped ? 'ombordan almashtirib tasdiqlandi (do‘kondagi namuna bo‘shatildi)' : 'tasdiqlandi'} ({lastResult.confirmed_count}/{lastResult.total_count})
+    </div>}
     {error&&<div className="qr-verify-error"><AlertCircle/> {error}</div>}
-    <button disabled={busy||!allConfirmed} className="status-button" onClick={onAllConfirmed}><Package/> {busy?'Yangilanmoqda\u2026':allConfirmed?'Buyurtmani olib ketdim':`Avval barcha mahsulotlarni tasdiqlang (${status?.items?.filter(x=>x.confirmed).length||0}/${status?.items?.length||0})`}</button>
+    <button disabled={busy||!allConfirmed} className="status-button" onClick={onAllConfirmed}>
+      <Package/> {busy?'Yangilanmoqda…':allConfirmed?'Buyurtmani olib ketdim':`Avval barcha mahsulotlarni tasdiqlang (${status?.items?.filter(x=>x.confirmed).length||0}/${status?.items?.length||0})`}
+    </button>
   </div>;
 }
 function DeliveryDetail({data:item,busy,update,tracking,toggleTracking}){const[proof,setProof]=useState(null),[reason,setReason]=useState(''),[actionError,setActionError]=useState('');const run=async(status,options={})=>{setActionError('');try{await update(status,options);}catch(e){setActionError(errorText(e,'Amal bajarilmadi.'));}};const stages=['assigned','picked_up','in_transit','delivered'],current=Math.max(0,stages.indexOf(item.status));const address=formatAddress(item.shipping_address);return <section className="delivery-detail real-detail"><div className="detail-navigation"><MapPin/><div><small>Yetkazib berish manzili</small><b>{address}</b></div><a href={mapsUrl(item.shipping_address)} target="_blank" rel="noreferrer"><Navigation/> Xaritada ochish</a></div><div className="detail-sheet"><div className="sheet-handle"/><div className="between"><div><span>Buyurtma</span><h2>{item.order_no||item.tracking_code}</h2><small>{item.tracking_code}</small></div><DeliveryStatus status={item.status}/></div><div className="status-stepper">{stages.map((status,index)=><div key={status} className={current>=index&&item.status!=='failed'?'done':''}><i>{current>index?<Check/>:index+1}</i><span>{labels[status]}</span></div>)}</div><div className="customer-card"><div className="avatar">{(item.customer_name||'M')[0]}</div><div><b>{item.customer_name||'Mijoz'}</b><span>{item.customer_phone||'Telefon berilmagan'}</span></div>{item.customer_phone&&<a href={`tel:${item.customer_phone}`} aria-label="Qo‘ng‘iroq"><Phone/></a>}</div><div className="address-card"><span><MapPin/></span><div><small>Yetkazib berish manzili</small><b>{address}</b>{item.notes&&<em>Izoh: {item.notes}</em>}</div></div><div className="order-items"><h3>Buyurtma tarkibi</h3>{(item.lines||[]).map((line,index)=><div key={`${line.sku}-${index}`}><span className="product-placeholder"><Package/></span><div><b>{line.product_name}</b><span>{line.quantity} dona · SKU: {line.sku||'—'}</span></div></div>)}</div><div className="payment-info"><div><span>To‘lov holati</span><b>{paymentLabel(item.payment_status)}</b></div><div><span>Buyurtma summasi</span><b>{formatMoney(Number(item.total||0))}</b></div></div>{actionError&&<div className="detail-error"><AlertCircle/>{actionError}</div>}{item.status==='assigned'&&<OrderQrVerification orderId={item.order_id} onAllConfirmed={()=>run('picked_up')} busy={busy}/>}{item.status==='picked_up'&&<button disabled={busy} className="status-button" onClick={()=>run('in_transit')}><Truck/> {busy?'Yangilanmoqda…':'Yo‘lga chiqdim'}</button>}{item.status==='in_transit'&&<><div className={'tracking-control '+(tracking?.state==='error'?'error':'')}><Navigation/><span><b>{tracking?'GPS kuzatuv faol':'GPS kuzatuv o‘chiq'}</b><small>{tracking?.message||'Koordinatalarni serverga yuborish uchun yoqing.'}</small></span><button onClick={toggleTracking}>{tracking?'To‘xtatish':'Yoqish'}</button></div><label className="proof-picker"><span>Yetkazish isboti (ixtiyoriy: JPEG, PNG, WebP yoki AVIF; 10 MiB gacha)</span><input type="file" accept="image/jpeg,image/png,image/webp,image/avif" onChange={event=>setProof(event.target.files?.[0]||null)}/><b>{proof?.name||'Rasm tanlang'}</b></label><button disabled={busy} className="status-button" onClick={()=>run('delivered',{file:proof})}><CheckCircle2/> {busy?'Yuklanmoqda\u2026':'Yetkazib berdim / Pulni oldim'}</button><div className="failure-form"><label htmlFor="failure-reason">Yetkazib bo‘lmagan bo‘lsa sabab</label><textarea id="failure-reason" value={reason} onChange={event=>setReason(event.target.value)} placeholder="Masalan: mijoz manzilda emas"/><button disabled={busy||!reason.trim()} onClick={()=>run('failed',{note:reason.trim()})}><AlertCircle/> Yetkazilmadi deb belgilash</button></div></>}{item.status==='delivered'&&<div className="delivered"><CheckCircle2/> Buyurtma muvaffaqiyatli yetkazildi</div>}{item.status==='failed'&&<div className="failed-result"><XCircle/> Yetkazish amalga oshmadi</div>}{item.proof_url&&<a className="proof-link" href={item.proof_url} target="_blank" rel="noreferrer"><ExternalLink/> Yetkazish isbotini ochish</a>}</div></section>}

@@ -1,5 +1,4 @@
-import React,{useEffect,useMemo,useState}from'react';
-import{AlertTriangle,ArrowLeftRight,BarChart3,Boxes,ChevronLeft,ChevronRight,Clock,CreditCard,ExternalLink,Eye,EyeOff,FileText,Home,Layers,Mail,MapPin,Menu,Package,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Send,ShoppingCart,Store,Trash2,User,Warehouse,X}from'lucide-react';
+import{AlertTriangle,ArrowLeftRight,BarChart3,Boxes,ChevronLeft,ChevronRight,Clock,CreditCard,ExternalLink,Eye,EyeOff,FileText,Home,Layers,Mail,MapPin,Menu,Package,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Send,ShoppingCart,Store,Trash2,Truck,User,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,QrScanButton,Status,formatDualMoney,useExchangeRate,printThermalReceipt,ThermalReceiptPreview}from'@texnobazar/ui';
 import{createPosPendingSale,updatePosPendingSale,deletePosPendingSale,getPosBatchUnits,getPosPendingSale,getPosProductAvailability,getPosReferences,getPosUnitContext,getReceiptDeliveryStatus,getSaleReceipt,listMyPosPendingSalesByDate,listMyPosSales,listPosUnits,queueSaleReceipt,relocatePosUnits}from'@texnobazar/data';
 import ProfileWorkspace from'./ProfileWorkspace';
@@ -620,6 +619,29 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
   const belowMinimumLines=cart.filter(line=>lineTotal(line)-lineTax(line)<Number(line.minimum_sale_price||0));
   const hasMissingPrice = cart.some(line => !line.unit_price || Number(line.unit_price) <= 0);
 
+  const toggleLocation = async (line) => {
+    const targetLoc = line.location_type === 'store' ? 'warehouse' : 'store';
+    try {
+      const exclude = cart.filter(x => x.id !== line.id).map(x => x.id);
+      const units = await getPosBatchUnits(branchId, line.qr_code || line.sku, 1, exclude, targetLoc);
+      if (!units || !units.length) {
+        toast?.(targetLoc === 'warehouse' ? 'Omborda ushbu tovardan bo‘sh qoldiq yo‘q' : 'Do‘konda ushbu tovardan bo‘sh qoldiq yo‘q');
+        return;
+      }
+      const newUnit = units[0];
+      setCart(rows => rows.map(r => r.id === line.id ? {
+        ...r,
+        id: newUnit.id,
+        qr_code: newUnit.qr_code,
+        serial_number: newUnit.serial_number,
+        location_type: newUnit.location_type
+      } : r));
+      toast?.(newUnit.location_type === 'warehouse' ? 'Tovar ombor qoldig‘iga o‘tkazildi' : 'Tovar do‘kon qoldig‘iga o‘tkazildi');
+    } catch (e) {
+      toast?.(msg(e));
+    }
+  };
+
   const submit=async e=>{
     e.preventDefault();if(!cart.length)return;
     if(hasMissingPrice)return setError('Barcha mahsulotlarning sotish narxini kiriting.');
@@ -687,7 +709,21 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
             <div>
               <b>{line.product_name}</b>
               <small>{line.qr_code}{line.serial_number?` · ${line.serial_number}`:''}</small>
-              {line.location_type&&<Status type={line.location_type==='store'?'green':'blue'}>{line.location_type==='store'?'Do‘kondan':'Ombordan'}</Status>}
+              {line.location_type&&(
+                <div style={{display:'inline-flex',alignItems:'center',gap:6,marginTop:3}}>
+                  <Status type={line.location_type==='store'?'green':'blue'}>{line.location_type==='store'?'Do‘kondan':'Ombordan'}</Status>
+                  <button
+                    type="button"
+                    onClick={()=>toggleLocation(line)}
+                    className="btn btn-outline btn-xs"
+                    style={{fontSize:10,padding:'1px 6px',borderRadius:4,display:'inline-flex',alignItems:'center',gap:3,lineHeight:1.3}}
+                    title="Do‘kon yoki ombor qoldig‘iga o‘tkazish"
+                  >
+                    <ArrowLeftRight size={10}/>
+                    {line.location_type==='store'?'Omborga o‘tkazish':'Do‘konga o‘tkazish'}
+                  </button>
+                </div>
+              )}
               {line.selected_components?.length>0&&<div style={{display:'flex',flexWrap:'wrap',gap:'4px',marginTop:'4px'}}>
                 {line.selected_components.map((c,i)=><span key={i} style={{display:'inline-flex',alignItems:'center',gap:'4px',fontSize:'11px',padding:'2px 6px',borderRadius:'4px',background:'var(--surface-alt,#f1f5f9)',color:'var(--text)',border:'1px solid var(--line,#e2e8f0)'}}>
                   {(c.image_url||c.imageUrl)&&<img src={c.image_url||c.imageUrl} alt="" style={{width:'16px',height:'16px',borderRadius:'3px',objectFit:'cover'}}/>}
@@ -728,6 +764,12 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
           <label>Mijoz ismi<input className="input" value={customer.full_name} onChange={e=>setCustomer(c=>({...c,full_name:e.target.value}))} placeholder="Ixtiyoriy"/></label>
           <label>Telefon raqami<input className="input" type="tel" value={customer.phone} onChange={e=>setCustomer(c=>({...c,phone:e.target.value}))} placeholder="+998 90 123 45 67"/></label>
           <label>Manzil<input className="input" value={customer.address} onChange={e=>setCustomer(c=>({...c,address:e.target.value}))} placeholder="Ixtiyoriy"/></label>
+          {customer.address.trim()&&(
+            <div style={{gridColumn:'1 / -1',fontSize:11.5,padding:'7px 10px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,color:'#1e40af',display:'flex',alignItems:'center',gap:6,marginTop:2}}>
+              <Truck size={15} style={{flexShrink:0}}/>
+              <span><b>Dostavka tizimi:</b> Tovarlar dostavka uchun ombordan chiqariladi, do‘kondagi vitrina namunasi bo‘shatiladi.</span>
+            </div>
+          )}
         </div>}
       </div>
       <label className="pos-real-notes">Izoh<textarea value={notes} onChange={e=>setNotes(e.target.value)} rows="2"/></label>

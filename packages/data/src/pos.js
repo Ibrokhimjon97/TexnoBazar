@@ -40,6 +40,6 @@ export async function getPendingSaleReceipt(pendingSaleId) {
   if (!saleId) throw new Error('Ushbu kassa so‘rovi uchun tasdiqlangan sotuv topilmadi');
   return getSaleReceipt(saleId);
 }
-export const getPosBatchUnits = (branchId, code, count = 1, excludeIds = []) =>
-  rpc('get_pos_batch_units', { p_branch_id: branchId, p_code: code, p_count: count, p_exclude_ids: excludeIds });
+export const getPosBatchUnits = (branchId, code, count = 1, excludeIds = [], preferLocation = null) =>
+  rpc('get_pos_batch_units', { p_branch_id: branchId, p_code: code, p_count: count, p_exclude_ids: excludeIds, p_prefer_location: preferLocation });
 

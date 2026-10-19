@@ -78,3 +78,6 @@ export const managerUpdateDeliveryStatus = ({ deliveryId, status, notes = null }
 
 export const managerCancelDelivery = ({ deliveryId, reason }) =>
   rpc('manager_cancel_delivery', { p_delivery_id: deliveryId, p_reason: reason });
+
+export const posDeliverySwapUnit = ({ deliveryId, oldQr, newQr }) =>
+  rpc('pos_delivery_swap_unit', { p_delivery_id: deliveryId, p_old_qr: oldQr, p_new_qr: newQr });

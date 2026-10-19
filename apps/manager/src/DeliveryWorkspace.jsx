@@ -15,7 +15,8 @@ import {
   XCircle,
   Tag,
   Check,
-  X
+  X,
+  ArrowLeftRight
 } from 'lucide-react';
 import {
   DualPrice,
@@ -29,7 +30,8 @@ import {
   listPosDeliveries,
   managerAcceptDeliveryCash,
   managerUpdateDeliveryStatus,
-  managerCancelDelivery
+  managerCancelDelivery,
+  posDeliverySwapUnit
 } from '@texnobazar/data';
 
 const msg = e => String(e?.message || 'Amalni bajarib bo‘lmadi.');
@@ -175,6 +177,26 @@ export default function DeliveryWorkspace({ branchId, toast }) {
       toast?.(msg(e));
     } finally {
       setCancelBusy(false);
+    }
+  };
+
+  // Swap unit to warehouse or other unit
+  const handleSwapUnit = async (delivery, item) => {
+    const newQr = window.prompt(`"${item.product_name}" uchun ombordagi yangi tovar QR kodini kiriting yoki skanerlang:`);
+    if (!newQr || !newQr.trim()) return;
+    setBusyId(delivery.id);
+    try {
+      await posDeliverySwapUnit({
+        deliveryId: delivery.id,
+        oldQr: item.qr_code,
+        newQr: newQr.trim()
+      });
+      toast?.('Tovar muvaffaqiyatli ombor birligiga almashtirildi!');
+      await load();
+    } catch (e) {
+      toast?.(msg(e));
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -446,9 +468,27 @@ export default function DeliveryWorkspace({ branchId, toast }) {
                           </span>
                           <div>
                             <b>{item.product_name}</b>
-                            <div style={{ display: 'flex', gap: 8, color: '#64748b', fontSize: 11, marginTop: 1 }}>
+                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', color: '#64748b', fontSize: 11, marginTop: 2, flexWrap: 'wrap' }}>
+                              {item.location_name && (
+                                <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 4, background: item.location_type === 'store' ? '#fef3c7' : '#dbeafe', color: item.location_type === 'store' ? '#92400e' : '#1e40af' }}>
+                                  {item.location_type === 'store' ? 'Do‘kondan (namuna)' : `Ombor (${item.location_name})`}
+                                </span>
+                              )}
                               {item.batch_code && <span>Partiya: <b>{item.batch_code}</b></span>}
                               {item.qr_code && <span>QR: {item.qr_code}</span>}
+                              {!isDelivered && !isCancelled && item.qr_code && (
+                                <button
+                                  type="button"
+                                  className="btn btn-outline btn-xs"
+                                  onClick={() => handleSwapUnit(row, item)}
+                                  disabled={busyId === row.id}
+                                  style={{ fontSize: 10, padding: '1px 6px', borderRadius: 4, display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                                  title="Ombordagi boshqa tovar QR kodi bilan almashtirish"
+                                >
+                                  <ArrowLeftRight size={10} />
+                                  Ombor QR ga almashtirish
+                                </button>
+                              )}
                             </div>
                           </div>
                         </div>
