@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Clock3, FileText, Layers, Printer, ReceiptText, RotateCcw, Search, Trash2, WalletCards, X, Truck, Tag, DollarSign, Check, CreditCard } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock3, FileText, Layers, Printer, ReceiptText, RotateCcw, Search, Trash2, WalletCards, X, Truck, Tag, DollarSign, Check, CreditCard, Banknote } from 'lucide-react';
 import { DualPrice, Empty, Modal, Status, useExchangeRate, ThermalReceiptPreview, printThermalReceipt, ProductDeliveryStickersModal } from '@texnobazar/ui';
 import {
   confirmPosSale,
@@ -229,22 +229,70 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
         <p>Sotuvchi rezervlarini tasdiqlash va yakunlash</p>
       </div>
       <div className="cash-real-summary">
-        <article>
-          <WalletCards />
+        <article className="is-pending">
+          <div className="cash-real-summary-icon">
+            <WalletCards size={22} />
+          </div>
           <span>
             <small>Kutilmoqda</small>
-            <b>{s.pending_count || 0} ta</b>
+            <b>{s.pending_count || 0} ta so‘rov</b>
             <strong><DualPrice value={Number(s.pending_amount || 0)} rate={rate} /></strong>
           </span>
         </article>
-        <article>
-          <ReceiptText />
+
+        <article className="is-confirmed">
+          <div className="cash-real-summary-icon">
+            <ReceiptText size={22} />
+          </div>
           <span>
-            <small>Bugun tasdiqlandi</small>
-            <b>{s.confirmed_today_count || 0} ta</b>
+            <small>Jami tasdiqlandi (Bugun)</small>
+            <b>{s.confirmed_today_count || 0} ta savdo</b>
             <strong><DualPrice value={Number(s.confirmed_today_amount || 0)} rate={rate} /></strong>
           </span>
         </article>
+
+        <article className="is-cash">
+          <div className="cash-real-summary-icon">
+            <Banknote size={22} />
+          </div>
+          <span>
+            <small>Shundan naqd pul</small>
+            <b>
+              {Number(s.confirmed_today_amount || 0) > 0
+                ? `${Math.round((Number(s.confirmed_today_cash || 0) / Number(s.confirmed_today_amount)) * 100)}% ulush`
+                : '0% ulush'}
+            </b>
+            <strong><DualPrice value={Number(s.confirmed_today_cash || 0)} rate={rate} /></strong>
+          </span>
+        </article>
+
+        <article className="is-card">
+          <div className="cash-real-summary-icon">
+            <CreditCard size={22} />
+          </div>
+          <span>
+            <small>Shundan plastik karta</small>
+            <b>
+              {Number(s.confirmed_today_amount || 0) > 0
+                ? `${Math.round((Number(s.confirmed_today_card || 0) / Number(s.confirmed_today_amount)) * 100)}% ulush`
+                : '0% ulush'}
+            </b>
+            <strong><DualPrice value={Number(s.confirmed_today_card || 0)} rate={rate} /></strong>
+          </span>
+        </article>
+
+        {Number(s.confirmed_today_other || 0) > 0 && (
+          <article className="is-other">
+            <div className="cash-real-summary-icon">
+              <Layers size={22} />
+            </div>
+            <span>
+              <small>Shundan boshqa to‘lov</small>
+              <b>Click / boshqa</b>
+              <strong><DualPrice value={Number(s.confirmed_today_other || 0)} rate={rate} /></strong>
+            </span>
+          </article>
+        )}
       </div>
       <div className="cash-real-toolbar">
         <div className="cash-real-tabs">
@@ -305,6 +353,34 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                   <b><DualPrice value={Number(row.total || 0)} rate={rate} /></b>
                   <small><Clock3 /> {date(row.expires_at)}</small>
                 </div>
+                {row.payments && row.payments.length > 0 && (
+                  <div className="cash-real-card-pmts" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+                    {row.payments.map((p, idx) => {
+                      const isCash = p.code === 'cash';
+                      const isCard = p.code === 'card' || p.code === 'terminal';
+                      return (
+                        <span
+                          key={idx}
+                          style={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 4,
+                            fontSize: '11px',
+                            fontWeight: 600,
+                            padding: '2px 7px',
+                            borderRadius: '6px',
+                            background: isCash ? '#f0fdf4' : isCard ? '#eff6ff' : '#f8fafc',
+                            color: isCash ? '#15803d' : isCard ? '#1d4ed8' : '#475569',
+                            border: `1px solid ${isCash ? '#bbf7d0' : isCard ? '#bfdbfe' : '#e2e8f0'}`
+                          }}
+                        >
+                          {isCash ? '💵 Naqd:' : isCard ? '💳 Plastik:' : `⚡ ${p.name || p.code}:`}
+                          <strong style={{ fontWeight: 700 }}>{Number(p.amount || 0).toLocaleString('uz-UZ')} so‘m</strong>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
                 <div
                   style={{
                     display: 'flex',
@@ -707,6 +783,28 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
             <span>Soliq <b><DualPrice value={Number(sale.tax || 0)} rate={rate} /></b></span>
             <strong>Jami <b><DualPrice value={Number(sale.total || 0)} rate={rate} /></b></strong>
           </div>
+
+          {sale.payments && sale.payments.length > 0 && (
+            <div style={{ marginTop: 12, padding: '12px 14px', background: '#f8fafc', border: '1px solid var(--line)', borderRadius: 10 }}>
+              <b style={{ fontSize: 13, display: 'block', marginBottom: 8, color: 'var(--navy)' }}>To‘lov tafsilotlari:</b>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {sale.payments.map((p, idx) => {
+                  const code = p.method_code || p.code;
+                  const name = p.method_name || p.name;
+                  const isCash = code === 'cash';
+                  const isCard = code === 'card' || code === 'terminal';
+                  return (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                        {isCash ? '💵 Naqd pul' : isCard ? '💳 Plastik karta / terminal' : `⚡ ${name || code}`}
+                      </span>
+                      <b><DualPrice value={Number(p.amount || 0)} rate={rate} /></b>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Cashier Payment Selection (Only active when pending confirmation) */}
           {sale.can_confirm && !rejecting && (
