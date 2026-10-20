@@ -838,6 +838,27 @@ export default function BatchPriceExcelModal({
           </div>
         </div>
 
+        {/* Minimal Price info banner */}
+        <div
+          style={{
+            background: '#fff7ed',
+            border: '1px solid #fed7aa',
+            borderRadius: 10,
+            padding: '10px 14px',
+            fontSize: 12.5,
+            color: '#9a3412',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            lineHeight: 1.5,
+          }}
+        >
+          <span style={{ fontSize: 16, flexShrink: 0 }}>🛡️</span>
+          <div>
+            <b>Minimal sotish narxi haqida:</b> Excelda minimal sotish narxini <b>0</b> qilsangiz yoki 0 qilib yuklasangiz, kassada sotuvchi tovar uchun hohlagan narxini cheklovsiz kirita oladi. Exceldan yuklanganda 0 qiymat to‘liq saqlanadi va qaytib sotish narxiga aylanib qolmaydi.
+          </div>
+        </div>
+
         {/* Upload Zone */}
         {!parsedRows.length && (
           <div
