@@ -10,9 +10,9 @@ import ReturnsWorkspace from'./ReturnsWorkspace';
 const msg=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 const when=value=>value?new Date(value).toLocaleString('uz-UZ'):'—';
 const address=value=>{if(!value)return'';if(typeof value==='string')return value;return[value.line1,value.line2,value.district,value.city,value.region,value.postal_code].filter(Boolean).join(', ')};
-const labels={pending:'Kutilmoqda',confirmed:'Tasdiqlandi',rejected:'Rad etildi',expired:'Muddati tugadi'};
+const labels={pending:'Kutilmoqda',confirmed:'Tasdiqlandi',rejected:'Rad etildi',expired:'Muddati tugadi',nasiya:'Nasiya'};
 const unitStates={available:'Sotuvga tayyor',reserved:'Band qilingan',in_transit:'Yo‘lda',sold:'Sotilgan',returned:'Qaytarilgan',written_off:'Hisobdan chiqarilgan',in_repair:'Ta’mirda'};
-const colors={pending:'orange',confirmed:'green',rejected:'red',expired:'gray'};
+const colors={pending:'orange',confirmed:'green',rejected:'red',expired:'gray',nasiya:'purple'};
 const lineTax=line=>Math.round((Number(line.unit_price||0)-Number(line.discount||0))*Number(line.tax_rate||0))/100;
 const lineTotal=line=>Number(line.unit_price||0)-Number(line.discount||0)+lineTax(line);
 // Money inputs stay strings so the seller can fully clear a value instead of
@@ -797,6 +797,7 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
     } catch {}
     return { full_name: '', phone: '', address: '' };
   });
+  const [paymentType, setPaymentType] = useState('cash'); // 'cash' | 'card' | 'nasiya'
   const [showCustomer, setShowCustomer] = useState(() => {
     if (editingPendingSale?.customer?.phone || editingPendingSale?.customer?.full_name) return true;
     try {
@@ -820,6 +821,17 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
         address:editingPendingSale.customer.address||''
       });
       setShowCustomer(Boolean(editingPendingSale.customer.phone||editingPendingSale.customer.full_name));
+    }
+    if(editingPendingSale.payments?.length){
+      const pCode = editingPendingSale.payments[0]?.method_code || editingPendingSale.payments[0]?.code;
+      if(pCode === 'nasiya'){
+        setPaymentType('nasiya');
+        setShowCustomer(true);
+      }else if(pCode === 'card' || pCode === 'terminal' || pCode === 'click'){
+        setPaymentType('card');
+      }else{
+        setPaymentType('cash');
+      }
     }
   },[editingPendingSale]);
 
@@ -891,17 +903,21 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
   const submit=async e=>{
     e.preventDefault();if(!cart.length)return;
     if(hasMissingPrice)return setError('Barcha mahsulotlarning sotish narxini kiriting.');
+    if(paymentType === 'nasiya'){
+      if(!customer.full_name.trim())return setError('Nasiya savdo uchun mijoz ismi (F.I.O) kiritilishi shart.');
+      if(!customer.phone.trim())return setError('Nasiya savdo uchun mijoz telefon raqami kiritilishi shart.');
+      if(!notes.trim())return setError('Nasiya savdo uchun izoh kiritilishi shart.');
+    }
     setBusy(true);setError('');
     try{
       const customerPayload=customer.phone.trim()?{full_name:customer.full_name.trim()||null,phone:customer.phone.trim(),address:customer.address.trim()||null}:null;
-      // Default payments payload for backend validation — cashier will choose actual payment method in manager app
-      const defaultPayments = [{ method_code: 'cash', amount: Number(total.toFixed(2)), external_reference: null }];
+      const paymentsPayload = [{ method_code: paymentType, amount: Number(total.toFixed(2)), external_reference: null }];
       let result;
       if(editingPendingSale){
         result=await updatePosPendingSale({
           pendingId:editingPendingSale.id,
           lines:cart.map(x=>({unit_id:x.id,unit_price:Number(x.unit_price),discount:Number(x.discount||0),selected_components:x.selected_components||[]})),
-          payments:defaultPayments,
+          payments:paymentsPayload,
           notes,
           customer:customerPayload
         });
@@ -910,7 +926,7 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
         result=await createPosPendingSale({
           branchId,
           lines:cart.map(x=>({unit_id:x.id,unit_price:Number(x.unit_price),discount:Number(x.discount||0),selected_components:x.selected_components||[]})),
-          payments:defaultPayments,
+          payments:paymentsPayload,
           notes,
           customer:customerPayload
         });
@@ -924,6 +940,7 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
       setNotes('');
       setCustomer({full_name:'',phone:'',address:''});
       setShowCustomer(false);
+      setPaymentType('cash');
       setEditingPendingSale(null);
       await refresh();
     }catch(e){setError(msg(e))}finally{setBusy(false)}
@@ -946,6 +963,7 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
           onClick={()=>{
             setEditingPendingSale(null);
             setCart([]);
+            setPaymentType('cash');
             if (cartKey) { try { localStorage.removeItem(cartKey); } catch {} }
             if (editingKey) { try { localStorage.removeItem(editingKey); } catch {} }
             if (metaKey) { try { localStorage.removeItem(metaKey); } catch {} }
@@ -1026,11 +1044,55 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
         </article>;
       })}</div>
       <div className="pos-real-totals"><span>Narxlar − chegirma<b>{<DualPrice value={Number(cart.reduce((s,x)=>s+Number(x.unit_price)-Number(x.discount||0),0)||0)} rate={rate}/>}</b></span><span>Soliq<b>{<DualPrice value={Number(cart.reduce((s,x)=>s+lineTax(x),0)||0)} rate={rate}/>}</b></span><strong>Jami<b>{<DualPrice value={Number(total||0)} rate={rate}/>}</b></strong></div>
+
+      {/* Payment Method Selector */}
+      <div style={{ margin: '12px 0', padding: '12px 14px', background: '#ffffff', border: '1px solid var(--line)', borderRadius: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 8, color: 'var(--navy)' }}>To‘lov shakli:</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+          {[
+            ['cash', '💵 Naqd pul'],
+            ['card', '💳 Plastik / Click'],
+            ['nasiya', '⏳ Nasiya (Qarz)']
+          ].map(([code, title]) => (
+            <button
+              key={code}
+              type="button"
+              className={`btn btn-sm ${paymentType === code ? 'btn-primary' : 'btn-outline'}`}
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                padding: '8px 4px',
+                borderRadius: 8,
+                borderColor: paymentType === code ? (code === 'nasiya' ? '#9333ea' : undefined) : (code === 'nasiya' ? '#d8b4fe' : undefined),
+                background: paymentType === code ? (code === 'nasiya' ? '#9333ea' : undefined) : (code === 'nasiya' ? '#faf5ff' : undefined),
+                color: paymentType === code ? '#fff' : (code === 'nasiya' ? '#7e22ce' : undefined),
+                cursor: 'pointer'
+              }}
+              onClick={() => {
+                setPaymentType(code);
+                if (code === 'nasiya') setShowCustomer(true);
+              }}
+            >
+              {title}
+            </button>
+          ))}
+        </div>
+        {paymentType === 'nasiya' && (
+          <div style={{ marginTop: 8, fontSize: 11.5, color: '#6b21a8', background: '#faf5ff', padding: '8px 10px', borderRadius: 8, border: '1px solid #e9d5ff', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <Clock size={15} style={{ flexShrink: 0 }} />
+            <span><b>Nasiya savdo:</b> Mijoz ismi, telefon raqami va izoh kiritilishi majburiy.</span>
+          </div>
+        )}
+      </div>
+
       <div className="pos-real-customer">
-        <button type="button" className="between pos-real-customer-toggle" onClick={()=>setShowCustomer(v=>!v)}><span><User size={15}/> Mijoz ma’lumotlari (ixtiyoriy)</span><ChevronRight style={{transform:showCustomer?'rotate(90deg)':'none'}}/></button>
+        <button type="button" className="between pos-real-customer-toggle" onClick={()=>setShowCustomer(v=>!v)}>
+          <span><User size={15}/> Mijoz ma’lumotlari {paymentType === 'nasiya' ? <b style={{color:'#9333ea'}}>(Nasiya uchun majburiy *)</b> : '(ixtiyoriy)'}</span>
+          <ChevronRight style={{transform:showCustomer?'rotate(90deg)':'none'}}/>
+        </button>
         {showCustomer&&<div className="pos-real-customer-fields">
-          <label>Mijoz ismi<input className="input" value={customer.full_name} onChange={e=>setCustomer(c=>({...c,full_name:e.target.value}))} placeholder="Ixtiyoriy"/></label>
-          <label>Telefon raqami<input className="input" type="tel" value={customer.phone} onChange={e=>setCustomer(c=>({...c,phone:e.target.value}))} placeholder="+998 90 123 45 67"/></label>
+          <label>Mijoz ismi {paymentType === 'nasiya' ? '*' : ''}<input className="input" value={customer.full_name} onChange={e=>setCustomer(c=>({...c,full_name:e.target.value}))} placeholder={paymentType === 'nasiya' ? "Mijoz F.I.O (majburiy)" : "Ixtiyoriy"}/></label>
+          <label>Telefon raqami {paymentType === 'nasiya' ? '*' : ''}<input className="input" type="tel" value={customer.phone} onChange={e=>setCustomer(c=>({...c,phone:e.target.value}))} placeholder="+998 90 123 45 67"/></label>
           <label>Manzil<input className="input" value={customer.address} onChange={e=>setCustomer(c=>({...c,address:e.target.value}))} placeholder="Ixtiyoriy"/></label>
           {customer.address.trim()&&(
             <div style={{gridColumn:'1 / -1',fontSize:11.5,padding:'7px 10px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,color:'#1e40af',display:'flex',alignItems:'center',gap:6,marginTop:2}}>
@@ -1040,7 +1102,7 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
           )}
         </div>}
       </div>
-      <label className="pos-real-notes">Izoh<textarea value={notes} onChange={e=>setNotes(e.target.value)} rows="2"/></label>
+      <label className="pos-real-notes">Izoh {paymentType === 'nasiya' ? <b style={{color:'#9333ea'}}>*</b> : ''}<textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder={paymentType === 'nasiya' ? "Nasiya shartlari, qaytarish muddati va qarz sababi (majburiy)" : "Qo‘shimcha izoh..."} rows="2"/></label>
       {belowMinimumLines.length>0&&<div className="pos-real-warning"><AlertTriangle size={14}/> {belowMinimumLines.length} ta mahsulot minimal narxdan past sotilmoqda.</div>}
       {error&&<div className="pos-real-inline-error">{error}</div>}
       <button

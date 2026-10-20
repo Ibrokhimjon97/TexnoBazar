@@ -36,8 +36,8 @@ const address = value => {
   if (typeof value === 'string') return value;
   return [value.line1, value.line2, value.district, value.city, value.region, value.postal_code].filter(Boolean).join(', ');
 };
-const labels = { pending: 'Kutilmoqda', confirmed: 'Tasdiqlangan', rejected: 'Rad etilgan', cod: 'Kuryerga to‘laydi' };
-const colors = { pending: 'orange', confirmed: 'green', rejected: 'red', cod: 'amber' };
+const labels = { pending: 'Kutilmoqda', confirmed: 'Tasdiqlangan', rejected: 'Rad etilgan', cod: 'Kuryerga to‘laydi', nasiya: 'Nasiyalar' };
+const colors = { pending: 'orange', confirmed: 'green', rejected: 'red', cod: 'amber', nasiya: 'purple' };
 
 export default function CashWorkspace({ branchId, toast, onSummary, focusPendingSaleId, clearFocus }) {
   const [tab, setTab] = useState('pos');
@@ -149,8 +149,8 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusPendingSaleId]);
 
-  const confirmed = async (id, paymentsPayload, deliveryInfo) => {
-    const saleId = await confirmPosSale(id, paymentsPayload || null);
+  const confirmed = async (id, paymentsPayload, deliveryInfo, customerPayload = null, notes = null) => {
+    const saleId = await confirmPosSale(id, paymentsPayload || null, customerPayload || null, notes || null);
     if (!saleId) {
       setDetail(await getPosPendingSale(id));
       toast?.('Savdoni tasdiqlab bo‘lmadi');
@@ -196,8 +196,13 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
       setReceipt(check);
     }
 
+    const hasNasiya = paymentsPayload?.some(p => (p.method_code || p.code) === 'nasiya' && Number(p.amount) > 0);
+    const nasiyaAmount = paymentsPayload?.find(p => (p.method_code || p.code) === 'nasiya')?.amount;
+
     toast?.(deliveryInfo?.isCod
       ? `Kuryerdan to‘lov (${Number(deliveryInfo.codAmount || deliveryInfo.totalAmount).toLocaleString('uz-UZ')} so‘m) zayavkasi shakllantirildi va Dostavka sahifasiga yuborildi`
+      : hasNasiya
+      ? `Nasiya savdo (${Number(nasiyaAmount).toLocaleString('uz-UZ')} so‘m qarz) tasdiqlandi va Nasiyalar ro‘yxatiga qo‘shildi`
       : 'Pul qabul qilindi, mahsulotlar SOLD holatiga o‘tdi');
     await load();
   };
@@ -304,6 +309,33 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
           </span>
         </article>
 
+        <article
+          className={`is-nasiya ${status === 'nasiya' ? 'active-filter' : ''}`}
+          style={{
+            cursor: 'pointer',
+            outline: status === 'nasiya' ? '2px solid #9333ea' : 'none',
+            background: '#faf5ff',
+            borderColor: '#e9d5ff'
+          }}
+          onClick={() => setStatus('nasiya')}
+          title="Nasiyalar bo‘limini ochish"
+        >
+          <div className="cash-real-summary-icon" style={{ background: '#f3e8ff', color: '#9333ea' }}>
+            <Clock size={22} />
+          </div>
+          <span>
+            <small style={{ color: '#7e22ce' }}>Nasiya (Qarzlar)</small>
+            <b style={{ color: '#9333ea' }}>
+              {Number(s.nasiya_count || 0) > 0
+                ? `${s.nasiya_count} ta savdo`
+                : (Number(s.confirmed_today_amount || 0) > 0
+                    ? `${Math.round((Number(s.confirmed_today_nasiya || 0) / Number(s.confirmed_today_amount)) * 100)}% ulush`
+                    : '0 ta savdo')}
+            </b>
+            <strong style={{ color: '#6b21a8' }}><DualPrice value={Number(s.nasiya_total_amount ?? s.confirmed_today_nasiya ?? 0)} rate={rate} /></strong>
+          </span>
+        </article>
+
         {Number(s.confirmed_today_other || 0) > 0 && (
           <article className="is-other">
             <div className="cash-real-summary-icon">
@@ -323,6 +355,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
             ['pending', 'Kutilmoqda', s.pending_count],
             ['confirmed', 'Tasdiqlangan', null],
             ['cod', 'Kuryerga to‘laydi', s.cod_count],
+            ['nasiya', 'Nasiyalar', s.nasiya_count],
             ['rejected', 'Rad etilgan', null],
             ['all', 'Barchasi', null]
           ].map(([key, text, badgeCount]) => (
@@ -341,9 +374,9 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                     borderRadius: 10,
                     fontSize: 10.5,
                     fontWeight: 800,
-                    background: key === 'cod' ? '#fef3c7' : '#e0f2fe',
-                    color: key === 'cod' ? '#b45309' : '#0369a1',
-                    border: `1px solid ${key === 'cod' ? '#fde68a' : '#bae6fd'}`
+                    background: key === 'cod' ? '#fef3c7' : key === 'nasiya' ? '#f3e8ff' : '#e0f2fe',
+                    color: key === 'cod' ? '#b45309' : key === 'nasiya' ? '#7e22ce' : '#0369a1',
+                    border: `1px solid ${key === 'cod' ? '#fde68a' : key === 'nasiya' ? '#e9d5ff' : '#bae6fd'}`
                   }}
                 >
                   {badgeCount}
@@ -388,6 +421,18 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                 </div>
                 <span>Sotuvchi <strong>{row.seller_name}</strong></span>
                 <span>{row.unit_count} dona · {row.location_name}</span>
+                {row.customer && (row.customer.full_name || row.customer.phone) && (
+                  <div style={{ fontSize: 11.5, color: '#334155', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ fontWeight: 700 }}>👤 Mijoz:</span>
+                    <span>{row.customer.full_name || 'Ismsiz'}</span>
+                    {row.customer.phone && <span style={{ color: '#0284c7', fontWeight: 600 }}>({row.customer.phone})</span>}
+                  </div>
+                )}
+                {row.notes && (
+                  <div style={{ fontSize: 11, color: '#64748b', fontStyle: 'italic', marginTop: 2 }}>
+                    📝 {row.notes}
+                  </div>
+                )}
                 <div className="cash-real-card-total">
                   <b><DualPrice value={Number(row.total || 0)} rate={rate} /></b>
                   <small><Clock3 /> {date(row.expires_at)}</small>
@@ -396,8 +441,9 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                   <div className="cash-real-card-pmts" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
                     {row.payments.map((p, idx) => {
                       const isCash = p.code === 'cash';
-                      const isCard = p.code === 'card' || p.code === 'terminal';
+                      const isCard = p.code === 'card' || p.code === 'terminal' || p.code === 'click';
                       const isCod = p.code === 'cod';
+                      const isNasiya = p.code === 'nasiya';
                       return (
                         <span
                           key={idx}
@@ -409,12 +455,12 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                             fontWeight: 600,
                             padding: '2px 7px',
                             borderRadius: '6px',
-                            background: isCash ? '#f0fdf4' : isCard ? '#eff6ff' : isCod ? '#fffbeb' : '#f8fafc',
-                            color: isCash ? '#15803d' : isCard ? '#1d4ed8' : isCod ? '#b45309' : '#475569',
-                            border: `1px solid ${isCash ? '#bbf7d0' : isCard ? '#bfdbfe' : isCod ? '#fde68a' : '#e2e8f0'}`
+                            background: isCash ? '#f0fdf4' : isCard ? '#eff6ff' : isCod ? '#fffbeb' : isNasiya ? '#faf5ff' : '#f8fafc',
+                            color: isCash ? '#15803d' : isCard ? '#1d4ed8' : isCod ? '#b45309' : isNasiya ? '#7e22ce' : '#475569',
+                            border: `1px solid ${isCash ? '#bbf7d0' : isCard ? '#bfdbfe' : isCod ? '#fde68a' : isNasiya ? '#e9d5ff' : '#e2e8f0'}`
                           }}
                         >
-                          {isCash ? '💵 Naqd:' : isCard ? '💳 Plastik:' : isCod ? '🚚 Kuryerdan:' : `⚡ ${p.name || p.code}:`}
+                          {isCash ? '💵 Naqd:' : isCard ? '💳 Plastik:' : isCod ? '🚚 Kuryerdan:' : isNasiya ? '⏳ Nasiya:' : `⚡ ${p.name || p.code}:`}
                           <strong style={{ fontWeight: 700 }}>{Number(p.amount || 0).toLocaleString('uz-UZ')} so‘m</strong>
                         </span>
                       );
@@ -434,28 +480,34 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                 >
                   {row.status === 'confirmed' && (
                     <>
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        className="btn btn-sm btn-outline"
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 5,
-                          fontSize: 11,
-                          fontWeight: 700,
-                          padding: '4px 10px',
-                          background: row.payments?.some(p => p.code === 'cod' && Number(p.amount) > 0) ? '#fffbeb' : '#eff6ff',
-                          color: row.payments?.some(p => p.code === 'cod' && Number(p.amount) > 0) ? '#b45309' : '#1d4ed8',
-                          borderColor: row.payments?.some(p => p.code === 'cod' && Number(p.amount) > 0) ? '#fde68a' : '#bfdbfe'
-                        }}
-                        onClick={e => {
-                          e.stopPropagation();
-                          setEditingPaymentSale(row);
-                        }}
-                      >
-                        <Edit3 size={13} /> {row.payments?.some(p => p.code === 'cod' && Number(p.amount) > 0) ? 'To‘lovni tahrirlash (Kuryer/Naqd)' : 'To‘lovni tahrirlash'}
-                      </span>
+                      {(() => {
+                        const hasNasiya = row.payments?.some(p => p.code === 'nasiya' && Number(p.amount) > 0);
+                        const hasCod = row.payments?.some(p => p.code === 'cod' && Number(p.amount) > 0);
+                        return (
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            className="btn btn-sm btn-outline"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 5,
+                              fontSize: 11,
+                              fontWeight: 700,
+                              padding: '4px 10px',
+                              background: hasNasiya ? '#faf5ff' : hasCod ? '#fffbeb' : '#eff6ff',
+                              color: hasNasiya ? '#7e22ce' : hasCod ? '#b45309' : '#1d4ed8',
+                              borderColor: hasNasiya ? '#e9d5ff' : hasCod ? '#fde68a' : '#bfdbfe'
+                            }}
+                            onClick={e => {
+                              e.stopPropagation();
+                              setEditingPaymentSale(row);
+                            }}
+                          >
+                            <Edit3 size={13} /> {hasNasiya ? 'To‘lovni tahrirlash (Nasiya to‘lash)' : hasCod ? 'To‘lovni tahrirlash (Kuryer/Naqd)' : 'To‘lovni tahrirlash'}
+                          </span>
+                        );
+                      })()}
                       <span
                         role="button"
                         tabIndex={0}
@@ -680,28 +732,35 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
   const [rejecting, setRejecting] = useState(false);
 
   // Cashier payment & delivery states
-  const [paymentType, setPaymentType] = useState('cash'); // 'cash' | 'card' | 'split' | 'cod'
+  const [paymentType, setPaymentType] = useState('cash'); // 'cash' | 'card' | 'nasiya' | 'split' | 'cod'
   const [cashAmount, setCashAmount] = useState('');
   const [cardAmount, setCardAmount] = useState('');
   const [codAmount, setCodAmount] = useState('');
+  const [nasiyaAmount, setNasiyaAmount] = useState('');
   const [isDelivery, setIsDelivery] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [fulfillmentSource, setFulfillmentSource] = useState('warehouse'); // 'warehouse' | 'store'
+  const [notes, setNotes] = useState('');
 
   useEffect(() => {
     setError('');
     setReason('');
     setRejecting(false);
     if (sale) {
-      setPaymentType('cash');
-      setIsDelivery(false);
+      const pmt0 = sale.payments?.[0];
+      const pCode = pmt0?.method_code || pmt0?.code;
+      const initialType = pCode === 'nasiya' ? 'nasiya' : pCode === 'cod' ? 'cod' : (pCode === 'card' || pCode === 'terminal' || pCode === 'click') ? 'card' : 'cash';
+      setPaymentType(initialType);
+      setIsDelivery(initialType === 'cod');
       setFulfillmentSource('warehouse');
       const tot = Number(sale.total || 0);
-      setCashAmount(tot > 0 ? String(tot) : '');
-      setCardAmount('0');
-      setCodAmount('0');
+      setCashAmount(initialType === 'cash' ? String(tot) : '0');
+      setCardAmount(initialType === 'card' ? String(tot) : '0');
+      setCodAmount(initialType === 'cod' ? String(tot) : '0');
+      setNasiyaAmount(initialType === 'nasiya' ? String(tot) : '0');
+      setNotes(sale.notes || '');
       setCustomerName(sale.customer?.full_name || '');
       setCustomerPhone(sale.customer?.phone || '');
       setCustomerAddress(sale.customer?.address || '');
@@ -712,19 +771,23 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
   const numCash = Math.round(Number(String(cashAmount).replace(/[^\d.]/g, '') || 0));
   const numCard = Math.round(Number(String(cardAmount).replace(/[^\d.]/g, '') || 0));
   const numCod = Math.round(Number(String(codAmount).replace(/[^\d.]/g, '') || 0));
-  const splitSum = numCash + numCard + numCod;
+  const numNasiya = Math.round(Number(String(nasiyaAmount).replace(/[^\d.]/g, '') || 0));
+  const splitSum = numCash + numCard + numCod + numNasiya;
   const splitDiff = tot - splitSum;
 
   const fillRemainingTo = target => {
     if (target === 'cash') {
-      const remainder = Math.max(0, tot - numCard - numCod);
+      const remainder = Math.max(0, tot - numCard - numCod - numNasiya);
       setCashAmount(String(remainder));
     } else if (target === 'card') {
-      const remainder = Math.max(0, tot - numCash - numCod);
+      const remainder = Math.max(0, tot - numCash - numCod - numNasiya);
       setCardAmount(String(remainder));
     } else if (target === 'cod') {
-      const remainder = Math.max(0, tot - numCash - numCard);
+      const remainder = Math.max(0, tot - numCash - numCard - numNasiya);
       setCodAmount(String(remainder));
+    } else if (target === 'nasiya') {
+      const remainder = Math.max(0, tot - numCash - numCard - numCod);
+      setNasiyaAmount(String(remainder));
     }
   };
 
@@ -738,6 +801,10 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
 
   const handleCodChange = val => {
     setCodAmount(String(val).replace(/[^\d.]/g, ''));
+  };
+
+  const handleNasiyaChange = val => {
+    setNasiyaAmount(String(val).replace(/[^\d.]/g, ''));
   };
 
   const act = async fn => {
@@ -758,29 +825,51 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
       paymentsPayload = [{ method_code: 'cash', amount: tot }];
     } else if (paymentType === 'card') {
       paymentsPayload = [{ method_code: 'card', amount: tot }];
+    } else if (paymentType === 'nasiya') {
+      paymentsPayload = [{ method_code: 'nasiya', amount: tot }];
+    } else if (paymentType === 'cod') {
+      paymentsPayload = [{ method_code: 'cod', amount: tot }];
     } else if (paymentType === 'split') {
       const c = numCash;
       const k = numCard;
       const cod = numCod;
-      if (c < 0 || k < 0 || cod < 0) {
+      const nas = numNasiya;
+      if (c < 0 || k < 0 || cod < 0 || nas < 0) {
         setError('To‘lov summalari manfiy bo‘lishi mumkin emas.');
         return;
       }
-      if (Math.abs(c + k + cod - tot) > 0.01) {
-        setError(`Aralash to‘lovlar jami (${(c + k + cod).toLocaleString('uz-UZ')} so'm) xarid summasiga (${tot.toLocaleString('uz-UZ')} so'm) teng bo‘lishi kerak. Farq: ${Math.abs(tot - (c + k + cod)).toLocaleString('uz-UZ')} so'm.`);
+      if (Math.abs(c + k + cod + nas - tot) > 0.01) {
+        setError(`Aralash to‘lovlar jami (${(c + k + cod + nas).toLocaleString('uz-UZ')} so'm) xarid summasiga (${tot.toLocaleString('uz-UZ')} so'm) teng bo‘lishi kerak. Farq: ${Math.abs(tot - (c + k + cod + nas)).toLocaleString('uz-UZ')} so'm.`);
         return;
       }
       paymentsPayload = [
         { method_code: 'cash', amount: c },
         { method_code: 'card', amount: k },
-        { method_code: 'cod', amount: cod }
+        { method_code: 'cod', amount: cod },
+        { method_code: 'nasiya', amount: nas }
       ].filter(p => p.amount > 0);
-    } else if (paymentType === 'cod') {
-      paymentsPayload = [{ method_code: 'cod', amount: tot }];
     }
 
     const codToCollect = paymentType === 'cod' ? tot : (paymentType === 'split' ? numCod : 0);
+    const isCod = codToCollect > 0;
+    const isNasiya = paymentType === 'nasiya' || (paymentType === 'split' && numNasiya > 0);
     const deliveryNeeded = isDelivery || paymentType === 'cod' || codToCollect > 0;
+
+    if (isNasiya) {
+      if (!customerName.trim()) {
+        setError('Nasiya savdo uchun mijozning F.I.O (ismi) kiritilishi shart.');
+        return;
+      }
+      if (!customerPhone.trim()) {
+        setError('Nasiya savdo uchun mijozning telefon raqami kiritilishi shart.');
+        return;
+      }
+      if (!notes.trim()) {
+        setError('Nasiya savdo uchun izoh (qarz sababi, qaytarish muddati va shartlari) kiritilishi shart.');
+        return;
+      }
+    }
+
     if (deliveryNeeded) {
       if (!customerPhone.trim()) {
         setError('Dostavka / Kuryerdan to‘lov uchun mijoz telefon raqami kiritilishi shart.');
@@ -792,6 +881,12 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
       }
     }
 
+    const customerPayload = customerPhone.trim() ? {
+      full_name: customerName.trim() || 'Mijoz',
+      phone: customerPhone.trim(),
+      address: customerAddress.trim() || null
+    } : null;
+
     const deliveryData = deliveryNeeded ? {
       needed: true,
       isCod: codToCollect > 0,
@@ -802,6 +897,7 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
       paymentType,
       totalAmount: tot,
       fulfillmentSource,
+      notes: notes.trim(),
       items: sale.lines?.map(l => ({
         product_name: l.product_name,
         unit_price: l.unit_price,
@@ -812,7 +908,7 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
       }))
     } : null;
 
-    act(() => confirm(sale.id, paymentsPayload, deliveryData));
+    act(() => confirm(sale.id, paymentsPayload, deliveryData, customerPayload, notes.trim()));
   };
 
   return (
@@ -947,7 +1043,8 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
                   ['cash', '💵 Naqd pul'],
                   ['card', '💳 Plastik / Click'],
                   ['split', '⚖️ Aralash to‘lov'],
-                  ['cod', '🚚 Kuryerdan beraman']
+                  ['cod', '🚚 Kuryerdan beraman'],
+                  ['nasiya', '⏳ Nasiya (Qarz)']
                 ].map(([code, label]) => (
                   <button
                     key={code}
@@ -955,18 +1052,47 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
                     onClick={() => {
                       setPaymentType(code);
                       if (code === 'cod') setIsDelivery(true);
-                      if (code === 'split' && !cashAmount && !cardAmount && !codAmount) {
+                      if (code === 'nasiya') {
+                        setNasiyaAmount(String(tot));
+                        setCashAmount('0');
+                        setCardAmount('0');
+                        setCodAmount('0');
+                      } else if (code === 'cash') {
                         setCashAmount(String(tot));
                         setCardAmount('0');
                         setCodAmount('0');
+                        setNasiyaAmount('0');
+                      } else if (code === 'card') {
+                        setCashAmount('0');
+                        setCardAmount(String(tot));
+                        setCodAmount('0');
+                        setNasiyaAmount('0');
+                      } else if (code === 'cod') {
+                        setCashAmount('0');
+                        setCardAmount('0');
+                        setCodAmount(String(tot));
+                        setNasiyaAmount('0');
+                      } else if (code === 'split') {
+                        if (!cashAmount && !cardAmount && !codAmount && !nasiyaAmount) {
+                          setCashAmount(String(tot));
+                          setCardAmount('0');
+                          setCodAmount('0');
+                          setNasiyaAmount('0');
+                        }
                       }
                     }}
                     style={{
                       padding: '10px 8px',
                       borderRadius: 9,
-                      border: paymentType === code ? '2px solid #0284c7' : '1px solid var(--line, #cbd5e1)',
-                      background: paymentType === code ? '#eff6ff' : '#ffffff',
-                      color: paymentType === code ? '#0369a1' : '#334155',
+                      border: paymentType === code
+                        ? (code === 'nasiya' ? '2px solid #9333ea' : code === 'cod' ? '2px solid #ea580c' : '2px solid #0284c7')
+                        : '1px solid var(--line, #cbd5e1)',
+                      background: paymentType === code
+                        ? (code === 'nasiya' ? '#faf5ff' : code === 'cod' ? '#fff7ed' : '#eff6ff')
+                        : '#ffffff',
+                      color: paymentType === code
+                        ? (code === 'nasiya' ? '#7e22ce' : code === 'cod' ? '#c2410c' : '#0369a1')
+                        : '#334155',
                       fontWeight: paymentType === code ? 800 : 600,
                       fontSize: 12.5,
                       cursor: 'pointer',
@@ -1025,6 +1151,20 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
                         style={{ fontWeight: 700, fontSize: 13, borderColor: numCod > 0 ? '#f59e0b' : undefined }}
                       />
                     </label>
+                    <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#7e22ce' }}>
+                        ⏳ Nasiya summa:
+                      </span>
+                      <input
+                        className="input"
+                        type="text"
+                        inputMode="decimal"
+                        value={nasiyaAmount}
+                        onChange={e => handleNasiyaChange(e.target.value)}
+                        placeholder="0"
+                        style={{ fontWeight: 700, fontSize: 13, borderColor: numNasiya > 0 ? '#9333ea' : undefined }}
+                      />
+                    </label>
                   </div>
 
                   {/* Split balance helper & calculation */}
@@ -1080,6 +1220,14 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
                         >
                           + Kuryerga
                         </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => fillRemainingTo('nasiya')}
+                          style={{ padding: '2px 7px', fontSize: 11, background: '#faf5ff', color: '#7e22ce', border: '1px solid #e9d5ff' }}
+                        >
+                          + Nasiyaga
+                        </button>
                       </div>
                     )}
                   </div>
@@ -1089,6 +1237,12 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
                       🚚 <b>Kuryer olib keladigan summa: {numCod.toLocaleString('uz-UZ')} so‘m.</b> Mijoz tovar yetkazilganda to‘laydi. Bepul dostavka zayavkasi shakllantiriladi va Dostavka bo‘limida ro‘yxatga olinadi.
                     </div>
                   )}
+
+                  {numNasiya > 0 && (
+                    <div style={{ padding: '8px 10px', background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8, fontSize: 11.5, color: '#7e22ce' }}>
+                      ⏳ <b>Nasiyaga qoladigan summa: {numNasiya.toLocaleString('uz-UZ')} so‘m.</b> Mijoz keyinroq to‘laydi. Kassa bo‘limida Nasiyalar ro‘yxatida turadi. Mijozning F.I.O, telefon raqami va izoh kiritilishi shart.
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1096,6 +1250,56 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
               {paymentType === 'cod' && (
                 <div style={{ marginTop: 12, padding: '10px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, fontSize: 12.5, color: '#c2410c' }}>
                   🚚 <b>Kuryerdan berib yuboraman:</b> Mijoz tovar yetkazilganda to‘laydi. Bepul dostavka zayavkasi shakllantiriladi va <b>Dostavka</b> bo‘limida ro‘yxatga olinadi. Kuryer pulni olib kelgach <b>"Pulni oldim"</b> tugmasini bosasiz.
+                </div>
+              )}
+
+              {/* Nasiya banner */}
+              {paymentType === 'nasiya' && (
+                <div style={{ marginTop: 12, padding: '10px 12px', background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8, fontSize: 12.5, color: '#7e22ce' }}>
+                  ⏳ <b>To‘liq nasiya (qarzga) sotish:</b> Barcha summa ({tot.toLocaleString('uz-UZ')} so‘m) mijoz qarziga yoziladi. Kassa bo‘limida <b>Nasiyalar</b> ro‘yxatida turadi. Mijozning F.I.O, telefon raqami va izoh (qarz sababi, qaytarish muddati) kiritilishi shart.
+                </div>
+              )}
+
+              {/* Nasiya customer & notes details */}
+              {(paymentType === 'nasiya' || (paymentType === 'split' && numNasiya > 0)) && (
+                <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed #d8b4fe' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px', background: '#faf5ff', border: '1.5px solid #d8b4fe', borderRadius: 10 }}>
+                    <div style={{ fontSize: 12.5, fontWeight: 700, color: '#6b21a8', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      ⏳ Nasiya (Qarz) uchun mijoz ma’lumotlari va izoh (Majburiy):
+                    </div>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>
+                      Mijozning to‘liq ismi (F.I.O) *:
+                      <input
+                        className="input"
+                        value={customerName}
+                        onChange={e => setCustomerName(e.target.value)}
+                        placeholder="Masalan: Abdullayev Olim"
+                        style={{ borderColor: !customerName.trim() ? '#f87171' : undefined }}
+                      />
+                    </label>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>
+                      Telefon raqami *:
+                      <input
+                        className="input"
+                        type="tel"
+                        value={customerPhone}
+                        onChange={e => setCustomerPhone(e.target.value)}
+                        placeholder="+998 90 123 45 67"
+                        style={{ borderColor: !customerPhone.trim() ? '#f87171' : undefined }}
+                      />
+                    </label>
+                    <label style={{ fontSize: 12, fontWeight: 600 }}>
+                      Nasiya izohi (qarz sababi, qaytarish muddati, kelishuv) *:
+                      <textarea
+                        className="input"
+                        rows={2}
+                        value={notes}
+                        onChange={e => setNotes(e.target.value)}
+                        placeholder="Masalan: 10-noyabrgacha to‘lashga va’da berdi..."
+                        style={{ borderColor: !notes.trim() ? '#f87171' : undefined }}
+                      />
+                    </label>
+                  </div>
                 </div>
               )}
 
@@ -1256,7 +1460,11 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
                   fontWeight: 800,
                   fontSize: 13.5,
                   padding: '10px 18px',
-                  background: (paymentType === 'cod' || (paymentType === 'split' && numCod > 0)) ? 'linear-gradient(135deg, #ea580c, #c2410c)' : undefined
+                  background: (paymentType === 'cod' || (paymentType === 'split' && numCod > 0))
+                    ? 'linear-gradient(135deg, #ea580c, #c2410c)'
+                    : (paymentType === 'nasiya' || (paymentType === 'split' && numNasiya > 0))
+                      ? 'linear-gradient(135deg, #9333ea, #7e22ce)'
+                      : undefined
                 }}
               >
                 {busy
@@ -1265,7 +1473,11 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
                     ? '🚚 Kuryerdan olish zayavkasi va stikerlar'
                     : (paymentType === 'split' && numCod > 0)
                       ? `🚚 Tasdiqlash (Kuryerdan: ${numCod.toLocaleString('uz-UZ')} so‘m)`
-                      : (isDelivery ? '✅ Pulni oldim va dostavka stikerlari' : '✅ Pulni qabul qildim')}
+                      : paymentType === 'nasiya'
+                        ? '⏳ Nasiyaga tasdiqlash'
+                        : (paymentType === 'split' && numNasiya > 0)
+                          ? `⏳ Nasiya bilan tasdiqlash (Qarz: ${numNasiya.toLocaleString('uz-UZ')} so‘m)`
+                          : (isDelivery ? '✅ Pulni oldim va dostavka stikerlari' : '✅ Pulni qabul qildim')}
               </button>
             </div>
           )}
@@ -1375,22 +1587,26 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
   const [error, setError] = useState('');
   const [fullSale, setFullSale] = useState(null);
 
-  const [paymentType, setPaymentType] = useState('cash'); // 'cash' | 'card' | 'split' | 'cod'
+  const [paymentType, setPaymentType] = useState('cash'); // 'cash' | 'card' | 'split' | 'cod' | 'nasiya'
   const [cashAmount, setCashAmount] = useState('');
   const [cardAmount, setCardAmount] = useState('');
   const [codAmount, setCodAmount] = useState('');
+  const [nasiyaAmount, setNasiyaAmount] = useState('');
   const [initialCod, setInitialCod] = useState(0);
+  const [initialNasiya, setInitialNasiya] = useState(0);
   const [isDelivery, setIsDelivery] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [fulfillmentSource, setFulfillmentSource] = useState('warehouse'); // 'warehouse' | 'store'
   const [deliveryNotes, setDeliveryNotes] = useState('');
+  const [notes, setNotes] = useState('');
 
   useEffect(() => {
     if (!open || !sale?.id) {
       setFullSale(null);
       setInitialCod(0);
+      setInitialNasiya(0);
       setError('');
       return;
     }
@@ -1409,16 +1625,19 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
         let curCash = 0;
         let curCard = 0;
         let curCod = 0;
+        let curNasiya = 0;
 
         payments.forEach(p => {
           const code = p.method_code || p.code;
           const amt = Number(p.amount || 0);
           if (code === 'cash') curCash += amt;
-          else if (code === 'card' || code === 'terminal') curCard += amt;
+          else if (code === 'card' || code === 'terminal' || code === 'click') curCard += amt;
           else if (code === 'cod') curCod += amt;
+          else if (code === 'nasiya') curNasiya += amt;
         });
 
         setInitialCod(curCod);
+        setInitialNasiya(curNasiya);
 
         if (payments.length === 1 && curCash === tot) {
           setPaymentType('cash');
@@ -1426,6 +1645,8 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
           setPaymentType('card');
         } else if (payments.length === 1 && curCod === tot) {
           setPaymentType('cod');
+        } else if (payments.length === 1 && curNasiya === tot) {
+          setPaymentType('nasiya');
         } else if (payments.length > 0) {
           setPaymentType('split');
         } else {
@@ -1436,6 +1657,7 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
         setCashAmount(curCash > 0 ? String(curCash) : (payments.length === 0 ? String(tot) : '0'));
         setCardAmount(curCard > 0 ? String(curCard) : '0');
         setCodAmount(curCod > 0 ? String(curCod) : '0');
+        setNasiyaAmount(curNasiya > 0 ? String(curNasiya) : '0');
 
         const del = data.delivery || null;
         const cust = data.customer || null;
@@ -1446,6 +1668,7 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
         setCustomerAddress(del?.delivery_address || cust?.address || '');
         setFulfillmentSource(del?.fulfillment_source || 'warehouse');
         setDeliveryNotes(del?.notes || '');
+        setNotes(data.notes || '');
       })
       .catch(err => {
         if (!isMounted) return;
@@ -1466,32 +1689,61 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
   const numCash = Math.round(Number(String(cashAmount).replace(/[^\d.]/g, '') || 0));
   const numCard = Math.round(Number(String(cardAmount).replace(/[^\d.]/g, '') || 0));
   const numCod = Math.round(Number(String(codAmount).replace(/[^\d.]/g, '') || 0));
-  const splitSum = numCash + numCard + numCod;
+  const numNasiya = Math.round(Number(String(nasiyaAmount).replace(/[^\d.]/g, '') || 0));
+  const splitSum = numCash + numCard + numCod + numNasiya;
   const splitDiff = currentTotal - splitSum;
 
   const fillRemainingTo = target => {
     if (target === 'cash') {
-      const remainder = Math.max(0, currentTotal - numCard - numCod);
-      setCashAmount(String(remainder));
+      const remainder = Math.max(0, currentTotal - numCard - numCod - numNasiya);
+      setCashAmount(String(numCash + remainder));
     } else if (target === 'card') {
-      const remainder = Math.max(0, currentTotal - numCash - numCod);
-      setCardAmount(String(remainder));
+      const remainder = Math.max(0, currentTotal - numCash - numCod - numNasiya);
+      setCardAmount(String(numCard + remainder));
     } else if (target === 'cod') {
-      const remainder = Math.max(0, currentTotal - numCash - numCard);
-      setCodAmount(String(remainder));
+      const remainder = Math.max(0, currentTotal - numCash - numCard - numNasiya);
+      setCodAmount(String(numCod + remainder));
+    } else if (target === 'nasiya') {
+      const remainder = Math.max(0, currentTotal - numCash - numCard - numCod);
+      setNasiyaAmount(String(numNasiya + remainder));
     }
   };
 
   const handleCashChange = val => {
-    setCashAmount(String(val).replace(/[^\d.]/g, ''));
+    const rawVal = String(val).replace(/[^\d.]/g, '');
+    const newCash = Math.round(Number(rawVal || 0));
+    setCashAmount(rawVal);
+    // If sale had Nasiya debt or in split mode, auto-recalculate remaining debt
+    if (initialNasiya > 0 || numNasiya > 0 || paymentType === 'split' || paymentType === 'nasiya') {
+      const remDebt = Math.max(0, currentTotal - newCash - numCard - numCod);
+      setNasiyaAmount(String(remDebt));
+    }
   };
 
   const handleCardChange = val => {
-    setCardAmount(String(val).replace(/[^\d.]/g, ''));
+    const rawVal = String(val).replace(/[^\d.]/g, '');
+    const newCard = Math.round(Number(rawVal || 0));
+    setCardAmount(rawVal);
+    // Auto-recalculate remaining debt
+    if (initialNasiya > 0 || numNasiya > 0 || paymentType === 'split' || paymentType === 'nasiya') {
+      const remDebt = Math.max(0, currentTotal - numCash - newCard - numCod);
+      setNasiyaAmount(String(remDebt));
+    }
   };
 
   const handleCodChange = val => {
-    setCodAmount(String(val).replace(/[^\d.]/g, ''));
+    const rawVal = String(val).replace(/[^\d.]/g, '');
+    const newCod = Math.round(Number(rawVal || 0));
+    setCodAmount(rawVal);
+    if (initialNasiya > 0 || numNasiya > 0 || paymentType === 'split' || paymentType === 'nasiya') {
+      const remDebt = Math.max(0, currentTotal - numCash - numCard - newCod);
+      setNasiyaAmount(String(remDebt));
+    }
+  };
+
+  const handleNasiyaChange = val => {
+    const rawVal = String(val).replace(/[^\d.]/g, '');
+    setNasiyaAmount(rawVal);
   };
 
   const handleSave = async () => {
@@ -1506,8 +1758,10 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
       paymentsPayload = [{ method_code: 'card', amount: currentTotal }];
     } else if (paymentType === 'cod') {
       paymentsPayload = [{ method_code: 'cod', amount: currentTotal }];
+    } else if (paymentType === 'nasiya') {
+      paymentsPayload = [{ method_code: 'nasiya', amount: currentTotal }];
     } else if (paymentType === 'split') {
-      if (numCash < 0 || numCard < 0 || numCod < 0) {
+      if (numCash < 0 || numCard < 0 || numCod < 0 || numNasiya < 0) {
         setError('To‘lov summalari manfiy bo‘lishi mumkin emas.');
         return;
       }
@@ -1520,13 +1774,30 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
       paymentsPayload = [
         { method_code: 'cash', amount: numCash },
         { method_code: 'card', amount: numCard },
-        { method_code: 'cod', amount: numCod }
+        { method_code: 'cod', amount: numCod },
+        { method_code: 'nasiya', amount: numNasiya }
       ].filter(p => p.amount > 0);
     }
 
     if (paymentsPayload.length === 0) {
       setError('Kamida bitta to‘lov usuli kiritilishi shart.');
       return;
+    }
+
+    const isNasiya = paymentType === 'nasiya' || (paymentType === 'split' && numNasiya > 0);
+    if (isNasiya) {
+      if (!customerName.trim()) {
+        setError('Nasiya savdo uchun mijozning F.I.O (ismi) kiritilishi shart.');
+        return;
+      }
+      if (!customerPhone.trim()) {
+        setError('Nasiya savdo uchun mijozning telefon raqami kiritilishi shart.');
+        return;
+      }
+      if (!notes.trim()) {
+        setError('Nasiya savdo uchun izoh (qarz sababi, qaytarish muddati va kelishuv) kiritilishi shart.');
+        return;
+      }
     }
 
     const codToCollect = paymentType === 'cod' ? currentTotal : (paymentType === 'split' ? numCod : 0);
@@ -1544,18 +1815,16 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
       }
     }
 
-    const deliveryPayload = (deliveryNeeded || fullSale?.delivery)
-      ? {
-          needed: true,
-          isCod: codToCollect > 0,
-          cod_amount: codToCollect,
-          customer_name: customerName.trim() || fullSale?.delivery?.customer_name || 'Mijoz',
-          customer_phone: customerPhone.trim() || fullSale?.delivery?.customer_phone || '',
-          customer_address: customerAddress.trim() || fullSale?.delivery?.delivery_address || '',
-          fulfillment_source: fulfillmentSource || fullSale?.delivery?.fulfillment_source || 'warehouse',
-          notes: deliveryNotes.trim() || fullSale?.delivery?.notes || ''
-        }
-      : null;
+    const deliveryPayload = {
+      needed: Boolean(deliveryNeeded || fullSale?.delivery),
+      isCod: codToCollect > 0,
+      cod_amount: codToCollect,
+      customer_name: customerName.trim() || fullSale?.delivery?.customer_name || 'Mijoz',
+      customer_phone: customerPhone.trim() || fullSale?.delivery?.customer_phone || '',
+      customer_address: customerAddress.trim() || fullSale?.delivery?.delivery_address || '',
+      fulfillment_source: fulfillmentSource || fullSale?.delivery?.fulfillment_source || 'warehouse',
+      notes: notes.trim() || deliveryNotes.trim() || fullSale?.delivery?.notes || ''
+    };
 
     setBusy(true);
     try {
@@ -1609,6 +1878,79 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
                 </b>
               </div>
             </div>
+
+            {/* Quick Nasiya debt repayment banner */}
+            {initialNasiya > 0 && (
+              <div style={{
+                padding: '12px 14px',
+                background: '#faf5ff',
+                border: '1.5px solid #d8b4fe',
+                borderRadius: 10,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#6b21a8', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Clock size={17} /> Nasiya (Qarz) to‘lovi:
+                    </div>
+                    <div style={{ fontSize: 12, color: '#7e22ce', marginTop: 2 }}>
+                      Mavjud qarz: <b>{Number(initialNasiya).toLocaleString('uz-UZ')} so‘m</b>.
+                      {numNasiya > 0 ? (
+                        <span> Qoladigan qarz: <b style={{ color: '#b91c1c' }}>{numNasiya.toLocaleString('uz-UZ')} so‘m</b></span>
+                      ) : (
+                        <span style={{ color: '#15803d', fontWeight: 700 }}> ✅ Qarz to‘liq yopiladi!</span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{
+                        background: '#15803d',
+                        color: '#ffffff',
+                        fontWeight: 700,
+                        fontSize: 11.5,
+                        padding: '6px 12px',
+                        border: 'none',
+                        borderRadius: 6,
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => {
+                        setPaymentType('split');
+                        setCashAmount(String(numCash + numNasiya));
+                        setNasiyaAmount('0');
+                      }}
+                    >
+                      ⚡ To‘liq naqd to‘lash ({numNasiya.toLocaleString('uz-UZ')} so‘m)
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{
+                        background: '#1d4ed8',
+                        color: '#ffffff',
+                        fontWeight: 700,
+                        fontSize: 11.5,
+                        padding: '6px 12px',
+                        border: 'none',
+                        borderRadius: 6,
+                        cursor: 'pointer'
+                      }}
+                      onClick={() => {
+                        setPaymentType('split');
+                        setCardAmount(String(numCard + numNasiya));
+                        setNasiyaAmount('0');
+                      }}
+                    >
+                      ⚡ To‘liq plastik/click to‘lash ({numNasiya.toLocaleString('uz-UZ')} so‘m)
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Quick courier-to-cash converter if sale has courier balance */}
             {initialCod > 0 && numCod > 0 && (
@@ -1677,7 +2019,8 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
                   ['cash', '💵 Naqd pul'],
                   ['card', '💳 Plastik / Click'],
                   ['split', '⚖️ Aralash to‘lov'],
-                  ['cod', '🚚 Kuryerdan beradi']
+                  ['cod', '🚚 Kuryerdan beradi'],
+                  ['nasiya', '⏳ Nasiya (Qarz)']
                 ].map(([code, label]) => (
                   <button
                     key={code}
@@ -1688,29 +2031,44 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
                         setCashAmount(String(currentTotal));
                         setCardAmount('0');
                         setCodAmount('0');
+                        setNasiyaAmount('0');
                       } else if (code === 'card') {
                         setCashAmount('0');
                         setCardAmount(String(currentTotal));
                         setCodAmount('0');
+                        setNasiyaAmount('0');
                       } else if (code === 'cod') {
                         setCashAmount('0');
                         setCardAmount('0');
                         setCodAmount(String(currentTotal));
+                        setNasiyaAmount('0');
                         setIsDelivery(true);
+                      } else if (code === 'nasiya') {
+                        setCashAmount('0');
+                        setCardAmount('0');
+                        setCodAmount('0');
+                        setNasiyaAmount(String(currentTotal));
                       } else if (code === 'split') {
-                        if (!numCash && !numCard && !numCod) {
+                        if (!numCash && !numCard && !numCod && !numNasiya) {
                           setCashAmount(String(currentTotal));
                           setCardAmount('0');
                           setCodAmount('0');
+                          setNasiyaAmount('0');
                         }
                       }
                     }}
                     style={{
                       padding: '10px 8px',
                       borderRadius: 9,
-                      border: paymentType === code ? '2px solid #0284c7' : '1px solid var(--line, #cbd5e1)',
-                      background: paymentType === code ? '#eff6ff' : '#ffffff',
-                      color: paymentType === code ? '#0369a1' : '#334155',
+                      border: paymentType === code
+                        ? (code === 'nasiya' ? '2px solid #9333ea' : code === 'cod' ? '2px solid #ea580c' : '2px solid #0284c7')
+                        : '1px solid var(--line, #cbd5e1)',
+                      background: paymentType === code
+                        ? (code === 'nasiya' ? '#faf5ff' : code === 'cod' ? '#fff7ed' : '#eff6ff')
+                        : '#ffffff',
+                      color: paymentType === code
+                        ? (code === 'nasiya' ? '#7e22ce' : code === 'cod' ? '#c2410c' : '#0369a1')
+                        : '#334155',
                       fontWeight: paymentType === code ? 800 : 600,
                       fontSize: 12.5,
                       cursor: 'pointer',
@@ -1770,6 +2128,20 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
                       style={{ fontWeight: 700, fontSize: 13, borderColor: numCod > 0 ? '#f59e0b' : undefined }}
                     />
                   </label>
+                  <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#7e22ce' }}>
+                      ⏳ Nasiya (Qolgan qarz):
+                    </span>
+                    <input
+                      className="input"
+                      type="text"
+                      inputMode="decimal"
+                      value={nasiyaAmount}
+                      onChange={e => handleNasiyaChange(e.target.value)}
+                      placeholder="0"
+                      style={{ fontWeight: 700, fontSize: 13, borderColor: numNasiya > 0 ? '#9333ea' : undefined }}
+                    />
+                  </label>
                 </div>
 
                 {/* Balance validation bar */}
@@ -1825,6 +2197,14 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
                       >
                         + Kuryerga
                       </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => fillRemainingTo('nasiya')}
+                        style={{ padding: '2px 7px', fontSize: 11, background: '#faf5ff', color: '#7e22ce', border: '1px solid #e9d5ff' }}
+                      >
+                        + Nasiyaga
+                      </button>
                     </div>
                   )}
                 </div>
@@ -1834,6 +2214,12 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
                     🚚 <b>Kuryer olib keladigan summa: {numCod.toLocaleString('uz-UZ')} so‘m.</b> Mijoz tovar yetkazilganda to‘laydi. Kassa kirimlarida "Shundan kuryer beradi" blokiga o‘tadi va Dostavka bo‘limida yangilanadi.
                   </div>
                 )}
+
+                {numNasiya > 0 && (
+                  <div style={{ padding: '8px 10px', background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8, fontSize: 11.5, color: '#7e22ce' }}>
+                    ⏳ <b>Nasiyaga qoladigan summa: {numNasiya.toLocaleString('uz-UZ')} so‘m.</b> Mijoz keyinroq to‘laydi. Kassa bo‘limida Nasiyalar ro‘yxatida turadi. Mijozning F.I.O, telefon raqami va izoh kiritilishi shart.
+                  </div>
+                )}
               </div>
             )}
 
@@ -1841,6 +2227,54 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
             {paymentType === 'cod' && (
               <div style={{ padding: '10px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, fontSize: 12.5, color: '#c2410c' }}>
                 🚚 <b>To‘liq kuryerdan beriladi:</b> Mijoz tovar yetkazilganda to‘laydi ({currentTotal.toLocaleString('uz-UZ')} so‘m). Kassa kirimlarida "Shundan kuryer beradi" blokida ko‘rinadi. Kuryer pulni olib kelgach "Pulni oldim" orqali qabul qilasiz.
+              </div>
+            )}
+
+            {/* Nasiya single mode notice */}
+            {paymentType === 'nasiya' && (
+              <div style={{ padding: '10px 12px', background: '#faf5ff', border: '1px solid #e9d5ff', borderRadius: 8, fontSize: 12.5, color: '#7e22ce' }}>
+                ⏳ <b>To‘liq nasiya (qarzga) o‘tkazish:</b> Barcha summa ({currentTotal.toLocaleString('uz-UZ')} so‘m) mijoz qarziga yoziladi. Kassa bo‘limida <b>Nasiyalar</b> ro‘yxatida turadi. Mijozning F.I.O, telefon raqami va izoh (qarz sababi, qaytarish muddati) kiritilishi shart.
+              </div>
+            )}
+
+            {/* Nasiya details section */}
+            {(paymentType === 'nasiya' || (paymentType === 'split' && numNasiya > 0)) && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '12px 14px', background: '#faf5ff', border: '1.5px solid #d8b4fe', borderRadius: 10 }}>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: '#6b21a8', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  ⏳ Nasiya (Qarz) uchun mijoz ma’lumotlari va izoh (Majburiy):
+                </div>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>
+                  Mijozning to‘liq ismi (F.I.O) *:
+                  <input
+                    className="input"
+                    value={customerName}
+                    onChange={e => setCustomerName(e.target.value)}
+                    placeholder="Masalan: Abdullayev Olim"
+                    style={{ borderColor: !customerName.trim() ? '#f87171' : undefined }}
+                  />
+                </label>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>
+                  Telefon raqami *:
+                  <input
+                    className="input"
+                    type="tel"
+                    value={customerPhone}
+                    onChange={e => setCustomerPhone(e.target.value)}
+                    placeholder="+998 90 123 45 67"
+                    style={{ borderColor: !customerPhone.trim() ? '#f87171' : undefined }}
+                  />
+                </label>
+                <label style={{ fontSize: 12, fontWeight: 600 }}>
+                  Nasiya izohi (qarz sababi, qaytarish muddati, kelishuv) *:
+                  <textarea
+                    className="input"
+                    rows={2}
+                    value={notes}
+                    onChange={e => setNotes(e.target.value)}
+                    placeholder="Masalan: 10-noyabrgacha to‘lashga va’da berdi..."
+                    style={{ borderColor: !notes.trim() ? '#f87171' : undefined }}
+                  />
+                </label>
               </div>
             )}
 
@@ -1988,7 +2422,11 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
                   fontWeight: 700,
                   fontSize: 13,
                   padding: '10px 18px',
-                  background: (paymentType === 'cod' || (paymentType === 'split' && numCod > 0)) ? 'linear-gradient(135deg, #ea580c, #c2410c)' : undefined
+                  background: (paymentType === 'cod' || (paymentType === 'split' && numCod > 0))
+                    ? 'linear-gradient(135deg, #ea580c, #c2410c)'
+                    : (paymentType === 'nasiya' || (paymentType === 'split' && numNasiya > 0))
+                      ? 'linear-gradient(135deg, #9333ea, #7e22ce)'
+                      : undefined
                 }}
               >
                 {busy ? 'Saqlanmoqda…' : '💾 Saqlash va to‘lovni yangilash'}

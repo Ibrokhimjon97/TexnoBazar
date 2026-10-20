@@ -27,7 +27,13 @@ export function listPosPendingSales({ branchId, status = null, query = null, pag
   return rpc('list_pos_pending_sales', { p_branch_id: branchId, p_status: status || null, p_query: query || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
 }
 export const rejectPosPendingSale = (id, reason) => rpc('reject_pos_pending_sale', { p_pending_id: id, p_reason: reason });
-export const confirmPosSale = (id, payments = null) => rpc('manager_confirm_sale', { p_pending_sale_id: id, p_payments: payments });
+export const confirmPosSale = (id, payments = null, customer = null, notes = null) =>
+  rpc('manager_confirm_sale', {
+    p_pending_sale_id: id,
+    p_payments: payments,
+    p_customer: customer,
+    p_notes: notes || null
+  });
 export function listMyPosSales({ branchId, date = null, query = null, page = 1, pageSize = 100 }) {
   return rpc('list_my_pos_sales_filtered', { p_branch_id: branchId, p_date: date || null, p_query: query || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
 }
