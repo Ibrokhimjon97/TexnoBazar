@@ -166,7 +166,8 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
           deliveryAddress: deliveryInfo.deliveryAddress,
           paymentType: deliveryInfo.paymentType,
           codAmount: deliveryInfo.isCod ? Number(deliveryInfo.totalAmount) : 0,
-          notes: deliveryInfo.notes
+          notes: deliveryInfo.notes,
+          fulfillmentSource: deliveryInfo.fulfillmentSource || 'warehouse'
         });
       } catch (err) {
         console.error('Failed to create POS delivery:', err);
@@ -528,6 +529,7 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
+  const [fulfillmentSource, setFulfillmentSource] = useState('warehouse'); // 'warehouse' | 'store'
 
   useEffect(() => {
     setError('');
@@ -536,6 +538,7 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
     if (sale) {
       setPaymentType('cash');
       setIsDelivery(false);
+      setFulfillmentSource('warehouse');
       const tot = Number(sale.total || 0);
       setCashAmount(tot > 0 ? String(tot) : '');
       setCardAmount('0');
@@ -616,6 +619,7 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
       deliveryAddress: customerAddress.trim(),
       paymentType,
       totalAmount: tot,
+      fulfillmentSource,
       items: sale.lines?.map(l => ({
         product_name: l.product_name,
         unit_price: l.unit_price,
@@ -832,6 +836,54 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
                         placeholder="Shahar, tuman, ko‘cha, uy raqami, mo‘ljal..."
                       />
                     </label>
+
+                    <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>
+                        Yuklash / yetkazib berish joyi:
+                      </span>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                        <button
+                          type="button"
+                          onClick={() => setFulfillmentSource('warehouse')}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            border: fulfillmentSource === 'warehouse' ? '2px solid #0284c7' : '1px solid #cbd5e1',
+                            background: fulfillmentSource === 'warehouse' ? '#eff6ff' : '#fff',
+                            color: fulfillmentSource === 'warehouse' ? '#0369a1' : '#475569',
+                            cursor: 'pointer',
+                            textAlign: 'left'
+                          }}
+                        >
+                          🏢 Ombordan yuklash
+                          <small style={{ display: 'block', fontSize: 10, fontWeight: 500, color: '#64748b', marginTop: 2 }}>
+                            Do‘kondagi vitrina tovari saqlanadi
+                          </small>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setFulfillmentSource('store')}
+                          style={{
+                            padding: '8px 10px',
+                            borderRadius: 8,
+                            fontSize: 12,
+                            fontWeight: 700,
+                            border: fulfillmentSource === 'store' ? '2px solid #16a34a' : '1px solid #cbd5e1',
+                            background: fulfillmentSource === 'store' ? '#f0fdf4' : '#fff',
+                            color: fulfillmentSource === 'store' ? '#15803d' : '#475569',
+                            cursor: 'pointer',
+                            textAlign: 'left'
+                          }}
+                        >
+                          📍 Do‘kondan yuklash
+                          <small style={{ display: 'block', fontSize: 10, fontWeight: 500, color: '#64748b', marginTop: 2 }}>
+                            Do‘konda turgan haqiqiy tovar beriladi
+                          </small>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>

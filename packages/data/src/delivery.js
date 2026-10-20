@@ -50,7 +50,8 @@ export const createPosDelivery = ({
   deliveryAddress,
   paymentType = 'cash',
   codAmount = 0,
-  notes = null
+  notes = null,
+  fulfillmentSource = 'warehouse'
 }) => rpc('create_pos_delivery', {
   p_sale_id: saleId,
   p_customer_name: customerName,
@@ -58,7 +59,8 @@ export const createPosDelivery = ({
   p_delivery_address: deliveryAddress,
   p_payment_type: paymentType,
   p_cod_amount: codAmount,
-  p_notes: notes
+  p_notes: notes,
+  p_fulfillment_source: fulfillmentSource
 });
 
 export const listPosDeliveries = ({ branchId, status = null, query = null, page = 1, pageSize = 50 } = {}) =>

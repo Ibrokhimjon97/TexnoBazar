@@ -64,7 +64,7 @@ function OrderQrVerification({orderId,onAllConfirmed,busy}){
   return <div className="qr-verify-block">
     <h3><Package/> Mahsulotlarni QR skaner bilan tasdiqlash</h3>
     <p className="qr-verify-hint">
-      Ombordagi tovar QR kodini skaner qiling. Agar tovar doʻkonda namuna sifatida turgan boʻlsa ham, ombordagi bir xil tovar QR kodi skanerlanganda tizim avtomatik almashtirib tasdiqlaydi.
+      Tovarni ombordan yoki doʻkondan yuklashingiz mumkin. Qaysi tovar (ombor yoki doʻkon) QR kodini skanerlasangiz, tizim avtomatik tasdiqlaydi.
     </p>
     <div className="qr-verify-list">
       {status?.items?.map((line,i)=>(
@@ -74,7 +74,7 @@ function OrderQrVerification({orderId,onAllConfirmed,busy}){
             <b>{line.product_name}</b>
             <div style={{display:'flex',gap:6,alignItems:'center',flexWrap:'wrap',marginTop:2}}>
               <small>{line.sku}</small>
-              {line.location_name&&<span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:line.location_type==='store'?'#fef3c7':'#dbeafe',color:line.location_type==='store'?'#92400e':'#1e40af'}}>{line.location_type==='store'?'Do‘kondan (namuna)':`Ombor (${line.location_name})`}</span>}
+              {line.location_name&&<span style={{fontSize:10,padding:'1px 5px',borderRadius:4,background:line.location_type==='store'?'#fef3c7':'#dbeafe',color:line.location_type==='store'?'#92400e':'#1e40af'}}>{line.location_type==='store'?'📍 Do‘kondan yuklash':`🏢 Ombor (${line.location_name})`}</span>}
               {line.batch_code&&<span style={{fontSize:10,color:'#64748b'}}>Partiya: {line.batch_code}</span>}
             </div>
           </div>
@@ -83,12 +83,12 @@ function OrderQrVerification({orderId,onAllConfirmed,busy}){
       ))}
     </div>
     <form onSubmit={submit} className="qr-verify-form">
-      <input className="qr-verify-input" value={code} onChange={e=>setCode(e.target.value)} placeholder="Ombordagi tovar QR kodi yoki seriya raqami" autoFocus/>
+      <input className="qr-verify-input" value={code} onChange={e=>setCode(e.target.value)} placeholder="Tovar QR kodi yoki seriya raqami" autoFocus/>
       <button type="submit" disabled={scanBusy||!code.trim()} className="qr-verify-submit">{scanBusy?'…':'Tekshirish'}</button>
     </form>
     {lastResult&&!lastResult.matched&&<div className="qr-verify-error"><AlertCircle/> {lastResult.message||"Mos kelmadi"}</div>}
     {lastResult?.matched&&<div className="qr-verify-success" style={lastResult.swapped?{background:'#f0fdf4',border:'1px solid #86efac',color:'#166534',padding:'8px 12px',borderRadius:8}:undefined}>
-      <CheckCircle2 size={16}/> <b>{lastResult.product_name}</b> {lastResult.swapped ? 'ombordan almashtirib tasdiqlandi (do‘kondagi namuna bo‘shatildi)' : 'tasdiqlandi'} ({lastResult.confirmed_count}/{lastResult.total_count})
+      <CheckCircle2 size={16}/> <b>{lastResult.product_name}</b>: {lastResult.message || 'tasdiqlandi'} ({lastResult.confirmed_count}/{lastResult.total_count})
     </div>}
     {error&&<div className="qr-verify-error"><AlertCircle/> {error}</div>}
     <button disabled={busy||!allConfirmed} className="status-button" onClick={onAllConfirmed}>

@@ -767,7 +767,7 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
           {customer.address.trim()&&(
             <div style={{gridColumn:'1 / -1',fontSize:11.5,padding:'7px 10px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,color:'#1e40af',display:'flex',alignItems:'center',gap:6,marginTop:2}}>
               <Truck size={15} style={{flexShrink:0}}/>
-              <span><b>Dostavka tizimi:</b> Tovarlar dostavka uchun ombordan chiqariladi, do‘kondagi vitrina namunasi bo‘shatiladi.</span>
+              <span><b>Dostavka tizimi:</b> Tovarni do‘kondan yoki ombordan yetkazish mumkin. Savatdagi <b>"Omborga o‘tkazish"</b> / <b>"Do‘konga o‘tkazish"</b> orqali qayerdan chiqishini erkin tanlashingiz mumkin.</span>
             </div>
           )}
         </div>}

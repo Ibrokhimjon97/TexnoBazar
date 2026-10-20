@@ -374,6 +374,18 @@ export default function DeliveryWorkspace({ branchId, toast }) {
                         ✅ Kassada to‘langan
                       </span>
                     )}
+
+                    <span style={{
+                      background: row.fulfillment_source === 'store' ? '#fef3c7' : '#e0f2fe',
+                      color: row.fulfillment_source === 'store' ? '#92400e' : '#0369a1',
+                      border: row.fulfillment_source === 'store' ? '1px solid #fde68a' : '1px solid #bae6fd',
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: 6
+                    }}>
+                      {row.fulfillment_source === 'store' ? '📍 Do‘kondan yetkazish' : '🏢 Ombordan yetkazish'}
+                    </span>
                   </div>
 
                   <span style={{ fontSize: 12, color: 'var(--muted, #64748b)' }}>
