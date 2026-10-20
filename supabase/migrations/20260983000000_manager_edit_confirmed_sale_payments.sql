@@ -7,7 +7,7 @@ CREATE OR REPLACE FUNCTION public.manager_update_sale_payments(
 RETURNS jsonb
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = ''
+SET search_path TO 'public', 'pg_temp'
 AS $$
 DECLARE
   v_pending public.pos_pending_sales%rowtype;
@@ -35,7 +35,10 @@ BEGIN
   -- 2. Check manager permissions
   PERFORM public.require_pos_manager(v_pending.branch_id);
 
-  -- 3. Find confirmed sale
+  -- 3. Set admin override so immutable triggers allow updating payments
+  PERFORM set_config('texnobazar.admin_override', 'allowed', true);
+
+  -- 4. Find confirmed sale
   SELECT * INTO v_sale FROM public.sales WHERE pending_sale_id = v_pending.id FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Ushbu so‘rov uchun tasdiqlangan sotuv topilmadi' USING errcode = 'P0002';
