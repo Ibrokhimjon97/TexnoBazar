@@ -174,7 +174,17 @@ function NotificationCenter({profileId,onOpenItem}){
 export default function App(){
   const{profile,roles}=useAuth();
   const[toast,setToast]=useState('');
-  const[branchId,setBranchId]=useState('');
+  const[branchId,setBranchId]=useState(()=>{
+    try {
+      const cached = JSON.parse(localStorage.getItem('texnobazar_auth_context') || '{}');
+      const pId = cached?.profile?.id;
+      if (pId) {
+        const stored = localStorage.getItem(`texnobazar:seller-branch:${pId}`);
+        if (stored) return stored;
+      }
+    } catch {}
+    return '';
+  });
   const[focusPendingSaleId,setFocusPendingSaleId]=useState(null);
   const sellerBranches=useMemo(()=>{
     const unique=new Map();

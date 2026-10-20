@@ -22,34 +22,219 @@ const STOREFRONT=(import.meta.env?.VITE_STOREFRONT_URL)||'https://texnobazar-sto
 const todayInput=()=>{const date=new Date();return`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`};
 const emptySales=()=>({items:[],today:{count:0,total:0,profit:0,avg_check:0,discount:0}});
 
+const getCartKey = (branchId, profileId) => {
+  if (!branchId) return null;
+  return `texnobazar:seller-cart:${profileId || 'active'}:${branchId}`;
+};
+
+const getPageKey = (branchId, profileId) => {
+  if (!branchId) return null;
+  return `texnobazar:seller-page:${profileId || 'active'}:${branchId}`;
+};
+
+const getEditingKey = (branchId, profileId) => {
+  if (!branchId) return null;
+  return `texnobazar:seller-editing:${profileId || 'active'}:${branchId}`;
+};
+
+const readStoredCart = (branchId, profileId) => {
+  if (!branchId) return [];
+  const primaryKey = getCartKey(branchId, profileId);
+  const fallbackKeys = [
+    primaryKey,
+    profileId ? `texnobazar:seller-cart:${profileId}:${branchId}` : null,
+    `texnobazar:seller-cart:active:${branchId}`,
+    `texnobazar:seller-cart:${branchId}`
+  ].filter(Boolean);
+
+  for (const k of fallbackKeys) {
+    try {
+      const raw = localStorage.getItem(k);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.filter(line => line && line.id);
+        }
+      }
+    } catch {}
+  }
+  return [];
+};
+
+const readStoredEditingSale = (branchId, profileId) => {
+  const k = getEditingKey(branchId, profileId);
+  if (!k) return null;
+  try {
+    const raw = localStorage.getItem(k);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+};
+
 export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,clearFocus}){
   const rate=useExchangeRate();
-  const[page,setPage]=useState('home'),[refs,setRefs]=useState(null),[units,setUnits]=useState([]),[sales,setSales]=useState(emptySales),[pending,setPending]=useState({items:[]}),[homeDate,setHomeDate]=useState(todayInput);
-  const[cart,setCart]=useState([]),[query,setQuery]=useState(''),[debounced,setDebounced]=useState(''),[loading,setLoading]=useState(true),[error,setError]=useState(''),[receipt,setReceipt]=useState(null),[pendingDetail,setPendingDetail]=useState(null),[created,setCreated]=useState(null);
-  const[editingPendingSale,setEditingPendingSale]=useState(null);
-  const[cancelConfirmSale,setCancelConfirmSale]=useState(null);
-  const[canceling,setCanceling]=useState(false);
-  const[menuOpen,setMenuOpen]=useState(false);
-  const[relocateBatch,setRelocateBatch]=useState([]);
-  // The unfinished basket survives accidental logout/refresh until a new sale starts.
-  const cartKey=profile?.id&&branchId?`texnobazar:seller-cart:${profile.id}:${branchId}`:null;
-  const[cartReady,setCartReady]=useState(false);
-  useEffect(()=>{setCartReady(false);setCart([]);if(!cartKey){setCartReady(true);return}try{const saved=JSON.parse(localStorage.getItem(cartKey)||'[]');setCart(Array.isArray(saved)?saved.filter(line=>line&&line.id):[])}catch{localStorage.removeItem(cartKey)}setCartReady(true)},[cartKey]);
-  useEffect(()=>{if(!cartKey||!cartReady)return;if(cart.length)localStorage.setItem(cartKey,JSON.stringify(cart));else localStorage.removeItem(cartKey)},[cart,cartKey,cartReady]);
+
+  const cartKey = useMemo(() => getCartKey(branchId, profile?.id), [branchId, profile?.id]);
+  const pageKey = useMemo(() => getPageKey(branchId, profile?.id), [branchId, profile?.id]);
+  const editingKey = useMemo(() => getEditingKey(branchId, profile?.id), [branchId, profile?.id]);
+
+  const [cart, setCart] = useState(() => readStoredCart(branchId, profile?.id));
+  const [editingPendingSale, setEditingPendingSale] = useState(() => readStoredEditingSale(branchId, profile?.id));
+
+  const [page, setPage] = useState(() => {
+    try {
+      const saved = pageKey ? localStorage.getItem(pageKey) : null;
+      if (saved && ['home', 'products', 'scan', 'cart', 'returns', 'attendance', 'profile', 'kpi'].includes(saved)) {
+        return saved;
+      }
+      const initialCart = readStoredCart(branchId, profile?.id);
+      if (initialCart.length > 0) return 'cart';
+    } catch {}
+    return 'home';
+  });
+
+  const [refs,setRefs]=useState(null),[units,setUnits]=useState([]),[sales,setSales]=useState(emptySales),[pending,setPending]=useState({items:[]}),[homeDate,setHomeDate]=useState(todayInput);
+  const [query,setQuery]=useState(''),[debounced,setDebounced]=useState(''),[loading,setLoading]=useState(true),[error,setError]=useState(''),[receipt,setReceipt]=useState(null),[pendingDetail,setPendingDetail]=useState(null),[created,setCreated]=useState(null);
+  const [cancelConfirmSale,setCancelConfirmSale]=useState(null);
+  const [canceling,setCanceling]=useState(false);
+  const [menuOpen,setMenuOpen]=useState(false);
+  const [relocateBatch,setRelocateBatch]=useState([]);
+
+  const cartRef = useRef(cart);
+  cartRef.current = cart;
+
+  // Persist cart to localStorage whenever it changes
+  useEffect(() => {
+    if (!cartKey) return;
+    try {
+      if (cart.length > 0) {
+        localStorage.setItem(cartKey, JSON.stringify(cart));
+      } else {
+        localStorage.removeItem(cartKey);
+      }
+    } catch {}
+  }, [cart, cartKey]);
+
+  // Persist page to localStorage
+  useEffect(() => {
+    if (!pageKey || !page) return;
+    try {
+      localStorage.setItem(pageKey, page);
+    } catch {}
+  }, [page, pageKey]);
+
+  // Persist editingPendingSale to localStorage
+  useEffect(() => {
+    if (!editingKey) return;
+    try {
+      if (editingPendingSale) {
+        localStorage.setItem(editingKey, JSON.stringify(editingPendingSale));
+      } else {
+        localStorage.removeItem(editingKey);
+      }
+    } catch {}
+  }, [editingPendingSale, editingKey]);
+
+  // Mobile switching / backgrounding protection: save on hide/blur, restore on show/focus
+  useEffect(() => {
+    const persistNow = () => {
+      if (cartKey && cartRef.current) {
+        try {
+          if (cartRef.current.length > 0) {
+            localStorage.setItem(cartKey, JSON.stringify(cartRef.current));
+          } else {
+            localStorage.removeItem(cartKey);
+          }
+        } catch {}
+      }
+      if (pageKey && page) {
+        try { localStorage.setItem(pageKey, page); } catch {}
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        persistNow();
+      } else if (document.visibilityState === 'visible' && cartKey) {
+        // App resumed from background: ensure cart in memory matches stored cart
+        const saved = readStoredCart(branchId, profile?.id);
+        if (saved.length > 0 && cartRef.current.length === 0) {
+          setCart(saved);
+        }
+      }
+    };
+
+    const handleFocus = () => {
+      if (cartKey) {
+        const saved = readStoredCart(branchId, profile?.id);
+        if (saved.length > 0 && cartRef.current.length === 0) {
+          setCart(saved);
+        }
+      }
+    };
+
+    window.addEventListener('pagehide', persistNow);
+    window.addEventListener('beforeunload', persistNow);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('pagehide', persistNow);
+      window.removeEventListener('beforeunload', persistNow);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [cartKey, pageKey, branchId, profile?.id, page]);
+
   const loadHome=async date=>{const[s,p]=await Promise.all([listMyPosSales({branchId,date,pageSize:100}),listMyPosPendingSalesByDate({branchId,date,pageSize:100})]);setSales(s||emptySales());setPending(p||{items:[]})};
   const load=async()=>{if(!branchId){setLoading(false);return}setLoading(true);setError('');try{const[r]=await Promise.all([getPosReferences(branchId),loadHome(homeDate)]);setRefs(r)}catch(e){setError(msg(e))}finally{setLoading(false)}};
   const changeHomeDate=async value=>{setHomeDate(value);setLoading(true);setError('');try{await loadHome(value)}catch(e){setError(msg(e))}finally{setLoading(false)}};
   useEffect(()=>{load()},[branchId]);
   useEffect(()=>{setUnits([]);const id=setTimeout(()=>setDebounced(query.trim()),300);return()=>clearTimeout(id)},[query]);
   useEffect(()=>{if(!branchId||page!=='scan'||!debounced){setUnits([]);return}let active=true;listPosUnits({branchId,query:debounced,pageSize:30}).then(r=>active&&setUnits(r.items||[])).catch(e=>active&&setError(msg(e)));return()=>{active=false}},[branchId,page,debounced]);
-  const add=unit=>setCart(current=>{if(current.some(x=>x.id===unit.id)){toast?.('Bu mahsulot birligi savdoda mavjud');return current}toast?.('Mahsulot savdoga qo‘shildi');return[...current,{...unit,unit_price:numericText(unit.retail_price),discount:'',tax_rate:Number(unit.tax_rate||0)}]});
-  const addMultiple=newUnits=>setCart(current=>{
-    const existingIds=new Set(current.map(x=>x.id));
-    const toAdd=newUnits.filter(u=>!existingIds.has(u.id));
-    if(!toAdd.length){toast?.('Bu mahsulotlar allaqachon savdoga qo‘shilgan');return current}
-    toast?.(`${toAdd.length} ta mahsulot savdoga qo‘shildi`);
-    return[...current,...toAdd.map(unit=>({...unit,unit_price:numericText(unit.retail_price),discount:'',tax_rate:Number(unit.tax_rate||0)}))];
+
+  const add = unit => setCart(current => {
+    if (current.some(x => x.id === unit.id)) {
+      toast?.('Bu mahsulot birligi savdoda mavjud');
+      return current;
+    }
+    toast?.('Mahsulot savdoga qo‘shildi');
+    const next = [...current, {
+      ...unit,
+      unit_price: numericText(unit.retail_price),
+      discount: '',
+      tax_rate: Number(unit.tax_rate || 0)
+    }];
+    if (cartKey) {
+      try { localStorage.setItem(cartKey, JSON.stringify(next)); } catch {}
+    }
+    return next;
   });
+
+  const addMultiple = newUnits => setCart(current => {
+    const existingIds = new Set(current.map(x => x.id));
+    const toAdd = newUnits.filter(u => !existingIds.has(u.id));
+    if (!toAdd.length) {
+      toast?.('Bu mahsulotlar allaqachon savdoga qo‘shilgan');
+      return current;
+    }
+    toast?.(`${toAdd.length} ta mahsulot savdoga qo‘shildi`);
+    const next = [
+      ...current,
+      ...toAdd.map(unit => ({
+        ...unit,
+        unit_price: numericText(unit.retail_price),
+        discount: '',
+        tax_rate: Number(unit.tax_rate || 0)
+      }))
+    ];
+    if (cartKey) {
+      try { localStorage.setItem(cartKey, JSON.stringify(next)); } catch {}
+    }
+    return next;
+  });
+
   const addToRelocate=unit=>setRelocateBatch(current=>{if(current.some(x=>x.id===unit.id)){toast?.('Bu mahsulot birligi ro‘yxatda bor');return current}toast?.('Ko‘chirish ro‘yxatiga qo‘shildi');return[...current,unit]});
   const openReceipt=async id=>{try{setReceipt({...await getSaleReceipt(id),sale_id:id})}catch(e){setError(msg(e))}};
   const openPending=async id=>{try{setPendingDetail(await getPosPendingSale(id))}catch(e){setError(msg(e))}};
@@ -76,6 +261,12 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
     }));
     setEditingPendingSale(sale);
     setCart(mappedCart);
+    if (cartKey) {
+      try { localStorage.setItem(cartKey, JSON.stringify(mappedCart)); } catch {}
+    }
+    if (editingKey) {
+      try { localStorage.setItem(editingKey, JSON.stringify(sale)); } catch {}
+    }
     setPendingDetail(null);
     setPage('cart');
     toast?.(`Kassa so‘rovi #${sale.pending_no} tahrirlash uchun ochildi`);
@@ -106,7 +297,7 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
   },[focusPendingSaleId]);
   return <><main className="pos-real-workspace">
     {page!=='scan'&&page!=='products'&&page!=='profile'&&page!=='attendance'&&page!=='returns'&&!loading&&!error&&<button type="button" className="pos-real-scan-cta pos-real-scan-sticky" onClick={()=>setPage('scan')}><QrCode/><span><b>QR/seriyani kiritish</b><small>Skaner qurilmasi yoki klaviatura orqali</small></span><ChevronRight/></button>}
-    {loading?<State text="POS ma’lumotlari yuklanmoqda…"/>:error?<State error text={error} retry={load}/>:page==='home'?<HomePage sales={sales} pending={pending} date={homeDate} setDate={changeHomeDate} profile={profile} openReceipt={openReceipt} openPending={openPending} go={setPage} rate={rate}/>:page==='products'?<ProductCatalogWorkspace branchId={branchId} onAddToCart={add} toast={toast}/>:page==='scan'?<Scanner branchId={branchId} query={query} setQuery={setQuery} units={units} add={add} addMultiple={addMultiple} cart={cart} addToRelocate={addToRelocate} relocateCount={relocateBatch.length} goRelocate={()=>setPage('relocate')} toast={toast} rate={rate}/>:page==='cart'?<Cart branchId={branchId} cart={cart} setCart={setCart} refs={refs} created={created} setCreated={setCreated} refresh={load} toast={toast} rate={rate} editingPendingSale={editingPendingSale} setEditingPendingSale={setEditingPendingSale}/>:page==='returns'?<ReturnsWorkspace branchId={branchId} toast={toast} goPage={setPage}/>:page==='relocate'?<Relocate branchId={branchId} batch={relocateBatch} setBatch={setRelocateBatch} toast={toast} back={()=>setPage('scan')}/>:page==='attendance'?<AttendanceWorkspace branchId={branchId} profile={profile} toast={toast}/>:page==='profile'?<ProfileWorkspace toast={toast}/>:<Kpi branchId={branchId} openReceipt={openReceipt} rate={rate}/>}
+    {loading?<State text="POS ma’lumotlari yuklanmoqda…"/>:error?<State error text={error} retry={load}/>:page==='home'?<HomePage sales={sales} pending={pending} date={homeDate} setDate={changeHomeDate} profile={profile} openReceipt={openReceipt} openPending={openPending} go={setPage} rate={rate}/>:page==='products'?<ProductCatalogWorkspace branchId={branchId} onAddToCart={add} toast={toast}/>:page==='scan'?<Scanner branchId={branchId} query={query} setQuery={setQuery} units={units} add={add} addMultiple={addMultiple} cart={cart} addToRelocate={addToRelocate} relocateCount={relocateBatch.length} goRelocate={()=>setPage('relocate')} toast={toast} rate={rate}/>:page==='cart'?<Cart branchId={branchId} cart={cart} setCart={setCart} refs={refs} created={created} setCreated={setCreated} refresh={load} toast={toast} rate={rate} editingPendingSale={editingPendingSale} setEditingPendingSale={setEditingPendingSale} cartKey={cartKey} editingKey={editingKey}/>:page==='returns'?<ReturnsWorkspace branchId={branchId} toast={toast} goPage={setPage}/>:page==='relocate'?<Relocate branchId={branchId} batch={relocateBatch} setBatch={setRelocateBatch} toast={toast} back={()=>setPage('scan')}/>:page==='attendance'?<AttendanceWorkspace branchId={branchId} profile={profile} toast={toast}/>:page==='profile'?<ProfileWorkspace toast={toast}/>:<Kpi branchId={branchId} openReceipt={openReceipt} rate={rate}/>}
   </main>
   <nav className="pos-real-nav">
     {[
@@ -581,9 +772,39 @@ function Unit({unit,add,rate}){
 }
 
 // --- Sale flow: cart + optional customer info + minimum-price warning (soft, not blocking).
-function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,editingPendingSale,setEditingPendingSale}){
-  const[notes,setNotes]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState('');
-  const[customer,setCustomer]=useState({full_name:'',phone:'',address:''}),[showCustomer,setShowCustomer]=useState(false);
+function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,editingPendingSale,setEditingPendingSale,cartKey,editingKey}){
+  const metaKey = branchId ? `texnobazar:seller-cart-meta:${branchId}` : null;
+  const [notes, setNotes] = useState(() => {
+    if (editingPendingSale?.notes != null) return editingPendingSale.notes;
+    try {
+      const raw = metaKey ? localStorage.getItem(metaKey) : null;
+      if (raw) return JSON.parse(raw).notes || '';
+    } catch {}
+    return '';
+  });
+  const [busy, setBusy] = useState(false), [error, setError] = useState('');
+  const [customer, setCustomer] = useState(() => {
+    if (editingPendingSale?.customer) {
+      return {
+        full_name: editingPendingSale.customer.full_name || '',
+        phone: editingPendingSale.customer.phone || '',
+        address: editingPendingSale.customer.address || ''
+      };
+    }
+    try {
+      const raw = metaKey ? localStorage.getItem(metaKey) : null;
+      if (raw) return JSON.parse(raw).customer || { full_name: '', phone: '', address: '' };
+    } catch {}
+    return { full_name: '', phone: '', address: '' };
+  });
+  const [showCustomer, setShowCustomer] = useState(() => {
+    if (editingPendingSale?.customer?.phone || editingPendingSale?.customer?.full_name) return true;
+    try {
+      const raw = metaKey ? localStorage.getItem(metaKey) : null;
+      if (raw) return Boolean(JSON.parse(raw).showCustomer);
+    } catch {}
+    return false;
+  });
   const total=useMemo(()=>cart.reduce((sum,line)=>sum+lineTotal(line),0),[cart]);
 
   // When editing an existing pending sale, initialize customer and notes
@@ -602,20 +823,40 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
     }
   },[editingPendingSale]);
 
-  const editLine=(id,key,value)=>setCart(rows=>rows.map(row=>row.id===id?{...row,[key]:numericText(value)}:row));
+  // Persist notes, customer and showCustomer to localStorage
+  useEffect(() => {
+    if (!metaKey || editingPendingSale) return;
+    try {
+      if (notes || customer.phone || customer.full_name || customer.address || showCustomer) {
+        localStorage.setItem(metaKey, JSON.stringify({ notes, customer, showCustomer }));
+      } else {
+        localStorage.removeItem(metaKey);
+      }
+    } catch {}
+  }, [metaKey, notes, customer, showCustomer, editingPendingSale]);
+
+  const editLine=(id,key,value)=>setCart(rows=>{
+    const next = rows.map(row=>row.id===id?{...row,[key]:numericText(value)}:row);
+    if (cartKey) { try { localStorage.setItem(cartKey, JSON.stringify(next)); } catch {} }
+    return next;
+  });
   // Limits are enforced when the field loses focus so typing is never blocked.
-  const normalizeLine=(id,key)=>setCart(rows=>rows.map(row=>{
-    if(row.id!==id)return row;
-    const percent=Number(refs?.discount_policy?.seller_max_line_discount_percent||20)/100;
-    if(key==='unit_price'){
-      const price=Math.min(Number(row.retail_price||0)*2,Math.max(0,Number(row.unit_price||0)));
-      const maxDiscount=Math.max(0,Math.min(price*percent,price));
-      return{...row,unit_price:numericText(price),discount:row.discount===''?'':numericText(Math.min(Number(row.discount||0),maxDiscount))};
-    }
-    if(row.discount==='')return row;
-    const maxDiscount=Math.max(0,Math.min(Number(row.unit_price||0)*percent,Number(row.unit_price||0)));
-    return{...row,discount:numericText(Math.min(maxDiscount,Math.max(0,Number(row.discount||0))))};
-  }));
+  const normalizeLine=(id,key)=>setCart(rows=>{
+    const next = rows.map(row=>{
+      if(row.id!==id)return row;
+      const percent=Number(refs?.discount_policy?.seller_max_line_discount_percent||20)/100;
+      if(key==='unit_price'){
+        const price=Math.min(Number(row.retail_price||0)*2,Math.max(0,Number(row.unit_price||0)));
+        const maxDiscount=Math.max(0,Math.min(price*percent,price));
+        return{...row,unit_price:numericText(price),discount:row.discount===''?'':numericText(Math.min(Number(row.discount||0),maxDiscount))};
+      }
+      if(row.discount==='')return row;
+      const maxDiscount=Math.max(0,Math.min(Number(row.unit_price||0)*percent,Number(row.unit_price||0)));
+      return{...row,discount:numericText(Math.min(maxDiscount,Math.max(0,Number(row.discount||0))))};
+    });
+    if (cartKey) { try { localStorage.setItem(cartKey, JSON.stringify(next)); } catch {} }
+    return next;
+  });
 
   const belowMinimumLines=cart.filter(line=>lineTotal(line)-lineTax(line)<Number(line.minimum_sale_price||0));
   const hasMissingPrice = cart.some(line => !line.unit_price || Number(line.unit_price) <= 0);
@@ -630,13 +871,17 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
         return;
       }
       const newUnit = units[0];
-      setCart(rows => rows.map(r => r.id === line.id ? {
-        ...r,
-        id: newUnit.id,
-        qr_code: newUnit.qr_code,
-        serial_number: newUnit.serial_number,
-        location_type: newUnit.location_type
-      } : r));
+      setCart(rows => {
+        const next = rows.map(r => r.id === line.id ? {
+          ...r,
+          id: newUnit.id,
+          qr_code: newUnit.qr_code,
+          serial_number: newUnit.serial_number,
+          location_type: newUnit.location_type
+        } : r);
+        if (cartKey) { try { localStorage.setItem(cartKey, JSON.stringify(next)); } catch {} }
+        return next;
+      });
       toast?.(newUnit.location_type === 'warehouse' ? 'Tovar ombor qoldig‘iga o‘tkazildi' : 'Tovar do‘kon qoldig‘iga o‘tkazildi');
     } catch (e) {
       toast?.(msg(e));
@@ -671,7 +916,15 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
         });
         toast?.('Savdo menejer kassasiga yuborildi');
       }
-      setCreated(result);setCart([]);setNotes('');setCustomer({full_name:'',phone:'',address:''});setShowCustomer(false);setEditingPendingSale(null);
+      setCreated(result);
+      setCart([]);
+      if (cartKey) { try { localStorage.removeItem(cartKey); } catch {} }
+      if (editingKey) { try { localStorage.removeItem(editingKey); } catch {} }
+      if (metaKey) { try { localStorage.removeItem(metaKey); } catch {} }
+      setNotes('');
+      setCustomer({full_name:'',phone:'',address:''});
+      setShowCustomer(false);
+      setEditingPendingSale(null);
       await refresh();
     }catch(e){setError(msg(e))}finally{setBusy(false)}
   };
@@ -693,6 +946,9 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
           onClick={()=>{
             setEditingPendingSale(null);
             setCart([]);
+            if (cartKey) { try { localStorage.removeItem(cartKey); } catch {} }
+            if (editingKey) { try { localStorage.removeItem(editingKey); } catch {} }
+            if (metaKey) { try { localStorage.removeItem(metaKey); } catch {} }
             toast?.('Tahrirlash bekor qilindi');
           }}
         >
@@ -733,7 +989,18 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
                 </span>)}
               </div>}
             </div>
-            <button type="button" onClick={()=>setCart(x=>x.filter(y=>y.id!==line.id))}><Trash2/></button>
+            <button type="button" onClick={()=>{
+              setCart(x=>{
+                const next = x.filter(y=>y.id!==line.id);
+                if (cartKey) {
+                  try {
+                    if (next.length > 0) localStorage.setItem(cartKey, JSON.stringify(next));
+                    else localStorage.removeItem(cartKey);
+                  } catch {}
+                }
+                return next;
+              });
+            }} aria-label="Mahsulotni savatdan o‘chirish"><Trash2/></button>
           </div>
           <div className="pos-sale-price-field">
             <div className="pos-sale-price-head">
