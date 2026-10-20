@@ -1,12 +1,13 @@
 import React,{useEffect,useMemo,useRef,useState}from'react';
 import{createPortal}from'react-dom';
-import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,Camera,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Layers,Loader2,MapPin,PackagePlus,Download,Pencil,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Tag,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
+import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,Camera,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Layers,Loader2,MapPin,PackagePlus,Download,Pencil,Percent,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,ShieldAlert,Tag,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,ProductComponentEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal,formatSecretCostCode,BASE_COLOR_PALETTE,detectColorFromImageSource}from'@texnobazar/ui';
 import QRCode from'qrcode';
 import RichTextEditor from'./RichTextEditor';
 import{CreateProductInline}from'./InventoryRegisterModal';
 import InventoryExcelImportModal from'./InventoryExcelImportModal';
 import BatchPriceExcelModal from'./BatchPriceExcelModal';
+import BulkMinimumPriceModal from'./BulkMinimumPriceModal';
 import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,convertStockReceiptsCurrency,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia,exportBatchesBackup,exportReceiptBackup,inspectBatchesBackupFile,restoreBatchesBackupFile,saveProductComponents,getProductComponents}from'@texnobazar/data';
 const err=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 // Visual marker only: INV-* kirimlar inventarizatsiya orqali ro‘yxatga olingan,
@@ -29,6 +30,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   const[restoreModalOpen,setRestoreModalOpen]=useState(false);
   const[excelImportOpen,setExcelImportOpen]=useState(false);
   const[batchPriceModalOpen,setBatchPriceModalOpen]=useState(false);
+  const[bulkMinPriceModalOpen,setBulkMinPriceModalOpen]=useState(false);
   const reqIdRef=useRef(0);
 
   useEffect(()=>{
@@ -677,6 +679,15 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       >
         <Tag size={16}/>Narxlarni yangilash (Excel)
       </button>
+      <button
+        type="button"
+        className="btn"
+        style={{background:'#ea580c',color:'#fff',borderColor:'#ea580c',display:'inline-flex',alignItems:'center',gap:6,fontWeight:700,boxShadow:'0 2px 8px rgba(234,88,12,0.25)'}}
+        onClick={()=>setBulkMinPriceModalOpen(true)}
+        title="Barcha tovarlarning minimal sotish narxini 0 ga tushirish yoki tannarxiga nisbatan % belgilash"
+      >
+        <ShieldAlert size={16}/>Minimal narx sozlamalari
+      </button>
       <button className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#64748b'}} onClick={handleExportAll} disabled={exportingAll} title="Barcha partiyalarni dasturiy JSON zahira fayliga yuklash">
         <Download size={14}/>{exportingAll?'Eksport…':'Zahira (JSON)'}
       </button>
@@ -980,6 +991,28 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         >
           {convertingCurrency ? <Loader2 size={15} className="spinner"/> : <ArrowRight size={15}/>}
           UZS (so‘m) ga o‘tkazish
+        </button>
+        <button
+          type="button"
+          className="btn"
+          style={{
+            background:'#ea580c',
+            color:'#fff',
+            borderColor:'#ea580c',
+            display:'inline-flex',
+            alignItems:'center',
+            gap:6,
+            fontWeight:700,
+            fontSize:13,
+            padding:'7px 14px',
+            boxShadow:'0 2px 8px rgba(234,88,12,0.35)'
+          }}
+          disabled={convertingCurrency}
+          onClick={() => setBulkMinPriceModalOpen(true)}
+          title="Tanlangan partiyalar uchun minimal sotish narxini sozlash (0 qilish yoki tannarxga nisbatan %)"
+        >
+          <ShieldAlert size={15}/>
+          Minimal narxni o‘zgartirish
         </button>
         <button
           type="button"
@@ -1357,6 +1390,20 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     onUpdated={()=>{
       load(selectedDate);
       toast?.('Tovarlar narxlari muvaffaqiyatli yangilandi');
+    }}
+  />
+  <BulkMinimumPriceModal
+    open={bulkMinPriceModalOpen}
+    onClose={()=>setBulkMinPriceModalOpen(false)}
+    branchId={branchId}
+    selectedIds={selectedIds}
+    totalReceiptsCount={rows.length}
+    rate={rate}
+    toast={toast}
+    onUpdated={()=>{
+      load(selectedDate);
+      setSelectedIds([]);
+      toast?.('Minimal sotish narxlari muvaffaqiyatli yangilandi!');
     }}
   />
   </>;

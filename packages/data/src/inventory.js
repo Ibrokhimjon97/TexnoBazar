@@ -28,3 +28,16 @@ export const convertStockReceiptsCurrency = (receiptIds, targetCurrency) =>
 
 export const getAllBatchPricesForExcel = (branchId = null, currency = null) =>
   rpc('get_all_batch_prices_for_excel', { p_branch_id: branchId || null, p_currency: currency || null });
+
+export const bulkUpdateMinimumSalePrices = ({
+  branchId = null,
+  mode = 'zero',
+  percent = 0,
+  receiptIds = null,
+} = {}) =>
+  rpc('bulk_update_minimum_sale_prices', {
+    p_branch_id: branchId || null,
+    p_mode: mode,
+    p_percent: Number(percent) || 0,
+    p_receipt_ids: Array.isArray(receiptIds) && receiptIds.length > 0 ? receiptIds : null,
+  });
