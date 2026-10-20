@@ -43,3 +43,10 @@ export async function getPendingSaleReceipt(pendingSaleId) {
 export const getPosBatchUnits = (branchId, code, count = 1, excludeIds = [], preferLocation = null) =>
   rpc('get_pos_batch_units', { p_branch_id: branchId, p_code: code, p_count: count, p_exclude_ids: excludeIds, p_prefer_location: preferLocation });
 
+export const updateConfirmedSalePayments = ({ pendingSaleId, payments, delivery = null }) =>
+  rpc('manager_update_sale_payments', {
+    p_pending_sale_id: pendingSaleId,
+    p_payments: payments,
+    p_delivery: delivery,
+  });
+

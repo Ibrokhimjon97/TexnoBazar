@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Clock3, FileText, Layers, Printer, ReceiptText, RotateCcw, Search, Trash2, WalletCards, X, Truck, Tag, DollarSign, Check, CreditCard, Banknote } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, Clock3, FileText, Layers, Printer, ReceiptText, RotateCcw, Search, Trash2, WalletCards, X, Truck, Tag, DollarSign, Check, CreditCard, Banknote, Edit3 } from 'lucide-react';
 import { DualPrice, Empty, Modal, Status, useExchangeRate, ThermalReceiptPreview, printThermalReceipt, ProductDeliveryStickersModal } from '@texnobazar/ui';
 import {
   confirmPosSale,
@@ -16,6 +16,7 @@ import {
   completePosCashRefund,
   listSaleReturns,
   cancelSaleReturn,
+  updateConfirmedSalePayments,
   getBrowserClient
 } from '@texnobazar/data';
 
@@ -80,6 +81,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
   const [page, setPage] = useState(1);
   const [deletingSale, setDeletingSale] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [editingPaymentSale, setEditingPaymentSale] = useState(null);
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query.trim()), 300);
@@ -409,27 +411,51 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                   }}
                 >
                   {row.status === 'confirmed' && (
-                    <span
-                      role="button"
-                      tabIndex={0}
-                      className="btn btn-sm btn-outline"
-                      style={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 6,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: '4px 10px',
-                        background: '#fff',
-                        color: 'var(--navy)'
-                      }}
-                      onClick={e => {
-                        e.stopPropagation();
-                        openReceipt(row.id);
-                      }}
-                    >
-                      <Printer size={13} /> Chekni chop etish
-                    </span>
+                    <>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="btn btn-sm btn-outline"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 5,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: '4px 10px',
+                          background: '#eff6ff',
+                          color: '#1d4ed8',
+                          borderColor: '#bfdbfe'
+                        }}
+                        onClick={e => {
+                          e.stopPropagation();
+                          setEditingPaymentSale(row);
+                        }}
+                      >
+                        <Edit3 size={13} /> To‘lovni tahrirlash
+                      </span>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        className="btn btn-sm btn-outline"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          fontSize: 11,
+                          fontWeight: 700,
+                          padding: '4px 10px',
+                          background: '#fff',
+                          color: 'var(--navy)'
+                        }}
+                        onClick={e => {
+                          e.stopPropagation();
+                          openReceipt(row.id);
+                        }}
+                      >
+                        <Printer size={13} /> Chekni chop etish
+                      </span>
+                    </>
                   )}
                   <span
                     role="button"
@@ -517,6 +543,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
         confirm={confirmed}
         reject={rejected}
         onViewReceipt={openReceipt}
+        onEditPayment={s => setEditingPaymentSale(s)}
         onOpenStickers={(s) => setStickersPayload({
           items: s.lines?.map(l => ({
             product_name: l.product_name,
@@ -545,6 +572,23 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
         open={Boolean(stickersPayload)}
         onClose={() => setStickersPayload(null)}
         {...stickersPayload}
+      />
+      <EditSalePaymentModal
+        open={Boolean(editingPaymentSale)}
+        sale={editingPaymentSale}
+        onClose={() => setEditingPaymentSale(null)}
+        onSuccess={async (updatedSaleId) => {
+          await load(page);
+          if (detail && detail.id === updatedSaleId) {
+            try {
+              setDetail(await getPosPendingSale(updatedSaleId));
+            } catch (err) {
+              console.error(err);
+            }
+          }
+        }}
+        rate={rate}
+        toast={toast}
       />
 
 
@@ -607,7 +651,7 @@ function State({ text, error, retry }) {
   );
 }
 
-function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenStickers, onDelete, rate }) {
+function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment, onOpenStickers, onDelete, rate }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [reason, setReason] = useState('');
@@ -826,7 +870,29 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
 
           {sale.payments && sale.payments.length > 0 && (
             <div style={{ marginTop: 12, padding: '12px 14px', background: '#f8fafc', border: '1px solid var(--line)', borderRadius: 10 }}>
-              <b style={{ fontSize: 13, display: 'block', marginBottom: 8, color: 'var(--navy)' }}>To‘lov tafsilotlari:</b>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <b style={{ fontSize: 13, color: 'var(--navy)' }}>To‘lov tafsilotlari:</b>
+                {sale.status === 'confirmed' && (
+                  <button
+                    type="button"
+                    className="btn btn-sm"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 4,
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      padding: '3px 9px',
+                      background: '#eff6ff',
+                      color: '#1d4ed8',
+                      border: '1px solid #bfdbfe'
+                    }}
+                    onClick={() => onEditPayment?.(sale)}
+                  >
+                    <Edit3 size={12} /> To‘lovni tahrirlash
+                  </button>
+                )}
+              </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {sale.payments.map((p, idx) => {
                   const code = p.method_code || p.code;
@@ -1190,9 +1256,32 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
             <div className="cash-real-actions" style={{ marginTop: 18, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               <button
                 type="button"
+                className="btn btn-outline"
+                style={{
+                  flex: '1 1 200px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  padding: '12px 18px',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  borderColor: '#3b82f6',
+                  color: '#1d4ed8',
+                  background: '#eff6ff'
+                }}
+                disabled={busy}
+                onClick={() => onEditPayment?.(sale)}
+              >
+                <Edit3 size={16} />
+                To‘lov shaklini tahrirlash
+              </button>
+
+              <button
+                type="button"
                 className="btn btn-primary"
                 style={{
-                  flex: 1,
+                  flex: '1 1 200px',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -1258,6 +1347,577 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
           </div>
         </div>
       )}
+    </Modal>
+  );
+}
+
+function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [fullSale, setFullSale] = useState(null);
+
+  const [paymentType, setPaymentType] = useState('cash'); // 'cash' | 'card' | 'split' | 'cod'
+  const [cashAmount, setCashAmount] = useState('');
+  const [cardAmount, setCardAmount] = useState('');
+  const [codAmount, setCodAmount] = useState('');
+  const [isDelivery, setIsDelivery] = useState(false);
+  const [customerName, setCustomerName] = useState('');
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [customerAddress, setCustomerAddress] = useState('');
+  const [fulfillmentSource, setFulfillmentSource] = useState('warehouse'); // 'warehouse' | 'store'
+  const [deliveryNotes, setDeliveryNotes] = useState('');
+
+  useEffect(() => {
+    if (!open || !sale?.id) {
+      setFullSale(null);
+      setError('');
+      return;
+    }
+
+    let isMounted = true;
+    setLoading(true);
+    setError('');
+
+    getPosPendingSale(sale.id)
+      .then(data => {
+        if (!isMounted) return;
+        setFullSale(data);
+        const tot = Number(data.total || 0);
+
+        const payments = data.payments || [];
+        let curCash = 0;
+        let curCard = 0;
+        let curCod = 0;
+
+        payments.forEach(p => {
+          const code = p.method_code || p.code;
+          const amt = Number(p.amount || 0);
+          if (code === 'cash') curCash += amt;
+          else if (code === 'card' || code === 'terminal') curCard += amt;
+          else if (code === 'cod') curCod += amt;
+        });
+
+        if (payments.length === 1 && curCash === tot) {
+          setPaymentType('cash');
+        } else if (payments.length === 1 && curCard === tot) {
+          setPaymentType('card');
+        } else if (payments.length === 1 && curCod === tot) {
+          setPaymentType('cod');
+        } else if (payments.length > 0) {
+          setPaymentType('split');
+        } else {
+          setPaymentType('cash');
+          curCash = tot;
+        }
+
+        setCashAmount(curCash > 0 ? String(curCash) : (payments.length === 0 ? String(tot) : '0'));
+        setCardAmount(curCard > 0 ? String(curCard) : '0');
+        setCodAmount(curCod > 0 ? String(curCod) : '0');
+
+        const del = data.delivery || null;
+        const cust = data.customer || null;
+        const hasDel = Boolean(del) || curCod > 0;
+        setIsDelivery(hasDel);
+        setCustomerName(del?.customer_name || cust?.full_name || '');
+        setCustomerPhone(del?.customer_phone || cust?.phone || '');
+        setCustomerAddress(del?.delivery_address || cust?.address || '');
+        setFulfillmentSource(del?.fulfillment_source || 'warehouse');
+        setDeliveryNotes(del?.notes || '');
+      })
+      .catch(err => {
+        if (!isMounted) return;
+        setError(msg(err));
+      })
+      .finally(() => {
+        if (isMounted) setLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [open, sale?.id]);
+
+  if (!open) return null;
+
+  const currentTotal = Number(fullSale?.total ?? sale?.total ?? 0);
+  const numCash = Math.round(Number(String(cashAmount).replace(/[^\d.]/g, '') || 0));
+  const numCard = Math.round(Number(String(cardAmount).replace(/[^\d.]/g, '') || 0));
+  const numCod = Math.round(Number(String(codAmount).replace(/[^\d.]/g, '') || 0));
+  const splitSum = numCash + numCard + numCod;
+  const splitDiff = currentTotal - splitSum;
+
+  const fillRemainingTo = target => {
+    if (target === 'cash') {
+      const remainder = Math.max(0, currentTotal - numCard - numCod);
+      setCashAmount(String(remainder));
+    } else if (target === 'card') {
+      const remainder = Math.max(0, currentTotal - numCash - numCod);
+      setCardAmount(String(remainder));
+    } else if (target === 'cod') {
+      const remainder = Math.max(0, currentTotal - numCash - numCard);
+      setCodAmount(String(remainder));
+    }
+  };
+
+  const handleCashChange = val => {
+    setCashAmount(String(val).replace(/[^\d.]/g, ''));
+  };
+
+  const handleCardChange = val => {
+    setCardAmount(String(val).replace(/[^\d.]/g, ''));
+  };
+
+  const handleCodChange = val => {
+    setCodAmount(String(val).replace(/[^\d.]/g, ''));
+  };
+
+  const handleSave = async () => {
+    if (!fullSale && !sale) return;
+    const saleId = fullSale?.id || sale?.id;
+    setError('');
+
+    let paymentsPayload = [];
+    if (paymentType === 'cash') {
+      paymentsPayload = [{ method_code: 'cash', amount: currentTotal }];
+    } else if (paymentType === 'card') {
+      paymentsPayload = [{ method_code: 'card', amount: currentTotal }];
+    } else if (paymentType === 'cod') {
+      paymentsPayload = [{ method_code: 'cod', amount: currentTotal }];
+    } else if (paymentType === 'split') {
+      if (numCash < 0 || numCard < 0 || numCod < 0) {
+        setError('To‘lov summalari manfiy bo‘lishi mumkin emas.');
+        return;
+      }
+      if (Math.abs(splitSum - currentTotal) > 0.01) {
+        setError(
+          `Aralash to‘lovlar jami (${splitSum.toLocaleString('uz-UZ')} so'm) xarid summasiga (${currentTotal.toLocaleString('uz-UZ')} so'm) teng bo‘lishi kerak. Farq: ${Math.abs(splitDiff).toLocaleString('uz-UZ')} so'm.`
+        );
+        return;
+      }
+      paymentsPayload = [
+        { method_code: 'cash', amount: numCash },
+        { method_code: 'card', amount: numCard },
+        { method_code: 'cod', amount: numCod }
+      ].filter(p => p.amount > 0);
+    }
+
+    if (paymentsPayload.length === 0) {
+      setError('Kamida bitta to‘lov usuli kiritilishi shart.');
+      return;
+    }
+
+    const codToCollect = paymentType === 'cod' ? currentTotal : (paymentType === 'split' ? numCod : 0);
+    const deliveryNeeded = isDelivery || paymentType === 'cod' || codToCollect > 0;
+
+    if (deliveryNeeded) {
+      if (!customerPhone.trim()) {
+        setError('Dostavka / Kuryerdan to‘lov uchun mijoz telefon raqami kiritilishi shart.');
+        return;
+      }
+      if (!customerAddress.trim()) {
+        setError('Dostavka / Kuryerdan to‘lov uchun mijoz yetkazish manzili kiritilishi shart.');
+        return;
+      }
+    }
+
+    const deliveryPayload = deliveryNeeded
+      ? {
+          needed: true,
+          isCod: codToCollect > 0,
+          cod_amount: codToCollect,
+          customer_name: customerName.trim() || 'Mijoz',
+          customer_phone: customerPhone.trim(),
+          customer_address: customerAddress.trim(),
+          fulfillment_source: fulfillmentSource,
+          notes: deliveryNotes.trim()
+        }
+      : null;
+
+    setBusy(true);
+    try {
+      await updateConfirmedSalePayments({
+        pendingSaleId: saleId,
+        payments: paymentsPayload,
+        delivery: deliveryPayload
+      });
+      toast?.('To‘lov shakli muvaffaqiyatli yangilandi!');
+      await onSuccess?.(saleId);
+      onClose();
+    } catch (err) {
+      setError(msg(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={() => !busy && onClose()}
+      title={`To‘lov shaklini tahrirlash — ${sale?.pending_no || 'Savdo'}`}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {loading ? (
+          <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--muted)' }}>
+            Yuklanmoqda…
+          </div>
+        ) : (
+          <>
+            {/* Sale summary box */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '12px 14px',
+              background: '#f8fafc',
+              border: '1px solid var(--line)',
+              borderRadius: 10
+            }}>
+              <div>
+                <span style={{ fontSize: 12, color: 'var(--muted)', display: 'block' }}>Kassa yozuvi</span>
+                <b style={{ fontSize: 14, color: 'var(--navy)' }}>{fullSale?.pending_no || sale?.pending_no}</b>
+                <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 700, marginLeft: 8 }}>● Tasdiqlangan</span>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)', display: 'block' }}>Xarid summasi:</span>
+                <b style={{ fontSize: 16, color: '#0284c7' }}>
+                  {currentTotal.toLocaleString('uz-UZ')} so‘m
+                </b>
+              </div>
+            </div>
+
+            {/* Payment Method selector buttons */}
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                <b style={{ fontSize: 13, color: 'var(--navy)' }}>Yangi to‘lov shaklini tanlang:</b>
+                <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Tanlang yoki aralashtiring</span>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 8 }}>
+                {[
+                  ['cash', '💵 Naqd pul'],
+                  ['card', '💳 Plastik / Click'],
+                  ['split', '⚖️ Aralash to‘lov'],
+                  ['cod', '🚚 Kuryerdan beradi']
+                ].map(([code, label]) => (
+                  <button
+                    key={code}
+                    type="button"
+                    onClick={() => {
+                      setPaymentType(code);
+                      if (code === 'cash') {
+                        setCashAmount(String(currentTotal));
+                        setCardAmount('0');
+                        setCodAmount('0');
+                      } else if (code === 'card') {
+                        setCashAmount('0');
+                        setCardAmount(String(currentTotal));
+                        setCodAmount('0');
+                      } else if (code === 'cod') {
+                        setCashAmount('0');
+                        setCardAmount('0');
+                        setCodAmount(String(currentTotal));
+                        setIsDelivery(true);
+                      } else if (code === 'split') {
+                        if (!numCash && !numCard && !numCod) {
+                          setCashAmount(String(currentTotal));
+                          setCardAmount('0');
+                          setCodAmount('0');
+                        }
+                      }
+                    }}
+                    style={{
+                      padding: '10px 8px',
+                      borderRadius: 9,
+                      border: paymentType === code ? '2px solid #0284c7' : '1px solid var(--line, #cbd5e1)',
+                      background: paymentType === code ? '#eff6ff' : '#ffffff',
+                      color: paymentType === code ? '#0369a1' : '#334155',
+                      fontWeight: paymentType === code ? 800 : 600,
+                      fontSize: 12.5,
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      transition: 'all 0.15s ease'
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Split inputs if split mode */}
+            {paymentType === 'split' && (
+              <div style={{ padding: '12px 14px', background: '#ffffff', border: '1.5px solid #bfdbfe', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+                  <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#15803d' }}>
+                      💵 Naqd summa:
+                    </span>
+                    <input
+                      className="input"
+                      type="text"
+                      inputMode="decimal"
+                      value={cashAmount}
+                      onChange={e => handleCashChange(e.target.value)}
+                      placeholder="0"
+                      style={{ fontWeight: 700, fontSize: 13 }}
+                    />
+                  </label>
+                  <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#1d4ed8' }}>
+                      💳 Plastik summa:
+                    </span>
+                    <input
+                      className="input"
+                      type="text"
+                      inputMode="decimal"
+                      value={cardAmount}
+                      onChange={e => handleCardChange(e.target.value)}
+                      placeholder="0"
+                      style={{ fontWeight: 700, fontSize: 13 }}
+                    />
+                  </label>
+                  <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#b45309' }}>
+                      🚚 Kuryerdan beradi:
+                    </span>
+                    <input
+                      className="input"
+                      type="text"
+                      inputMode="decimal"
+                      value={codAmount}
+                      onChange={e => handleCodChange(e.target.value)}
+                      placeholder="0"
+                      style={{ fontWeight: 700, fontSize: 13, borderColor: numCod > 0 ? '#f59e0b' : undefined }}
+                    />
+                  </label>
+                </div>
+
+                {/* Balance validation bar */}
+                <div style={{
+                  padding: '8px 12px',
+                  borderRadius: 8,
+                  background: splitDiff === 0 ? '#f0fdf4' : splitDiff > 0 ? '#fffbeb' : '#fef2f2',
+                  border: `1px solid ${splitDiff === 0 ? '#bbf7d0' : splitDiff > 0 ? '#fde68a' : '#fecaca'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: 8,
+                  fontSize: 12
+                }}>
+                  <div>
+                    <span>Kiritildi: <b>{splitSum.toLocaleString('uz-UZ')} so‘m</b> / Jami: <b>{currentTotal.toLocaleString('uz-UZ')} so‘m</b></span>
+                    {splitDiff === 0 && (
+                      <span style={{ color: '#15803d', fontWeight: 700, marginLeft: 8 }}>✅ To‘liq taqsimlandi</span>
+                    )}
+                    {splitDiff > 0 && (
+                      <span style={{ color: '#b45309', fontWeight: 700, marginLeft: 8 }}>⚠️ Qoldiq: {splitDiff.toLocaleString('uz-UZ')} so‘m</span>
+                    )}
+                    {splitDiff < 0 && (
+                      <span style={{ color: '#b91c1c', fontWeight: 700, marginLeft: 8 }}>❌ Ortig‘i: {Math.abs(splitDiff).toLocaleString('uz-UZ')} so‘m ko‘p!</span>
+                    )}
+                  </div>
+
+                  {splitDiff > 0 && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>Qoldiqni qo‘shish:</span>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => fillRemainingTo('cash')}
+                        style={{ padding: '2px 7px', fontSize: 11, background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}
+                      >
+                        + Naqdga
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => fillRemainingTo('card')}
+                        style={{ padding: '2px 7px', fontSize: 11, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}
+                      >
+                        + Plastikka
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => fillRemainingTo('cod')}
+                        style={{ padding: '2px 7px', fontSize: 11, background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a' }}
+                      >
+                        + Kuryerga
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {numCod > 0 && (
+                  <div style={{ padding: '8px 10px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, fontSize: 11.5, color: '#c2410c' }}>
+                    🚚 <b>Kuryer olib keladigan summa: {numCod.toLocaleString('uz-UZ')} so‘m.</b> Mijoz tovar yetkazilganda to‘laydi. Kassa kirimlarida "Shundan kuryer beradi" blokiga o‘tadi va Dostavka bo‘limida yangilanadi.
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* COD single mode notice */}
+            {paymentType === 'cod' && (
+              <div style={{ padding: '10px 12px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, fontSize: 12.5, color: '#c2410c' }}>
+                🚚 <b>To‘liq kuryerdan beriladi:</b> Mijoz tovar yetkazilganda to‘laydi ({currentTotal.toLocaleString('uz-UZ')} so‘m). Kassa kirimlarida "Shundan kuryer beradi" blokida ko‘rinadi. Kuryer pulni olib kelgach "Pulni oldim" orqali qabul qilasiz.
+              </div>
+            )}
+
+            {/* Delivery details if COD or delivery was requested */}
+            <div style={{ paddingTop: 8, borderTop: '1px dashed #cbd5e1' }}>
+              <label style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                cursor: (paymentType === 'cod' || (paymentType === 'split' && numCod > 0)) ? 'default' : 'pointer',
+                fontWeight: 700,
+                fontSize: 13
+              }}>
+                <input
+                  type="checkbox"
+                  checked={isDelivery || paymentType === 'cod' || (paymentType === 'split' && numCod > 0)}
+                  disabled={paymentType === 'cod' || (paymentType === 'split' && numCod > 0)}
+                  onChange={e => setIsDelivery(e.target.checked)}
+                  style={{ width: 17, height: 17 }}
+                />
+                <span>📦 Bepul yetkazib berish (Dostavka) ma’lumotlari</span>
+                {(paymentType === 'cod' || (paymentType === 'split' && numCod > 0)) && (
+                  <small style={{ color: '#ea580c', fontWeight: 600 }}>(Kuryer to‘lovi uchun majburiy)</small>
+                )}
+              </label>
+
+              {(isDelivery || paymentType === 'cod' || (paymentType === 'split' && numCod > 0)) && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10, padding: '10px 12px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 8 }}>
+                  <div style={{ fontSize: 11.5, color: 'var(--muted, #64748b)' }}>
+                    Kuryerga yetkazish va to‘lovni yig‘ish uchun mijoz kontakt ma’lumotlari:
+                  </div>
+
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>
+                    Mijoz ismi:
+                    <input
+                      className="input"
+                      value={customerName}
+                      onChange={e => setCustomerName(e.target.value)}
+                      placeholder="Mijoz to‘liq ismi"
+                    />
+                  </label>
+
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>
+                    Telefon raqami *:
+                    <input
+                      className="input"
+                      type="tel"
+                      value={customerPhone}
+                      onChange={e => setCustomerPhone(e.target.value)}
+                      placeholder="+998 90 123 45 67"
+                    />
+                  </label>
+
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>
+                    Yetkazib berish manzili *:
+                    <input
+                      className="input"
+                      value={customerAddress}
+                      onChange={e => setCustomerAddress(e.target.value)}
+                      placeholder="Shahar, tuman, ko‘cha, uy raqami, mo‘ljal..."
+                    />
+                  </label>
+
+                  <label style={{ fontSize: 12, fontWeight: 600 }}>
+                    Kuryer uchun izoh (ixtiyoriy):
+                    <input
+                      className="input"
+                      value={deliveryNotes}
+                      onChange={e => setDeliveryNotes(e.target.value)}
+                      placeholder="Masalan: Soat 15:00 dan keyin yetkazing..."
+                    />
+                  </label>
+
+                  <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: '#334155' }}>
+                      Yuklash / yetkazib berish joyi:
+                    </span>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => setFulfillmentSource('warehouse')}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: 8,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          border: fulfillmentSource === 'warehouse' ? '2px solid #0284c7' : '1px solid #cbd5e1',
+                          background: fulfillmentSource === 'warehouse' ? '#eff6ff' : '#fff',
+                          color: fulfillmentSource === 'warehouse' ? '#0369a1' : '#475569',
+                          cursor: 'pointer',
+                          textAlign: 'left'
+                        }}
+                      >
+                        🏢 Ombordan yuklash
+                        <small style={{ display: 'block', fontSize: 10, fontWeight: 500, color: '#64748b', marginTop: 2 }}>
+                          Do‘kondagi vitrina tovari saqlanadi
+                        </small>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setFulfillmentSource('store')}
+                        style={{
+                          padding: '8px 10px',
+                          borderRadius: 8,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          border: fulfillmentSource === 'store' ? '2px solid #16a34a' : '1px solid #cbd5e1',
+                          background: fulfillmentSource === 'store' ? '#f0fdf4' : '#fff',
+                          color: fulfillmentSource === 'store' ? '#15803d' : '#475569',
+                          cursor: 'pointer',
+                          textAlign: 'left'
+                        }}
+                      >
+                        📍 Do‘kondan yuklash
+                        <small style={{ display: 'block', fontSize: 10, fontWeight: 500, color: '#64748b', marginTop: 2 }}>
+                          Do‘konda turgan haqiqiy tovar beriladi
+                        </small>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {error && <div className="cash-real-inline-error">{error}</div>}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 10 }}>
+              <button
+                type="button"
+                className="btn"
+                disabled={busy}
+                onClick={onClose}
+              >
+                Bekor qilish
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={busy || loading}
+                onClick={handleSave}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontWeight: 700,
+                  fontSize: 13,
+                  padding: '10px 18px',
+                  background: (paymentType === 'cod' || (paymentType === 'split' && numCod > 0)) ? 'linear-gradient(135deg, #ea580c, #c2410c)' : undefined
+                }}
+              >
+                {busy ? 'Saqlanmoqda…' : '💾 Saqlash va to‘lovni yangilash'}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </Modal>
   );
 }
