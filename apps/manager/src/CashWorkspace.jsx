@@ -165,7 +165,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
           customerPhone: deliveryInfo.customerPhone,
           deliveryAddress: deliveryInfo.deliveryAddress,
           paymentType: deliveryInfo.paymentType,
-          codAmount: deliveryInfo.isCod ? Number(deliveryInfo.totalAmount) : 0,
+          codAmount: deliveryInfo.isCod ? Number(deliveryInfo.codAmount ?? deliveryInfo.totalAmount) : 0,
           notes: deliveryInfo.notes,
           fulfillmentSource: deliveryInfo.fulfillmentSource || 'warehouse'
         });
@@ -196,7 +196,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
     }
 
     toast?.(deliveryInfo?.isCod
-      ? 'Kuryerdan to‘lov zayavkasi shakllantirildi va Dostavka sahifasiga yuborildi'
+      ? `Kuryerdan to‘lov (${Number(deliveryInfo.codAmount || deliveryInfo.totalAmount).toLocaleString('uz-UZ')} so‘m) zayavkasi shakllantirildi va Dostavka sahifasiga yuborildi`
       : 'Pul qabul qilindi, mahsulotlar SOLD holatiga o‘tdi');
     await load();
   };
@@ -281,6 +281,21 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
           </span>
         </article>
 
+        <article className="is-cod">
+          <div className="cash-real-summary-icon">
+            <Truck size={22} />
+          </div>
+          <span>
+            <small>Shundan kuryer beradi</small>
+            <b>
+              {Number(s.confirmed_today_amount || 0) > 0
+                ? `${Math.round((Number(s.confirmed_today_cod || 0) / Number(s.confirmed_today_amount)) * 100)}% ulush`
+                : '0% ulush'}
+            </b>
+            <strong><DualPrice value={Number(s.confirmed_today_cod || 0)} rate={rate} /></strong>
+          </span>
+        </article>
+
         {Number(s.confirmed_today_other || 0) > 0 && (
           <article className="is-other">
             <div className="cash-real-summary-icon">
@@ -358,6 +373,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                     {row.payments.map((p, idx) => {
                       const isCash = p.code === 'cash';
                       const isCard = p.code === 'card' || p.code === 'terminal';
+                      const isCod = p.code === 'cod';
                       return (
                         <span
                           key={idx}
@@ -369,12 +385,12 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                             fontWeight: 600,
                             padding: '2px 7px',
                             borderRadius: '6px',
-                            background: isCash ? '#f0fdf4' : isCard ? '#eff6ff' : '#f8fafc',
-                            color: isCash ? '#15803d' : isCard ? '#1d4ed8' : '#475569',
-                            border: `1px solid ${isCash ? '#bbf7d0' : isCard ? '#bfdbfe' : '#e2e8f0'}`
+                            background: isCash ? '#f0fdf4' : isCard ? '#eff6ff' : isCod ? '#fffbeb' : '#f8fafc',
+                            color: isCash ? '#15803d' : isCard ? '#1d4ed8' : isCod ? '#b45309' : '#475569',
+                            border: `1px solid ${isCash ? '#bbf7d0' : isCard ? '#bfdbfe' : isCod ? '#fde68a' : '#e2e8f0'}`
                           }}
                         >
-                          {isCash ? '💵 Naqd:' : isCard ? '💳 Plastik:' : `⚡ ${p.name || p.code}:`}
+                          {isCash ? '💵 Naqd:' : isCard ? '💳 Plastik:' : isCod ? '🚚 Kuryerdan:' : `⚡ ${p.name || p.code}:`}
                           <strong style={{ fontWeight: 700 }}>{Number(p.amount || 0).toLocaleString('uz-UZ')} so‘m</strong>
                         </span>
                       );
@@ -601,6 +617,7 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
   const [paymentType, setPaymentType] = useState('cash'); // 'cash' | 'card' | 'split' | 'cod'
   const [cashAmount, setCashAmount] = useState('');
   const [cardAmount, setCardAmount] = useState('');
+  const [codAmount, setCodAmount] = useState('');
   const [isDelivery, setIsDelivery] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -618,6 +635,7 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
       const tot = Number(sale.total || 0);
       setCashAmount(tot > 0 ? String(tot) : '');
       setCardAmount('0');
+      setCodAmount('0');
       setCustomerName(sale.customer?.full_name || '');
       setCustomerPhone(sale.customer?.phone || '');
       setCustomerAddress(sale.customer?.address || '');
@@ -625,21 +643,35 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
   }, [sale?.id]);
 
   const tot = Number(sale?.total || 0);
+  const numCash = Math.round(Number(String(cashAmount).replace(/[^\d.]/g, '') || 0));
+  const numCard = Math.round(Number(String(cardAmount).replace(/[^\d.]/g, '') || 0));
+  const numCod = Math.round(Number(String(codAmount).replace(/[^\d.]/g, '') || 0));
+  const splitSum = numCash + numCard + numCod;
+  const splitDiff = tot - splitSum;
 
-  const handleCashSplitChange = val => {
-    const raw = String(val).replace(/[^\d.]/g, '');
-    setCashAmount(raw);
-    const num = Number(raw || 0);
-    const remainder = Math.max(0, tot - num);
-    setCardAmount(remainder > 0 ? String(Math.round(remainder)) : '0');
+  const fillRemainingTo = target => {
+    if (target === 'cash') {
+      const remainder = Math.max(0, tot - numCard - numCod);
+      setCashAmount(String(remainder));
+    } else if (target === 'card') {
+      const remainder = Math.max(0, tot - numCash - numCod);
+      setCardAmount(String(remainder));
+    } else if (target === 'cod') {
+      const remainder = Math.max(0, tot - numCash - numCard);
+      setCodAmount(String(remainder));
+    }
   };
 
-  const handleCardSplitChange = val => {
-    const raw = String(val).replace(/[^\d.]/g, '');
-    setCardAmount(raw);
-    const num = Number(raw || 0);
-    const remainder = Math.max(0, tot - num);
-    setCashAmount(remainder > 0 ? String(Math.round(remainder)) : '0');
+  const handleCashChange = val => {
+    setCashAmount(String(val).replace(/[^\d.]/g, ''));
+  };
+
+  const handleCardChange = val => {
+    setCardAmount(String(val).replace(/[^\d.]/g, ''));
+  };
+
+  const handleCodChange = val => {
+    setCodAmount(String(val).replace(/[^\d.]/g, ''));
   };
 
   const act = async fn => {
@@ -661,35 +693,43 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
     } else if (paymentType === 'card') {
       paymentsPayload = [{ method_code: 'card', amount: tot }];
     } else if (paymentType === 'split') {
-      const c = Number(cashAmount || 0);
-      const k = Number(cardAmount || 0);
-      if (Math.abs(c + k - tot) > 0.01) {
-        setError(`Aralash to‘lovlar jami (${c + k} so'm) xarid summasiga (${tot} so'm) teng bo‘lishi kerak.`);
+      const c = numCash;
+      const k = numCard;
+      const cod = numCod;
+      if (c < 0 || k < 0 || cod < 0) {
+        setError('To‘lov summalari manfiy bo‘lishi mumkin emas.');
+        return;
+      }
+      if (Math.abs(c + k + cod - tot) > 0.01) {
+        setError(`Aralash to‘lovlar jami (${(c + k + cod).toLocaleString('uz-UZ')} so'm) xarid summasiga (${tot.toLocaleString('uz-UZ')} so'm) teng bo‘lishi kerak. Farq: ${Math.abs(tot - (c + k + cod)).toLocaleString('uz-UZ')} so'm.`);
         return;
       }
       paymentsPayload = [
         { method_code: 'cash', amount: c },
-        { method_code: 'card', amount: k }
+        { method_code: 'card', amount: k },
+        { method_code: 'cod', amount: cod }
       ].filter(p => p.amount > 0);
     } else if (paymentType === 'cod') {
       paymentsPayload = [{ method_code: 'cod', amount: tot }];
     }
 
-    const deliveryNeeded = isDelivery || paymentType === 'cod';
+    const codToCollect = paymentType === 'cod' ? tot : (paymentType === 'split' ? numCod : 0);
+    const deliveryNeeded = isDelivery || paymentType === 'cod' || codToCollect > 0;
     if (deliveryNeeded) {
       if (!customerPhone.trim()) {
-        setError('Dostavka uchun mijoz telefon raqami kiritilishi shart.');
+        setError('Dostavka / Kuryerdan to‘lov uchun mijoz telefon raqami kiritilishi shart.');
         return;
       }
       if (!customerAddress.trim()) {
-        setError('Dostavka uchun mijoz yetkazish manzili kiritilishi shart.');
+        setError('Dostavka / Kuryerdan to‘lov uchun mijoz yetkazish manzili kiritilishi shart.');
         return;
       }
     }
 
     const deliveryData = deliveryNeeded ? {
       needed: true,
-      isCod: paymentType === 'cod',
+      isCod: codToCollect > 0,
+      codAmount: codToCollect,
       customerName: customerName.trim() || 'Mijoz',
       customerPhone: customerPhone.trim(),
       deliveryAddress: customerAddress.trim(),
@@ -793,10 +833,11 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
                   const name = p.method_name || p.name;
                   const isCash = code === 'cash';
                   const isCard = code === 'card' || code === 'terminal';
+                  const isCod = code === 'cod';
                   return (
                     <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 13 }}>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
-                        {isCash ? '💵 Naqd pul' : isCard ? '💳 Plastik karta / terminal' : `⚡ ${name || code}`}
+                        {isCash ? '💵 Naqd pul' : isCard ? '💳 Plastik karta / terminal' : isCod ? '🚚 Kuryerdan beriladi (Kuryer olib keladi)' : `⚡ ${name || code}`}
                       </span>
                       <b><DualPrice value={Number(p.amount || 0)} rate={rate} /></b>
                     </div>
@@ -830,6 +871,11 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
                     onClick={() => {
                       setPaymentType(code);
                       if (code === 'cod') setIsDelivery(true);
+                      if (code === 'split' && !cashAmount && !cardAmount && !codAmount) {
+                        setCashAmount(String(tot));
+                        setCardAmount('0');
+                        setCodAmount('0');
+                      }
                     }}
                     style={{
                       padding: '10px 8px',
@@ -851,29 +897,114 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
 
               {/* Split inputs */}
               {paymentType === 'split' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 12, padding: '10px 12px', background: '#ffffff', border: '1px solid #bfdbfe', borderRadius: 8 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600 }}>
-                    Naqd summa:
-                    <input
-                      className="input"
-                      type="text"
-                      inputMode="decimal"
-                      value={cashAmount}
-                      onChange={e => handleCashSplitChange(e.target.value)}
-                      placeholder="0"
-                    />
-                  </label>
-                  <label style={{ fontSize: 12, fontWeight: 600 }}>
-                    Plastik summa:
-                    <input
-                      className="input"
-                      type="text"
-                      inputMode="decimal"
-                      value={cardAmount}
-                      onChange={e => handleCardSplitChange(e.target.value)}
-                      placeholder="0"
-                    />
-                  </label>
+                <div style={{ marginTop: 12, padding: '12px 14px', background: '#ffffff', border: '1.5px solid #bfdbfe', borderRadius: 10, display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 10 }}>
+                    <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#15803d' }}>
+                        💵 Naqd summa:
+                      </span>
+                      <input
+                        className="input"
+                        type="text"
+                        inputMode="decimal"
+                        value={cashAmount}
+                        onChange={e => handleCashChange(e.target.value)}
+                        placeholder="0"
+                        style={{ fontWeight: 700, fontSize: 13 }}
+                      />
+                    </label>
+                    <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#1d4ed8' }}>
+                        💳 Plastik summa:
+                      </span>
+                      <input
+                        className="input"
+                        type="text"
+                        inputMode="decimal"
+                        value={cardAmount}
+                        onChange={e => handleCardChange(e.target.value)}
+                        placeholder="0"
+                        style={{ fontWeight: 700, fontSize: 13 }}
+                      />
+                    </label>
+                    <label style={{ fontSize: 12, fontWeight: 700, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#b45309' }}>
+                        🚚 Kuryerdan beradi:
+                      </span>
+                      <input
+                        className="input"
+                        type="text"
+                        inputMode="decimal"
+                        value={codAmount}
+                        onChange={e => handleCodChange(e.target.value)}
+                        placeholder="0"
+                        style={{ fontWeight: 700, fontSize: 13, borderColor: numCod > 0 ? '#f59e0b' : undefined }}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Split balance helper & calculation */}
+                  <div style={{
+                    padding: '8px 12px',
+                    borderRadius: 8,
+                    background: splitDiff === 0 ? '#f0fdf4' : splitDiff > 0 ? '#fffbeb' : '#fef2f2',
+                    border: `1px solid ${splitDiff === 0 ? '#bbf7d0' : splitDiff > 0 ? '#fde68a' : '#fecaca'}`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    fontSize: 12
+                  }}>
+                    <div>
+                      <span>Kiritildi: <b>{splitSum.toLocaleString('uz-UZ')} so‘m</b> / Jami: <b>{tot.toLocaleString('uz-UZ')} so‘m</b></span>
+                      {splitDiff === 0 && (
+                        <span style={{ color: '#15803d', fontWeight: 700, marginLeft: 8 }}>✅ To‘liq taqsimlandi</span>
+                      )}
+                      {splitDiff > 0 && (
+                        <span style={{ color: '#b45309', fontWeight: 700, marginLeft: 8 }}>⚠️ Qoldiq: {splitDiff.toLocaleString('uz-UZ')} so‘m</span>
+                      )}
+                      {splitDiff < 0 && (
+                        <span style={{ color: '#b91c1c', fontWeight: 700, marginLeft: 8 }}>❌ Ortig‘i: {Math.abs(splitDiff).toLocaleString('uz-UZ')} so‘m ko‘p!</span>
+                      )}
+                    </div>
+
+                    {splitDiff > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>Qoldiqni qo‘shish:</span>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => fillRemainingTo('cash')}
+                          style={{ padding: '2px 7px', fontSize: 11, background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0' }}
+                        >
+                          + Naqdga
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => fillRemainingTo('card')}
+                          style={{ padding: '2px 7px', fontSize: 11, background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' }}
+                        >
+                          + Plastikka
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          onClick={() => fillRemainingTo('cod')}
+                          style={{ padding: '2px 7px', fontSize: 11, background: '#fffbeb', color: '#b45309', border: '1px solid #fde68a' }}
+                        >
+                          + Kuryerga
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {numCod > 0 && (
+                    <div style={{ padding: '8px 10px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 8, fontSize: 11.5, color: '#c2410c' }}>
+                      🚚 <b>Kuryer olib keladigan summa: {numCod.toLocaleString('uz-UZ')} so‘m.</b> Mijoz tovar yetkazilganda to‘laydi. Bepul dostavka zayavkasi shakllantiriladi va Dostavka bo‘limida ro‘yxatga olinadi.
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -886,19 +1017,28 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
 
               {/* Delivery section */}
               <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px dashed #cbd5e1' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: paymentType === 'cod' ? 'default' : 'pointer', fontWeight: 700, fontSize: 13 }}>
+                <label style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  cursor: (paymentType === 'cod' || (paymentType === 'split' && numCod > 0)) ? 'default' : 'pointer',
+                  fontWeight: 700,
+                  fontSize: 13
+                }}>
                   <input
                     type="checkbox"
-                    checked={isDelivery || paymentType === 'cod'}
-                    disabled={paymentType === 'cod'}
+                    checked={isDelivery || paymentType === 'cod' || (paymentType === 'split' && numCod > 0)}
+                    disabled={paymentType === 'cod' || (paymentType === 'split' && numCod > 0)}
                     onChange={e => setIsDelivery(e.target.checked)}
                     style={{ width: 17, height: 17 }}
                   />
                   <span>📦 Bepul yetkazib berish (Dostavka) zayavkasi shakllantirish</span>
-                  {paymentType === 'cod' && <small style={{ color: '#ea580c', fontWeight: 600 }}>(Majburiy)</small>}
+                  {(paymentType === 'cod' || (paymentType === 'split' && numCod > 0)) && (
+                    <small style={{ color: '#ea580c', fontWeight: 600 }}>(Kuryer to‘lovi uchun majburiy)</small>
+                  )}
                 </label>
 
-                {(isDelivery || paymentType === 'cod') && (
+                {(isDelivery || paymentType === 'cod' || (paymentType === 'split' && numCod > 0)) && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10, padding: '10px 12px', background: '#ffffff', border: '1px solid #cbd5e1', borderRadius: 8 }}>
                     <div style={{ fontSize: 11.5, color: 'var(--muted, #64748b)' }}>
                       Mijoz ma’lumotlarini tasdiqlang yoki mijoz aytganiga qarab tahrirlang:
@@ -1032,10 +1172,16 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onOpenSticker
                   fontWeight: 800,
                   fontSize: 13.5,
                   padding: '10px 18px',
-                  background: paymentType === 'cod' ? 'linear-gradient(135deg, #ea580c, #c2410c)' : undefined
+                  background: (paymentType === 'cod' || (paymentType === 'split' && numCod > 0)) ? 'linear-gradient(135deg, #ea580c, #c2410c)' : undefined
                 }}
               >
-                {busy ? 'Tasdiqlanmoqda…' : paymentType === 'cod' ? '🚚 Kuryerdan olish zayavkasi va stikerlar' : (isDelivery ? '✅ Pulni oldim va dostavka stikerlari' : '✅ Pulni qabul qildim')}
+                {busy
+                  ? 'Tasdiqlanmoqda…'
+                  : paymentType === 'cod'
+                    ? '🚚 Kuryerdan olish zayavkasi va stikerlar'
+                    : (paymentType === 'split' && numCod > 0)
+                      ? `🚚 Tasdiqlash (Kuryerdan: ${numCod.toLocaleString('uz-UZ')} so‘m)`
+                      : (isDelivery ? '✅ Pulni oldim va dostavka stikerlari' : '✅ Pulni qabul qildim')}
               </button>
             </div>
           )}
