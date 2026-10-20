@@ -36,8 +36,8 @@ const address = value => {
   if (typeof value === 'string') return value;
   return [value.line1, value.line2, value.district, value.city, value.region, value.postal_code].filter(Boolean).join(', ');
 };
-const labels = { pending: 'Kutilmoqda', confirmed: 'Tasdiqlangan', rejected: 'Rad etilgan', expired: 'Muddati tugagan' };
-const colors = { pending: 'orange', confirmed: 'green', rejected: 'red', expired: 'gray' };
+const labels = { pending: 'Kutilmoqda', confirmed: 'Tasdiqlangan', rejected: 'Rad etilgan' };
+const colors = { pending: 'orange', confirmed: 'green', rejected: 'red' };
 
 export default function CashWorkspace({ branchId, toast, onSummary, focusPendingSaleId, clearFocus }) {
   const [tab, setTab] = useState('pos');
@@ -96,7 +96,6 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
     setLoading(true);
     setError('');
     try {
-      await releaseExpiredPosSales(branchId);
       const data = await listPosPendingSales({
         branchId,
         status: status === 'all' ? null : status,
@@ -154,7 +153,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
     const saleId = await confirmPosSale(id, paymentsPayload || null);
     if (!saleId) {
       setDetail(await getPosPendingSale(id));
-      toast?.('Rezerv muddati tugagan va mahsulotlar bo\'shatildi');
+      toast?.('Savdoni tasdiqlab bo‘lmadi');
       await load();
       return;
     }
@@ -317,7 +316,6 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
             ['pending', 'Kutilmoqda'],
             ['confirmed', 'Tasdiqlangan'],
             ['rejected', 'Rad etilgan'],
-            ['expired', 'Muddati tugagan'],
             ['all', 'Barchasi']
           ].map(([key, text]) => (
             <button
@@ -821,10 +819,6 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
             <span>
               <small>Do'kon</small>
               <b>{sale.location_name}</b>
-            </span>
-            <span>
-              <small>Rezerv tugashi</small>
-              <b>{date(sale.expires_at)}</b>
             </span>
           </div>
           {sale.customer && (sale.customer.full_name || sale.customer.phone) && (

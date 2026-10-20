@@ -929,7 +929,7 @@ function Cart({branchId,cart,setCart,refs,created,setCreated,refresh,toast,rate,
     }catch(e){setError(msg(e))}finally{setBusy(false)}
   };
 
-  if(created&&!cart.length)return <section><div className="pos-real-success"><ReceiptText/><h2>{editingPendingSale?'Muvaffaqiyatli tahrirlandi':'Kassaga yuborildi'}</h2><b>{created.pending_no}</b><Status type={colors[created.status]}>{labels[created.status]||created.status}</Status><p>Rezerv tugashi: {when(created.expires_at)}</p><strong>{<DualPrice value={Number(created.total||0)} rate={rate}/>}</strong><button type="button" className="btn btn-primary" onClick={()=>setCreated(null)}>Yangi savdo</button></div></section>;
+  if(created&&!cart.length)return <section><div className="pos-real-success"><ReceiptText/><h2>{editingPendingSale?'Muvaffaqiyatli tahrirlandi':'Kassaga yuborildi'}</h2><b>{created.pending_no}</b><Status type={colors[created.status]}>{labels[created.status]||created.status}</Status><strong>{<DualPrice value={Number(created.total||0)} rate={rate}/>}</strong><button type="button" className="btn btn-primary" onClick={()=>setCreated(null)}>Yangi savdo</button></div></section>;
 
   return <section>
     <div className="pos-real-title"><div><h2>{editingPendingSale?'So‘rovni tahrirlash':'Joriy savdo'}</h2><small>{cart.length} ta noyob mahsulot birligi</small></div></div>
@@ -1111,7 +1111,6 @@ function PendingDetail({sale,close,onEdit,onDelete,rate}){
           )}
         </div>
       </div>
-      <p style={{marginTop:8}}>Rezerv tugashi: <b>{when(sale.expires_at)}</b></p>
       {sale.customer&&(sale.customer.full_name||sale.customer.phone)&&(
         <p style={{margin:'6px 0',fontSize:'12px',color:'var(--navy)'}}>Mijoz: <b>{sale.customer.full_name||'Ismsiz'}</b> {sale.customer.phone?`(${sale.customer.phone})`:''}</p>
       )}
