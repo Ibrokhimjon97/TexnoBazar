@@ -329,8 +329,8 @@ BEGIN
     SELECT id INTO v_cust_id FROM public.customers WHERE phone = v_cust_phone;
     IF v_cust_id IS NULL THEN
       v_cust_id := gen_random_uuid();
-      INSERT INTO public.customers (id, branch_id, full_name, phone, address, created_at, updated_at)
-      VALUES (v_cust_id, v_s.branch_id, coalesce(v_cust_name, 'Mijoz'), v_cust_phone,
+      INSERT INTO public.customers (id, full_name, phone, address, created_at, updated_at)
+      VALUES (v_cust_id, coalesce(v_cust_name, 'Mijoz'), v_cust_phone,
         CASE WHEN v_cust_address IS NOT NULL THEN jsonb_build_object('address', v_cust_address) ELSE '{}'::jsonb END,
         now(), now());
     ELSE
@@ -545,8 +545,8 @@ BEGIN
     SELECT id INTO v_cust_id FROM public.customers WHERE phone = v_cust_phone;
     IF v_cust_id IS NULL THEN
       v_cust_id := gen_random_uuid();
-      INSERT INTO public.customers (id, branch_id, full_name, phone, address, created_at, updated_at)
-      VALUES (v_cust_id, v_pending.branch_id, coalesce(v_cust_name, 'Mijoz'), v_cust_phone,
+      INSERT INTO public.customers (id, full_name, phone, address, created_at, updated_at)
+      VALUES (v_cust_id, coalesce(v_cust_name, 'Mijoz'), v_cust_phone,
         CASE WHEN v_cust_address IS NOT NULL THEN jsonb_build_object('address', v_cust_address) ELSE '{}'::jsonb END,
         now(), now());
     ELSE
