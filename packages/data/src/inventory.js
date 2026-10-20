@@ -25,3 +25,6 @@ export const bulkUpdateBatchPrices = ({ branchId = null, currency = 'UZS', items
 export const getProductStockDistribution = productId => rpc('get_product_stock_distribution', { p_product_id: productId });
 export const convertStockReceiptsCurrency = (receiptIds, targetCurrency) =>
   rpc('convert_stock_receipts_currency', { p_receipt_ids: Array.isArray(receiptIds) ? receiptIds : [receiptIds], p_target_currency: targetCurrency });
+
+export const getAllBatchPricesForExcel = (branchId = null, currency = null) =>
+  rpc('get_all_batch_prices_for_excel', { p_branch_id: branchId || null, p_currency: currency || null });

@@ -18,7 +18,7 @@ import {
   HelpCircle,
 } from 'lucide-react';
 import { Modal, formatMoney } from '@texnobazar/ui';
-import { bulkUpdateBatchPrices } from '@texnobazar/data';
+import { bulkUpdateBatchPrices, getAllBatchPricesForExcel } from '@texnobazar/data';
 
 async function getExcelJS() {
   const mod = await import('exceljs');
@@ -72,6 +72,8 @@ export default function BatchPriceExcelModal({
   onUpdated,
 }) {
   const [activeTab, setActiveTab] = useState('UZS'); // 'UZS' | 'USD'
+  const [allBranchItems, setAllBranchItems] = useState([]);
+  const [loadingItems, setLoadingItems] = useState(false);
   const [file, setFile] = useState(null);
   const [parsedRows, setParsedRows] = useState([]);
   const [parsing, setParsing] = useState(false);
@@ -81,54 +83,120 @@ export default function BatchPriceExcelModal({
   const [statusFilter, setStatusFilter] = useState('all'); // 'all' | 'changed' | 'unchanged'
   const fileInputRef = useRef(null);
 
-  // Flatten all batch items from receipts for quick in-memory matching and stats
-  // Flatten all batch items from receipts for quick in-memory matching and stats
-  const existingItemsMap = useMemo(() => {
-    const map = new Map();
-    receipts.forEach((r) => {
-      const receiptNo = String(r.receipt_no || '').trim().toUpperCase();
+  // Load all branch batch items across the entire store (not limited to calendar date)
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoadingItems(true);
+
+    getAllBatchPricesForExcel(branchId)
+      .then((items) => {
+        if (cancelled) return;
+        const list = Array.isArray(items) ? items : [];
+        setAllBranchItems(list);
+        
+        // Auto-detect which currency tab has items
+        const usdCount = list.filter(x => String(x.currency || '').toUpperCase() === 'USD').length;
+        const uzsCount = list.filter(x => String(x.currency || '').toUpperCase() === 'UZS').length;
+        if (usdCount > 0 && uzsCount === 0) {
+          setActiveTab('USD');
+        } else if (uzsCount > 0 && usdCount === 0) {
+          setActiveTab('UZS');
+        }
+      })
+      .catch((err) => {
+        console.error('getAllBatchPricesForExcel error:', err);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingItems(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, branchId]);
+
+  // Combine loaded server items with fallback receipts
+  const itemsList = useMemo(() => {
+    if (allBranchItems.length > 0) return allBranchItems;
+    const fallback = [];
+    (receipts || []).forEach((r) => {
       const items = Array.isArray(r.items) ? r.items : [];
       items.forEach((it) => {
-        const qr = String(it.qr_code || '').trim().toUpperCase();
-        const costUzs = Number(it.unit_cost) || 0;
-        const costUsd = Number(it.unit_cost_usd) || 0;
-        const retailUzs = Number(it.retail_price) || 0;
-        const retailUsd = Number(it.retail_price_usd) || 0;
-        const wholesaleUzs = Number(it.wholesale_price) || 0;
-        const wholesaleUsd = Number(it.wholesale_price_usd) || 0;
-        const minUzs = Number(it.minimum_sale_price) || 0;
-        const minUsd = Number(it.minimum_sale_price_usd) || 0;
-        const itemCurrency = String(r.currency || 'USD').trim().toUpperCase();
-
-        const itemObj = {
+        fallback.push({
           batch_id: it.batch_id,
           receipt_no: r.receipt_no,
           product_id: it.product_id,
           product_name: it.variant_color ? `${it.product_name} (${it.variant_color})` : it.product_name,
           qr_code: it.qr_code,
-          cost_uzs: costUzs,
-          cost_usd: costUsd,
-          retail_uzs: retailUzs,
-          retail_usd: retailUsd,
-          wholesale_uzs: wholesaleUzs,
-          wholesale_usd: wholesaleUsd,
-          min_uzs: minUzs,
-          min_usd: minUsd,
-          currency: itemCurrency,
-        };
-
-        // Primary matching by QR code alone (Partiya umumiy kodi):
-        if (qr) {
-          map.set(`QR::${qr}`, itemObj);
-          map.set(qr, itemObj);
-        }
-        if (qr && receiptNo) {
-          map.set(`${receiptNo}::${qr}`, itemObj);
-        }
+          currency: String(r.currency || 'USD').trim().toUpperCase(),
+          unit_cost: Number(it.unit_cost) || 0,
+          unit_cost_usd: Number(it.unit_cost_usd) || 0,
+          retail_price: Number(it.retail_price) || 0,
+          retail_price_usd: Number(it.retail_price_usd) || 0,
+          wholesale_price: Number(it.wholesale_price) || 0,
+          wholesale_price_usd: Number(it.wholesale_price_usd) || 0,
+          minimum_sale_price: Number(it.minimum_sale_price) || 0,
+          minimum_sale_price_usd: Number(it.minimum_sale_price_usd) || 0,
+        });
       });
     });
+    return fallback;
+  }, [allBranchItems, receipts]);
+
+  const usdItemsCount = useMemo(() => itemsList.filter(x => String(x.currency || '').toUpperCase() === 'USD').length, [itemsList]);
+  const uzsItemsCount = useMemo(() => itemsList.filter(x => String(x.currency || '').toUpperCase() === 'UZS').length, [itemsList]);
+
+  // Flatten all batch items for quick in-memory matching and stats
+  const existingItemsMap = useMemo(() => {
+    const map = new Map();
+    itemsList.forEach((it) => {
+      const qr = String(it.qr_code || '').trim().toUpperCase();
+      const receiptNo = String(it.receipt_no || '').trim().toUpperCase();
+      const costUzs = Number(it.unit_cost) || 0;
+      const costUsd = Number(it.unit_cost_usd) || 0;
+      const retailUzs = Number(it.retail_price) || 0;
+      const retailUsd = Number(it.retail_price_usd) || 0;
+      const wholesaleUzs = Number(it.wholesale_price) || 0;
+      const wholesaleUsd = Number(it.wholesale_price_usd) || 0;
+      const minUzs = Number(it.minimum_sale_price) || 0;
+      const minUsd = Number(it.minimum_sale_price_usd) || 0;
+      const itemCurrency = String(it.currency || 'USD').trim().toUpperCase();
+
+      const itemObj = {
+        batch_id: it.batch_id,
+        receipt_no: it.receipt_no,
+        product_id: it.product_id,
+        product_name: it.variant_color ? `${it.product_name} (${it.variant_color})` : it.product_name,
+        qr_code: it.qr_code,
+        cost_uzs: costUzs,
+        cost_usd: costUsd,
+        retail_uzs: retailUzs,
+        retail_usd: retailUsd,
+        wholesale_uzs: wholesaleUzs,
+        wholesale_usd: wholesaleUsd,
+        min_uzs: minUzs,
+        min_usd: minUsd,
+        currency: itemCurrency,
+      };
+
+      // Primary matching by QR code alone (Partiya umumiy kodi):
+      if (qr) {
+        map.set(`QR::${qr}`, itemObj);
+        map.set(qr, itemObj);
+      }
+      if (qr && receiptNo) {
+        map.set(`${receiptNo}::${qr}`, itemObj);
+      }
+      if (it.product_name) {
+        const normName = it.product_name.trim().toLowerCase();
+        if (!map.has(`NAME::${normName}`)) {
+          map.set(`NAME::${normName}`, itemObj);
+        }
+      }
+    });
     return map;
-  }, [receipts]);
+  }, [itemsList]);
 
   const handleClose = () => {
     if (saving) return;
@@ -200,31 +268,29 @@ export default function BatchPriceExcelModal({
       let rowsAdded = 0;
 
       if (prefill) {
-        // Collect current batch items
-        receipts.forEach((r) => {
-          const rCurrency = String(r.currency || 'USD').trim().toUpperCase();
-          const items = Array.isArray(r.items) ? r.items : [];
-          items.forEach((it) => {
-            // Include items matching active currency or all items
-            const itCurrency = it.currency || rCurrency;
-            if (itCurrency !== activeTab && rCurrency !== activeTab) return;
+        // Find items matching active currency
+        const matchingItems = itemsList.filter((it) => String(it.currency || '').toUpperCase() === activeTab);
+        // If no items match current tab (e.g. user selected UZS but all items were converted to USD base),
+        // fallback to exporting all items using that tab's prices so the user never gets an empty template!
+        const exportItems = matchingItems.length > 0 ? matchingItems : itemsList;
 
-            const name = it.variant_color ? `${it.product_name} (${it.variant_color})` : (it.product_name || 'Nomsiz tovar');
-            const cost = isUzs ? (Number(it.unit_cost) || 0) : (Number(it.unit_cost_usd) || 0);
-            const retail = isUzs ? (Number(it.retail_price) || 0) : (Number(it.retail_price_usd) || 0);
-            const wholesale = isUzs ? (Number(it.wholesale_price) || 0) : (Number(it.wholesale_price_usd) || 0);
-            const minPrice = isUzs ? (Number(it.minimum_sale_price) || 0) : (Number(it.minimum_sale_price_usd) || 0);
+        exportItems.forEach((it) => {
+          const name = it.variant_color ? `${it.product_name} (${it.variant_color})` : (it.product_name || 'Nomsiz tovar');
+          const cost = isUzs ? (Number(it.unit_cost) || 0) : (Number(it.unit_cost_usd) || 0);
+          const retail = isUzs ? (Number(it.retail_price) || 0) : (Number(it.retail_price_usd) || 0);
+          const wholesale = isUzs ? (Number(it.wholesale_price) || 0) : (Number(it.wholesale_price_usd) || 0);
+          const minPrice = isUzs ? (Number(it.minimum_sale_price) || 0) : (Number(it.minimum_sale_price_usd) || 0);
 
-            const row = ws.addRow({
-              product_name: name,
-              unit_cost: cost,
-              retail_price: retail,
-              wholesale_price: wholesale,
-              minimum_sale_price: minPrice,
-              currency: activeTab,
-              qr_code: it.qr_code || '',
-            });
-            rowsAdded++;
+          const row = ws.addRow({
+            product_name: name,
+            unit_cost: cost,
+            retail_price: retail,
+            wholesale_price: wholesale,
+            minimum_sale_price: minPrice,
+            currency: activeTab,
+            qr_code: it.qr_code || '',
+          });
+          rowsAdded++;
 
             // Style data row
             row.height = 22;
@@ -251,8 +317,7 @@ export default function BatchPriceExcelModal({
               }
             });
           });
-        });
-      }
+        }
 
       // If blank or no items matched, add demo sample rows from user screenshot
       if (rowsAdded === 0) {
@@ -639,7 +704,7 @@ export default function BatchPriceExcelModal({
               }}
             >
               <Coins size={16} />
-              🇺🇿 UZS Shabloni (So'm narxlar)
+              🇺🇿 UZS Shabloni (So'm narxlar){uzsItemsCount > 0 ? ` (${uzsItemsCount} ta)` : ''}
             </button>
             <button
               type="button"
@@ -663,7 +728,7 @@ export default function BatchPriceExcelModal({
               }}
             >
               <DollarSign size={16} />
-              🇺🇸 USD Shabloni (Dollar narxlar)
+              🇺🇸 USD Shabloni (Dollar narxlar){usdItemsCount > 0 ? ` (${usdItemsCount} ta)` : ''}
             </button>
           </div>
 
@@ -734,6 +799,7 @@ export default function BatchPriceExcelModal({
             <button
               type="button"
               className="btn btn-outline"
+              disabled={loadingItems}
               style={{
                 fontSize: 12.5,
                 fontWeight: 600,
@@ -747,8 +813,8 @@ export default function BatchPriceExcelModal({
               onClick={() => handleDownloadTemplate(true)}
               title="Mavjud barcha tovarlarni shablonda to'ldirilgan holda yuklab olish"
             >
-              <Download size={15} />
-              Mavjud tovarlar bilan yuklab olish ({activeTab})
+              {loadingItems ? <RefreshCw size={15} className="spin" /> : <Download size={15} />}
+              Mavjud tovarlar bilan yuklab olish ({activeTab} - {isUzs ? (uzsItemsCount > 0 ? uzsItemsCount : itemsList.length) : (usdItemsCount > 0 ? usdItemsCount : itemsList.length)} ta)
             </button>
             <button
               type="button"
