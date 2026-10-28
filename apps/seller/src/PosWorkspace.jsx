@@ -361,6 +361,7 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
   }, [activeTabId]);
 
   const addNewTab = useCallback(() => {
+    let newTabId = null;
     setTabs(prev => {
       const maxNum = prev.reduce((max, t) => {
         const match = t.label?.match(/^(\d+)-mijoz$/);
@@ -368,30 +369,35 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
       }, 0);
       const newNum = Math.max(maxNum + 1, prev.length + 1);
       const newTab = createInitialTab(newNum);
-      setActiveTabId(newTab.id);
+      newTabId = newTab.id;
       return [...prev, newTab];
     });
+    if (newTabId) setActiveTabId(newTabId);
     setCreated(null);
     toast?.('Yangi mijoz tabi ochildi');
   }, [toast]);
 
   const handleDeleteTab = useCallback((tabId) => {
+    let newActiveId = null;
+    let toastMsg = null;
     setTabs(prev => {
       if (prev.length <= 1) {
         const fresh = createInitialTab(1);
-        setActiveTabId(fresh.id);
-        toast?.('Mijoz savati tozalandi');
+        newActiveId = fresh.id;
+        toastMsg = 'Mijoz savati tozalandi';
         return [fresh];
       }
       const next = prev.filter(t => t.id !== tabId);
       if (activeTabId === tabId) {
         const closedIdx = prev.findIndex(t => t.id === tabId);
         const nextActive = next[Math.max(0, closedIdx - 1)] || next[0];
-        setActiveTabId(nextActive.id);
+        newActiveId = nextActive.id;
       }
-      toast?.('Mijoz tabi yopildi');
+      toastMsg = 'Mijoz tabi yopildi';
       return next;
     });
+    if (newActiveId) setActiveTabId(newActiveId);
+    if (toastMsg) toast?.(toastMsg);
     setClosingTab(null);
     setCreated(null);
   }, [activeTabId, toast]);
@@ -407,18 +413,20 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
   }, [tabs, handleDeleteTab]);
 
   const onSaleSuccess = useCallback((tabId, result) => {
+    let nextTargetId = null;
     setTabs(prev => {
       const remaining = prev.filter(t => t.id !== tabId);
       if (remaining.length > 0) {
         const nextTarget = remaining.find(t => t.cart.length > 0) || remaining[0];
-        setActiveTabId(nextTarget.id);
+        nextTargetId = nextTarget.id;
         return remaining;
       } else {
         const fresh = createInitialTab(1);
-        setActiveTabId(fresh.id);
+        nextTargetId = fresh.id;
         return [fresh];
       }
     });
+    if (nextTargetId) setActiveTabId(nextTargetId);
   }, []);
 
   const loadHome=async date=>{const[s,p]=await Promise.all([listMyPosSales({branchId,date,pageSize:100}),listMyPosPendingSalesByDate({branchId,date,pageSize:100})]);setSales(s||emptySales());setPending(p||{items:[]})};
@@ -429,20 +437,21 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
   useEffect(()=>{if(!branchId||page!=='scan'||!debounced){setUnits([]);return}let active=true;listPosUnits({branchId,query:debounced,pageSize:30}).then(r=>active&&setUnits(r.items||[])).catch(e=>active&&setError(msg(e)));return()=>{active=false}},[branchId,page,debounced]);
 
   const add = useCallback(unit => {
+    let toastMsg = null;
     setTabs(prevTabs => {
       const targetTab = prevTabs.find(t => t.id === activeTabId) || prevTabs[0];
       if (targetTab.cart.some(x => x.id === unit.id)) {
-        toast?.('Bu mahsulot ushbu mijoz savdosida mavjud');
+        toastMsg = 'Bu mahsulot ushbu mijoz savdosida mavjud';
         return prevTabs;
       }
       const otherTab = prevTabs.find(t => t.id !== targetTab.id && t.cart.some(x => x.id === unit.id));
       if (otherTab) {
         const otherName = otherTab.customer?.full_name?.trim() || otherTab.label || 'Boshqa mijoz';
-        toast?.(`Bu tovar allaqachon "${otherName}" tabida band qilingan!`);
+        toastMsg = `Bu tovar allaqachon "${otherName}" tabida band qilingan!`;
         return prevTabs;
       }
       const tabName = targetTab.customer?.full_name?.trim() || targetTab.label || 'Mijoz';
-      toast?.(`Mahsulot (${tabName}) savdosiga qo‘shildi`);
+      toastMsg = `Mahsulot (${tabName}) savdosiga qo‘shildi`;
       const nextLine = {
         ...unit,
         unit_price: numericText(unit.retail_price),
@@ -451,9 +460,11 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
       };
       return prevTabs.map(t => t.id === targetTab.id ? { ...t, cart: [...t.cart, nextLine] } : t);
     });
+    if (toastMsg) toast?.(toastMsg);
   }, [activeTabId, toast]);
 
   const addMultiple = useCallback(newUnits => {
+    let toastMsg = null;
     setTabs(prevTabs => {
       const targetTab = prevTabs.find(t => t.id === activeTabId) || prevTabs[0];
       const existingIds = new Set(targetTab.cart.map(x => x.id));
@@ -461,11 +472,11 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
 
       const toAdd = newUnits.filter(u => !existingIds.has(u.id) && !otherReservedIds.has(u.id));
       if (!toAdd.length) {
-        toast?.('Bu mahsulotlar allaqachon savdoga qo‘shilgan yoki boshqa tabda band');
+        toastMsg = 'Bu mahsulotlar allaqachon savdoga qo‘shilgan yoki boshqa tabda band';
         return prevTabs;
       }
       const tabName = targetTab.customer?.full_name?.trim() || targetTab.label || 'Mijoz';
-      toast?.(`${toAdd.length} ta mahsulot (${tabName}) savdosiga qo‘shildi`);
+      toastMsg = `${toAdd.length} ta mahsulot (${tabName}) savdosiga qo‘shildi`;
       const newLines = toAdd.map(unit => ({
         ...unit,
         unit_price: numericText(unit.retail_price),
@@ -474,9 +485,21 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
       }));
       return prevTabs.map(t => t.id === targetTab.id ? { ...t, cart: [...t.cart, ...newLines] } : t);
     });
+    if (toastMsg) toast?.(toastMsg);
   }, [activeTabId, toast]);
 
-  const addToRelocate=unit=>setRelocateBatch(current=>{if(current.some(x=>x.id===unit.id)){toast?.('Bu mahsulot birligi ro‘yxatda bor');return current}toast?.('Ko‘chirish ro‘yxatiga qo‘shildi');return[...current,unit]});
+  const addToRelocate = unit => {
+    let toastMsg = null;
+    setRelocateBatch(current => {
+      if (current.some(x => x.id === unit.id)) {
+        toastMsg = 'Bu mahsulot birligi ro‘yxatda bor';
+        return current;
+      }
+      toastMsg = 'Ko‘chirish ro‘yxatiga qo‘shildi';
+      return [...current, unit];
+    });
+    if (toastMsg) toast?.(toastMsg);
+  };
   const openReceipt=async id=>{try{setReceipt({...await getSaleReceipt(id),sale_id:id})}catch(e){setError(msg(e))}};
   const openPending=async id=>{try{setPendingDetail(await getPosPendingSale(id))}catch(e){setError(msg(e))}};
 
