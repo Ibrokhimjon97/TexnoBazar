@@ -36,7 +36,7 @@ const downloadExcelWorkbook=async(wb,fileName)=>{
 export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInventory,toast,autoOpenReceiptId,onAutoOpenReceiptHandled,refreshTrigger}){
   const getTodayDate=()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth(),d.getDate());};
   const isSameDay=(d1,d2)=>{if(!d1||!d2)return false;return d1.getFullYear()===d2.getFullYear()&&d1.getMonth()===d2.getMonth()&&d1.getDate()===d2.getDate();};
-  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[aggregates,setAggregates]=useState({totalUnits:0,totalCost:0,totalMinPrice:0,batchCount:0,invCount:0}),[query,setQuery]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[currencyFilter,setCurrencyFilter]=useState('all'),[locationFilter,setLocationFilter]=useState('all'),[qtyFilter,setQtyFilter]=useState('all'),[locations,setLocations]=useState([]),[sortBy,setSortBy]=useState('newest'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
+  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[aggregates,setAggregates]=useState({totalUnits:0,totalCost:0,totalMinPrice:0,batchCount:0,invCount:0}),[query,setQuery]=useState(''),[hasFuzzyOnly,setHasFuzzyOnly]=useState(false),[suggestedName,setSuggestedName]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[currencyFilter,setCurrencyFilter]=useState('all'),[locationFilter,setLocationFilter]=useState('all'),[qtyFilter,setQtyFilter]=useState('all'),[locations,setLocations]=useState([]),[sortBy,setSortBy]=useState('newest'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
   const[selectedIds,setSelectedIds]=useState([]),[convertingCurrency,setConvertingCurrency]=useState(false);
   const[passwordModal,setPasswordModal]=useState(null);
   const[selectedDate,setSelectedDate]=useState(()=>getTodayDate());
@@ -416,6 +416,8 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       const items = r.items || [];
       setRows(items);
       setTotal(Number(r.total) || 0);
+      setHasFuzzyOnly(Boolean(r?.has_fuzzy_only));
+      setSuggestedName(r?.suggested_name || '');
       if (Array.isArray(r.batch_dates)) {
         setServerBatchDates(r.batch_dates);
       }
@@ -816,13 +818,39 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         type="button"
         className="btn btn-ghost btn-sm"
         style={{position:'absolute',right:10,top:'50%',transform:'translateY(-50%)',fontSize:12,color:'#64748b',padding:'4px 8px',height:30}}
-        onClick={()=>setQuery('')}
+        onClick={()=>{setQuery(''); setHasFuzzyOnly(false); setSuggestedName('');}}
         title="Qidiruvni tozalash"
       >
         <X size={15}/> Tozalash
       </button>
     )}
   </div>
+
+  {cleanQ && hasFuzzyOnly && (
+    <div className="fuzzy-suggestion-banner">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 22 }}>💡</span>
+        <div>
+          <div className="fuzzy-suggestion-title">
+            «{cleanQ}» bo‘yicha to‘liq mos partiya topilmadi
+          </div>
+          <div className="fuzzy-suggestion-desc">
+            Tizim qidiruvingizga eng yaqin tovar/partiyalarni aniqladi. Balki quyidagilarni izlayotgandirsiz:
+          </div>
+        </div>
+      </div>
+      {suggestedName && (
+        <button
+          type="button"
+          className="fuzzy-suggestion-btn"
+          onClick={() => setQuery(suggestedName)}
+          title="Ushbu tovar nomi bilan aniq qidirish"
+        >
+          🔍 {suggestedName}
+        </button>
+      )}
+    </div>
+  )}
 
   {cleanQ && (
     <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',background:'#eff6ff',color:'#1e40af',border:'1px solid #bfdbfe',borderRadius:10,padding:'8px 14px',fontSize:13,fontWeight:600,marginBottom:14,flexWrap:'wrap',gap:8}}>
@@ -834,7 +862,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         type="button"
         className="btn btn-sm btn-outline"
         style={{background:'#fff',borderColor:'#bfdbfe',color:'#1e40af',fontSize:12,height:28,padding:'2px 10px'}}
-        onClick={()=>setQuery('')}
+        onClick={()=>{setQuery(''); setHasFuzzyOnly(false); setSuggestedName('');}}
       >
         <RotateCcw size={13}/> Qidiruvni bekor qilish
       </button>
@@ -1179,10 +1207,16 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   {loading?<div className="inventory-state">Yuklanmoqda…</div>:error?<ErrorState message={error} retry={load}/>:sortedRows.length===0?(
     <div>
       <Empty
-        title={selectedDate?(isSameDay(selectedDate,new Date())?"Bugun kiritilgan partiya yoki inventarizatsiya yo‘q":"Bu kunda partiya yoki inventarizatsiya yo‘q"):"Hech narsa topilmadi"}
-        text={selectedDate?"Barcha davrlarni ko‘rish uchun 'Barchasini ko‘rsatish' tugmasini bosing yoki yangi yozuv yarating.":"Yangi partiya yoki inventarizatsiya yarating."}
+        title={cleanQ ? "Partiya yoki tovar topilmadi" : selectedDate?(isSameDay(selectedDate,new Date())?"Bugun kiritilgan partiya yoki inventarizatsiya yo‘q":"Bu kunda partiya yoki inventarizatsiya yo‘q"):"Hech narsa topilmadi"}
+        text={cleanQ ? `«${cleanQ}» bo‘yicha hech qanday partiya yoki yaqin o‘xshashlik topilmadi.` : selectedDate?"Barcha davrlarni ko‘rish uchun 'Barchasini ko‘rsatish' tugmasini bosing yoki yangi yozuv yarating.":"Yangi partiya yoki inventarizatsiya yarating."}
       />
-      {selectedDate&&(
+      {cleanQ ? (
+        <div style={{display:'flex',justifyContent:'center',marginTop:12}}>
+          <button className="btn btn-outline" onClick={()=>{setQuery(''); setHasFuzzyOnly(false); setSuggestedName('');}} style={{display:'inline-flex',alignItems:'center',gap:6}}>
+            <RotateCcw size={14}/> Qidiruvni tozalash
+          </button>
+        </div>
+      ) : selectedDate&&(
         <div style={{display:'flex',justifyContent:'center',marginTop:12}}>
           <button className="btn btn-primary" onClick={()=>setSelectedDate(null)} style={{display:'inline-flex',alignItems:'center',gap:6}}>
             🌐 Barchasini ko‘rsatish (barcha davrlar)
@@ -1297,6 +1331,11 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
                   <span style={{whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: 600, color: '#0f172a'}} title={it.product_name}>
                     {it.product_name || 'Nomsiz tovar'}
                   </span>
+                  {it.is_fuzzy && (
+                    <span className="fuzzy-match-badge" title="Qidiruv so‘rovingizga yaqin o‘xshashlik bo‘yicha topildi">
+                      ✨ Yaqin moslik
+                    </span>
+                  )}
                   {it.variant_color && (
                     <span style={{fontSize: 10, background: '#f1f5f9', padding: '1px 5px', borderRadius: 4, color: '#475569', flexShrink: 0}}>
                       {it.variant_color}
@@ -1580,7 +1619,7 @@ function BatchCalendar({month,setMonth,batchDates,selectedDate,onDateClick}){
 }
 export function InventoryStock({branchId,onScan,onRegister,toast}){
   const rate=useExchangeRate();
-  const[rows,setRows]=useState([]),[totalRows,setTotalRows]=useState(0),[aggregates,setAggregates]=useState({totalOnHand:0,totalValue:0,totalCost:0}),[refs,setRefs]=useState({locations:[],categories:[],brands:[]}),[colors,setColors]=useState([]),[form,setForm]=useState({query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:'',hasImage:'',sortBy:''}),[applied,setApplied]=useState({query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:'',hasImage:'',sortBy:''}),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50),[loading,setLoading]=useState(true),[error,setError]=useState(''),[selectedProduct,setSelectedProduct]=useState(null),[editingProduct,setEditingProduct]=useState(null),[selected,setSelected]=useState([]);
+  const[rows,setRows]=useState([]),[totalRows,setTotalRows]=useState(0),[hasFuzzyOnly,setHasFuzzyOnly]=useState(false),[suggestedName,setSuggestedName]=useState(''),[aggregates,setAggregates]=useState({totalOnHand:0,totalValue:0,totalCost:0}),[refs,setRefs]=useState({locations:[],categories:[],brands:[]}),[colors,setColors]=useState([]),[form,setForm]=useState({query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:'',hasImage:'',sortBy:''}),[applied,setApplied]=useState({query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:'',hasImage:'',sortBy:''}),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50),[loading,setLoading]=useState(true),[error,setError]=useState(''),[selectedProduct,setSelectedProduct]=useState(null),[editingProduct,setEditingProduct]=useState(null),[selected,setSelected]=useState([]);
   const[importModal,setImportModal]=useState(false);
   const[exportingExcel,setExportingExcel]=useState(false);
   const[stockCorrectionOpen,setStockCorrectionOpen]=useState(false);
@@ -1611,6 +1650,8 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
       }
       setRows(items);
       setTotalRows(Number(r.total)||items.length);
+      setHasFuzzyOnly(Boolean(r?.has_fuzzy_only));
+      setSuggestedName(r?.suggested_name || '');
       setAggregates({
         totalOnHand: Number(r.total_on_hand ?? 0),
         totalValue: Number(r.total_value ?? 0),
@@ -1623,11 +1664,26 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
     }
   };
   useEffect(()=>{load()},[branchId,applied,page,pageSize]);
+
+  // Qidiruv maydoniga yozilganda avtomatik debounce bilan qidirish
+  useEffect(()=>{
+    const timer = setTimeout(()=>{
+      setApplied(prev => {
+        if (prev.query === form.query) return prev;
+        setPage(1);
+        return { ...prev, query: form.query };
+      });
+    }, 450);
+    return ()=>clearTimeout(timer);
+  },[form.query]);
+
   const apply=e=>{e?.preventDefault();setPage(1);setApplied({...form})};
   const reset=()=>{
     const clean={query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:'',hasImage:'',sortBy:''};
     setForm(clean);
     setApplied(clean);
+    setHasFuzzyOnly(false);
+    setSuggestedName('');
     setPage(1);
   };
   const distinctColors=useMemo(()=>{const seen=new Map();colors.forEach(v=>{if(!seen.has(v.color_name))seen.set(v.color_name,v.color_hex)});return[...seen.entries()].map(([color_name,color_hex])=>({color_name,color_hex})).sort((a,b)=>a.color_name.localeCompare(b.color_name))},[colors]);
@@ -2236,12 +2292,44 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
         </select>
       </div>
     </div>
+    {applied.query && hasFuzzyOnly && (
+      <div className="fuzzy-suggestion-banner">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span style={{ fontSize: 22 }}>💡</span>
+          <div>
+            <div className="fuzzy-suggestion-title">
+              «{applied.query}» bo‘yicha to‘liq mos tovar topilmadi
+            </div>
+            <div className="fuzzy-suggestion-desc">
+              Tizim qidiruvingizga eng yaqin tovarlarni aniqladi. Balki quyidagilarni izlayotgandirsiz:
+            </div>
+          </div>
+        </div>
+        {suggestedName && (
+          <button
+            type="button"
+            className="fuzzy-suggestion-btn"
+            onClick={() => {
+              setForm(prev => ({ ...prev, query: suggestedName }));
+              setApplied(prev => ({ ...prev, query: suggestedName }));
+              setPage(1);
+            }}
+            title="Ushbu tovar nomi bilan aniq qidirish"
+          >
+            🔍 {suggestedName}
+          </button>
+        )}
+      </div>
+    )}
     {loading ? (
       <div className="ops-state">Tovarlar yuklanmoqda…</div>
     ) : error ? (
       <ErrorState message={error} retry={load} />
     ) : rows.length === 0 ? (
-      <Empty title="Tovar topilmadi" text="Partiya qabul qiling yoki filtrni o'zgartiring." />
+      <Empty
+        title="Tovar topilmadi"
+        text={applied.query ? `«${applied.query}» bo‘yicha hech qanday tovar yoki yaqin o‘xshashlik topilmadi.` : "Partiya qabul qiling yoki filtrni o'zgartiring."}
+      />
     ) : (
       <>
         <div className="table-wrap">
@@ -2280,9 +2368,21 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
                         </span>
                       )}
                       <div>
-                        <b>{item.product_name}</b><br />
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <b>{item.product_name}</b>
+                          {item.is_fuzzy && (
+                            <span className="fuzzy-match-badge" title="Qidiruv so‘rovingizga yaqin o‘xshashlik bo‘yicha topildi">
+                              ✨ Yaqin moslik
+                            </span>
+                          )}
+                        </div>
                         <span style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                           <span>{item.sku}</span>
+                          {item.is_fuzzy && item.match_similarity != null && (
+                            <span style={{ color: '#d97706', fontSize: 10.5, fontWeight: 700 }}>
+                              ({Math.round(item.match_similarity * 100)}% o‘xshash)
+                            </span>
+                          )}
                           {(item.category_name || catMap.get(item.category_id)?.name) && (
                             <>
                               <span>•</span>
