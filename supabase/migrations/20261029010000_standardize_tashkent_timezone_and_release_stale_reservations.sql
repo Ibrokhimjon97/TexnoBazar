@@ -176,7 +176,7 @@ BEGIN
   JOIN public.profile_roles pr ON pr.profile_id = p.id
   WHERE p.is_active = true AND pr.role = 'courier';
 
-  -- 3. Inventory overview
+  -- 3. Inventory units & valuation
   SELECT 
     count(DISTINCT u.product_id),
     count(u.id),
@@ -233,7 +233,7 @@ BEGIN
     v_sales_profit,
     v_sales_cost
   FROM public.sales s
-  WHERE s.status = 'completed'
+  WHERE s.status <> 'void'
     AND (s.sold_at at time zone 'Asia/Tashkent')::date >= v_from
     AND (s.sold_at at time zone 'Asia/Tashkent')::date <= v_to;
 
@@ -243,175 +243,288 @@ BEGIN
 
   -- 6. Supplier debts
   SELECT
-    coalesce(sum(greatest(s.current_balance, 0)), 0),
-    count(CASE WHEN s.current_balance > 0 THEN 1 END)
+    coalesce(sum(greatest(balance, 0)), 0),
+    count(*) filter (where greatest(balance, 0) > 0)
   INTO
     v_supplier_debt_total,
     v_supplier_count
-  FROM public.suppliers s;
+  FROM public.suppliers
+  WHERE is_active = true;
 
-  SELECT coalesce(jsonb_agg(sub), '[]'::jsonb) INTO v_suppliers
-  FROM (
-    SELECT id, name, phone, current_balance, currency
-    FROM public.suppliers
-    WHERE current_balance > 0
-    ORDER BY current_balance DESC
-    LIMIT 10
-  ) sub;
+  SELECT coalesce(jsonb_agg(
+    jsonb_build_object(
+      'id', s.id,
+      'name', s.name,
+      'code', s.code,
+      'balance', s.balance,
+      'phone', s.phone,
+      'is_active', s.is_active
+    ) ORDER BY s.balance DESC
+  ), '[]'::jsonb)
+  INTO v_suppliers
+  FROM public.suppliers s
+  WHERE s.is_active = true
+  LIMIT 10;
 
-  -- 7. Customer debts
+  -- 7. Customer / Branch debts
   SELECT
-    coalesce(sum(cd.balance), 0),
-    count(DISTINCT cd.customer_id)
+    coalesce(sum(remaining_amount), 0),
+    count(*)
   INTO
     v_customer_debt_total,
     v_customer_debt_count
-  FROM public.customer_debts cd
-  WHERE cd.status IN ('open', 'overdue');
+  FROM public.branch_debts
+  WHERE status = 'open' AND remaining_amount > 0;
 
-  SELECT coalesce(jsonb_agg(sub), '[]'::jsonb) INTO v_customer_debts
+  SELECT coalesce(jsonb_agg(
+    jsonb_build_object(
+      'id', d.id,
+      'debtor_branch_name', coalesce(db.name, 'Noma’lum filial'),
+      'creditor_branch_name', coalesce(cb.name, 'Bosh ofis'),
+      'original_amount', d.amount,
+      'remaining_amount', d.remaining_amount,
+      'due_date', d.due_at,
+      'status', d.status,
+      'notes', d.notes
+    ) ORDER BY d.remaining_amount DESC
+  ), '[]'::jsonb)
+  INTO v_customer_debts
+  FROM public.branch_debts d
+  LEFT JOIN public.branches db ON db.id = d.debtor_branch_id
+  LEFT JOIN public.branches cb ON cb.id = d.creditor_branch_id
+  WHERE d.status = 'open' AND d.remaining_amount > 0
+  LIMIT 10;
+
+  -- 8. Monthly expenses
+  -- Current month
+  SELECT coalesce(sum(amount), 0)
+  INTO v_this_month_exp
   FROM (
-    SELECT cd.id, c.full_name as customer_name, c.phone as customer_phone, cd.balance, cd.due_date, cd.status
-    FROM public.customer_debts cd
-    JOIN public.customers c ON c.id = cd.customer_id
-    WHERE cd.status IN ('open', 'overdue')
-    ORDER BY cd.balance DESC
-    LIMIT 10
-  ) sub;
+    SELECT amount FROM public.finance_transactions
+    WHERE type = 'expense' AND to_char(occurred_at at time zone 'Asia/Tashkent', 'YYYY-MM') = v_current_month
+    UNION ALL
+    SELECT amount FROM public.expenses
+    WHERE period_month = v_current_month
+  ) e;
 
-  -- 8. Expenses
-  SELECT coalesce(sum(amount), 0) INTO v_this_month_exp
-  FROM public.expenses
-  WHERE to_char(incurred_at at time zone 'Asia/Tashkent', 'YYYY-MM') = v_current_month;
-
-  SELECT coalesce(sum(amount), 0) INTO v_last_month_exp
-  FROM public.expenses
-  WHERE to_char(incurred_at at time zone 'Asia/Tashkent', 'YYYY-MM') = v_last_month;
-
-  SELECT coalesce(jsonb_agg(sub), '[]'::jsonb) INTO v_exp_categories
+  -- Last month
+  SELECT coalesce(sum(amount), 0)
+  INTO v_last_month_exp
   FROM (
-    SELECT category, sum(amount) as total
-    FROM public.expenses
-    WHERE to_char(incurred_at at time zone 'Asia/Tashkent', 'YYYY-MM') = v_current_month
-    GROUP BY category
-    ORDER BY total DESC
-  ) sub;
+    SELECT amount FROM public.finance_transactions
+    WHERE type = 'expense' AND to_char(occurred_at at time zone 'Asia/Tashkent', 'YYYY-MM') = v_last_month
+    UNION ALL
+    SELECT amount FROM public.expenses
+    WHERE period_month = v_last_month
+  ) e;
 
-  -- 9. Attendance today
+  -- Expense categories breakdown for this month
+  WITH combined_exp AS (
+    SELECT category, amount FROM public.finance_transactions
+    WHERE type = 'expense' AND to_char(occurred_at at time zone 'Asia/Tashkent', 'YYYY-MM') = v_current_month
+    UNION ALL
+    SELECT category, amount FROM public.expenses
+    WHERE period_month = v_current_month
+  )
+  SELECT coalesce(jsonb_agg(
+    jsonb_build_object(
+      'category', g.category,
+      'total', g.sum_amount,
+      'count', g.cnt
+    ) ORDER BY g.sum_amount DESC
+  ), '[]'::jsonb)
+  INTO v_exp_categories
+  FROM (
+    SELECT coalesce(category, 'other') as category, sum(amount) as sum_amount, count(*) as cnt
+    FROM combined_exp
+    GROUP BY 1
+  ) g;
+
+  -- 9. Today's attendance
   SELECT
-    count(DISTINCT profile_id),
-    count(DISTINCT CASE WHEN status = 'working' THEN profile_id END),
-    count(DISTINCT CASE WHEN status = 'completed' THEN profile_id END)
+    count(*) filter (where check_in_at is not null),
+    count(*) filter (where status = 'checked_in'),
+    count(*) filter (where status = 'completed')
   INTO
     v_today_checked_in,
     v_today_working,
     v_today_completed
-  FROM public.attendance_logs
+  FROM public.employee_attendance
   WHERE work_date = v_today;
 
-  SELECT coalesce(jsonb_agg(sub), '[]'::jsonb) INTO v_today_attendees
-  FROM (
-    SELECT DISTINCT ON (a.profile_id)
-      a.id, a.profile_id, p.full_name, p.avatar_url, a.check_in_time, a.check_out_time, a.status, b.name as branch_name
-    FROM public.attendance_logs a
-    JOIN public.profiles p ON p.id = a.profile_id
-    LEFT JOIN public.branches b ON b.id = a.branch_id
-    WHERE a.work_date = v_today
-    ORDER BY a.profile_id, a.check_in_time DESC
-  ) sub;
+  -- Today's attendees list
+  SELECT coalesce(jsonb_agg(
+    jsonb_build_object(
+      'id', a.id,
+      'employee_id', a.employee_id,
+      'employee_name', coalesce(p.full_name, 'Xodim'),
+      'employee_role', coalesce(pr.role::text, 'xodim'),
+      'branch_name', coalesce(b.name, '—'),
+      'check_in_at', a.check_in_at,
+      'check_out_at', a.check_out_at,
+      'worked_minutes', a.worked_minutes,
+      'status', a.status
+    ) ORDER BY a.check_in_at DESC
+  ), '[]'::jsonb)
+  INTO v_today_attendees
+  FROM public.employee_attendance a
+  LEFT JOIN public.profiles p ON p.id = a.employee_id
+  LEFT JOIN public.profile_roles pr ON pr.profile_id = p.id
+  LEFT JOIN public.branches b ON b.id = a.branch_id
+  WHERE a.work_date = v_today;
 
-  -- Recent attendees for live feed
-  SELECT coalesce(jsonb_agg(sub), '[]'::jsonb) INTO v_recent_attendees
-  FROM (
-    SELECT a.id, a.profile_id, p.full_name, p.avatar_url, a.check_in_time, a.check_out_time, a.status, b.name as branch_name
-    FROM public.attendance_logs a
-    JOIN public.profiles p ON p.id = a.profile_id
-    LEFT JOIN public.branches b ON b.id = a.branch_id
-    ORDER BY a.created_at DESC
-    LIMIT 8
-  ) sub;
+  -- Recent attendees fallback if today has no attendees yet
+  SELECT coalesce(jsonb_agg(
+    jsonb_build_object(
+      'id', a.id,
+      'work_date', a.work_date,
+      'employee_name', coalesce(p.full_name, 'Xodim'),
+      'employee_role', coalesce(pr.role::text, 'xodim'),
+      'branch_name', coalesce(b.name, '—'),
+      'check_in_at', a.check_in_at,
+      'check_out_at', a.check_out_at,
+      'worked_minutes', a.worked_minutes,
+      'status', a.status
+    ) ORDER BY a.work_date DESC, a.check_in_at DESC
+  ), '[]'::jsonb)
+  INTO v_recent_attendees
+  FROM public.employee_attendance a
+  LEFT JOIN public.profiles p ON p.id = a.employee_id
+  LEFT JOIN public.profile_roles pr ON pr.profile_id = p.id
+  LEFT JOIN public.branches b ON b.id = a.branch_id
+  LIMIT 6;
 
-  -- 10. Month-over-month comparisons (Last 6 months)
-  SELECT coalesce(jsonb_agg(sub), '[]'::jsonb) INTO v_monthly_comparison
-  FROM (
-    SELECT
-      to_char(d, 'YYYY-MM') as month,
-      coalesce((
-        SELECT sum(s.total) 
-        FROM public.sales s 
-        WHERE s.status = 'completed' 
-          AND to_char(s.sold_at at time zone 'Asia/Tashkent', 'YYYY-MM') = to_char(d, 'YYYY-MM')
-      ), 0) as sales,
-      coalesce((
-        SELECT sum(e.amount) 
-        FROM public.expenses e 
-        WHERE to_char(e.incurred_at at time zone 'Asia/Tashkent', 'YYYY-MM') = to_char(d, 'YYYY-MM')
-      ), 0) as expenses
+  -- 10. Month-over-month history (Last 6 months)
+  WITH months AS (
+    SELECT to_char(d, 'YYYY-MM') as ym,
+           d::date as m_start,
+           (d + interval '1 month - 1 day')::date as m_end
     FROM generate_series(
       date_trunc('month', v_today) - interval '5 months',
       date_trunc('month', v_today),
       interval '1 month'
     ) d
-    ORDER BY d ASC
-  ) sub;
+  ),
+  s_agg AS (
+    SELECT
+      to_char(s.sold_at at time zone 'Asia/Tashkent', 'YYYY-MM') as ym,
+      coalesce(sum(s.total), 0) as s_total,
+      count(s.id) as s_count,
+      coalesce(sum(
+        CASE 
+          WHEN EXISTS (SELECT 1 FROM public.sale_lines sl WHERE sl.sale_id = s.id)
+          THEN (SELECT coalesce(sum(sl.line_total - sl.tax - (sl.unit_cost * sl.quantity)), 0) FROM public.sale_lines sl WHERE sl.sale_id = s.id)
+          ELSE s.total * 0.25
+        END
+      ), 0) as s_profit
+    FROM public.sales s
+    WHERE s.status <> 'void'
+    GROUP BY 1
+  ),
+  e_agg AS (
+    SELECT ym, sum(amt) as e_total FROM (
+      SELECT to_char(occurred_at at time zone 'Asia/Tashkent', 'YYYY-MM') as ym, amount as amt
+      FROM public.finance_transactions WHERE type = 'expense'
+      UNION ALL
+      SELECT period_month as ym, amount as amt
+      FROM public.expenses
+    ) x GROUP BY 1
+  )
+  SELECT coalesce(jsonb_agg(
+    jsonb_build_object(
+      'month', m.ym,
+      'month_label', CASE 
+        WHEN substring(m.ym, 6, 2) = '01' THEN 'Yanvar'
+        WHEN substring(m.ym, 6, 2) = '02' THEN 'Fevral'
+        WHEN substring(m.ym, 6, 2) = '03' THEN 'Mart'
+        WHEN substring(m.ym, 6, 2) = '04' THEN 'Aprel'
+        WHEN substring(m.ym, 6, 2) = '05' THEN 'May'
+        WHEN substring(m.ym, 6, 2) = '06' THEN 'Iyun'
+        WHEN substring(m.ym, 6, 2) = '07' THEN 'Iyul'
+        WHEN substring(m.ym, 6, 2) = '08' THEN 'Avgust'
+        WHEN substring(m.ym, 6, 2) = '09' THEN 'Sentyabr'
+        WHEN substring(m.ym, 6, 2) = '10' THEN 'Oktyabr'
+        WHEN substring(m.ym, 6, 2) = '11' THEN 'Noyabr'
+        ELSE 'Dekabr'
+      END || ' ' || substring(m.ym, 1, 4),
+      'sales', coalesce(sa.s_total, 0),
+      'profit', coalesce(sa.s_profit, 0),
+      'expenses', coalesce(ea.e_total, 0),
+      'orders_count', coalesce(sa.s_count, 0)
+    ) ORDER BY m.ym ASC
+  ), '[]'::jsonb)
+  INTO v_monthly_comparison
+  FROM months m
+  LEFT JOIN s_agg sa ON sa.ym = m.ym
+  LEFT JOIN e_agg ea ON ea.ym = m.ym;
 
-  -- 11. Top Selling Products in Period
-  SELECT coalesce(jsonb_agg(sub), '[]'::jsonb) INTO v_top_selling
+  -- 11. Top selling & low selling products
+  SELECT coalesce(jsonb_agg(
+    jsonb_build_object(
+      'name', t.name,
+      'sku', t.sku,
+      'count', t.sold_cnt,
+      'retail_price', t.retail_price
+    )
+  ), '[]'::jsonb)
+  INTO v_top_selling
   FROM (
-    SELECT p.id, p.name, p.sku, count(sl.id) as sold_count, sum(sl.line_total) as total_revenue
-    FROM public.sale_lines sl
-    JOIN public.sales s ON s.id = sl.sale_id
-    JOIN public.products p ON p.id = sl.product_id
-    WHERE s.status = 'completed'
-      AND (s.sold_at at time zone 'Asia/Tashkent')::date >= v_from
-      AND (s.sold_at at time zone 'Asia/Tashkent')::date <= v_to
-    GROUP BY p.id, p.name, p.sku
-    ORDER BY sold_count DESC
-    LIMIT 6
-  ) sub;
+    SELECT p.name, p.sku, p.retail_price, count(u.id) as sold_cnt
+    FROM public.inventory_units u
+    JOIN public.products p ON p.id = u.product_id
+    WHERE u.status = 'sold'
+    GROUP BY p.id, p.name, p.sku, p.retail_price
+    ORDER BY sold_cnt DESC
+    LIMIT 5
+  ) t;
 
-  -- 12. Low Selling / Stagnant Products (in stock but 0 sales in selected period)
-  SELECT coalesce(jsonb_agg(sub), '[]'::jsonb) INTO v_low_selling
+  SELECT coalesce(jsonb_agg(
+    jsonb_build_object(
+      'name', t.name,
+      'sku', t.sku,
+      'count', t.sold_cnt,
+      'retail_price', t.retail_price
+    )
+  ), '[]'::jsonb)
+  INTO v_low_selling
   FROM (
-    SELECT p.id, p.name, p.sku, count(u.id) as in_stock
-    FROM public.products p
-    JOIN public.inventory_units u ON u.product_id = p.id AND u.status = 'available'
-    WHERE p.is_published = true
-      AND NOT EXISTS (
-        SELECT 1 FROM public.sale_lines sl
-        JOIN public.sales s ON s.id = sl.sale_id
-        WHERE sl.product_id = p.id
-          AND s.status = 'completed'
-          AND (s.sold_at at time zone 'Asia/Tashkent')::date >= v_from
-          AND (s.sold_at at time zone 'Asia/Tashkent')::date <= v_to
-      )
-    GROUP BY p.id, p.name, p.sku
-    ORDER BY in_stock DESC
-    LIMIT 6
-  ) sub;
+    SELECT p.name, p.sku, p.retail_price, count(u.id) as sold_cnt
+    FROM public.inventory_units u
+    JOIN public.products p ON p.id = u.product_id
+    WHERE u.status = 'sold'
+    GROUP BY p.id, p.name, p.sku, p.retail_price
+    HAVING count(u.id) <= 2
+    ORDER BY sold_cnt ASC
+    LIMIT 5
+  ) t;
 
-  -- Final output assembly
+  -- Construct final payload
   RETURN jsonb_build_object(
-    'period', jsonb_build_object('from', v_from, 'to', v_to, 'today', v_today),
+    'period', jsonb_build_object(
+      'from', v_from,
+      'to', v_to,
+      'is_today', (v_from = v_today AND v_to = v_today)
+    ),
     'overview', jsonb_build_object(
       'product_types', v_product_types,
       'total_units', v_total_units,
       'total_cost', v_total_cost,
       'total_retail', v_total_retail,
-      'zero_stock', v_zero_stock,
-      'branches', v_branch_count,
-      'warehouses', v_warehouse_count,
-      'employees', v_employee_count,
-      'couriers', v_courier_count,
-      'total_orders', v_order_count,
+      'expected_margin', v_total_retail - v_total_cost,
+      'zero_stock_count', v_zero_stock,
+      'branch_count', v_branch_count,
+      'warehouse_count', v_warehouse_count,
+      'employee_count', v_employee_count,
+      'courier_count', v_courier_count,
+      'order_count', v_order_count,
       'online_orders', v_online_orders
     ),
-    'sales', jsonb_build_object(
-      'total', v_sales_total,
-      'profit', v_sales_profit,
-      'cost', v_sales_cost,
-      'count', v_sales_count,
-      'avg_ticket', v_avg_ticket
+    'sales_stats', jsonb_build_object(
+      'sales_total', v_sales_total,
+      'sales_profit', v_sales_profit,
+      'sales_cost', v_sales_cost,
+      'sales_count', v_sales_count,
+      'average_ticket', v_avg_ticket
     ),
     'debts', jsonb_build_object(
       'supplier_debt_total', v_supplier_debt_total,
@@ -422,14 +535,24 @@ BEGIN
       'customer_debts', v_customer_debts
     ),
     'expenses', jsonb_build_object(
-      'this_month', v_this_month_exp,
-      'last_month', v_last_month_exp,
+      'this_month_total', v_this_month_exp,
+      'last_month_total', v_last_month_exp,
+      'change_percent', CASE 
+        WHEN v_last_month_exp > 0 THEN round(((v_this_month_exp - v_last_month_exp) / v_last_month_exp) * 100, 1)
+        ELSE 0 
+      END,
       'categories', v_exp_categories
     ),
     'attendance', jsonb_build_object(
-      'checked_in', v_today_checked_in,
-      'working', v_today_working,
-      'completed', v_today_completed,
+      'today_date', v_today,
+      'total_employees', v_employee_count,
+      'checked_in_count', v_today_checked_in,
+      'currently_working', v_today_working,
+      'completed_count', v_today_completed,
+      'attendance_percent', CASE 
+        WHEN v_employee_count > 0 THEN round((v_today_checked_in::numeric / v_employee_count::numeric) * 100)
+        ELSE 0 
+      END,
       'today_attendees', v_today_attendees,
       'recent_attendees', v_recent_attendees
     ),
