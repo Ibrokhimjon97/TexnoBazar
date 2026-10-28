@@ -38,6 +38,8 @@ async function zipDir(dirPath) {
   return await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 }
 
+import { execSync } from 'node:child_process';
+
 async function deployApp(appName) {
   const appDir = path.join(rootDir, 'apps', appName);
   const statePath = path.join(appDir, '.netlify', 'state.json');
@@ -46,6 +48,16 @@ async function deployApp(appName) {
     return;
   }
   const { siteId } = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+
+  // If the app has serverless functions (like superadmin), deploy via Netlify CLI to package and upload functions
+  const functionsDir = path.join(appDir, 'netlify', 'functions');
+  if (fs.existsSync(functionsDir)) {
+    console.log(`[${appName}] Found serverless functions at ${functionsDir}. Deploying via Netlify CLI...`);
+    execSync('npx netlify deploy --prod', { cwd: appDir, stdio: 'inherit', env: process.env });
+    console.log(`[${appName}] ✅ Deployed successfully with functions!`);
+    return;
+  }
+
   const distDir = path.join(appDir, 'dist');
   if (!fs.existsSync(distDir)) {
     console.error(`Dist directory not found for ${appName} at ${distDir}`);

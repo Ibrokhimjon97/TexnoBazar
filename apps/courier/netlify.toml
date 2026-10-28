@@ -1,7 +1,7 @@
 [build]
   command = "npm run build --workspace @texnobazar/courier"
-  publish = "apps/courier/dist"
-  functions = "apps/courier/netlify/functions"
+  publish = "dist"
+  functions = "netlify/functions"
 
 [build.environment]
   NODE_VERSION = "20"
