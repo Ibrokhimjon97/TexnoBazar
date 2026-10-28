@@ -49,3 +49,20 @@ export const registerBranchDebt = ({
 
 export const confirmBranchDebt = debtId => rpc('confirm_branch_debt', { p_debt_id: debtId });
 
+export const registerSupplierDebt = ({
+  supplierId = null,
+  supplierName = null,
+  amount,
+  currency = 'USD',
+  notes = null,
+  branchId = null,
+}) => rpc('register_supplier_debt', {
+  p_supplier_id: supplierId,
+  p_supplier_name: supplierName,
+  p_amount: amount,
+  p_currency: currency,
+  p_notes: notes,
+  p_branch_id: branchId,
+});
+
+

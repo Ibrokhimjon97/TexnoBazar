@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CalendarDays, ChevronRight, Landmark, PackagePlus, ReceiptText, Truck, Plus, CheckCircle2 } from 'lucide-react';
 import { DualPrice, Empty, Modal, Status, useExchangeRate } from '@texnobazar/ui';
-import { formatUzDate, getBranchDebt, getBranchDebtSummary, listBranchDebts, listSupplierDebts, recordBranchDebtPayment, registerBranchDebt, confirmBranchDebt, getBrowserClient } from '@texnobazar/data';
+import { formatUzDate, getBranchDebt, getBranchDebtSummary, listBranchDebts, listSupplierDebts, recordBranchDebtPayment, registerBranchDebt, registerSupplierDebt, confirmBranchDebt, getBrowserClient } from '@texnobazar/data';
 const message = e => String(e?.message || 'Amalni bajarib bo‘lmadi.');
 const labels = { open: 'Ochiq', partially_paid: 'Qisman to‘langan', paid: 'To‘langan', void: 'Bekor qilingan' };
 const badge = { open: 'orange', partially_paid: 'blue', paid: 'green', void: 'gray' };
@@ -45,6 +45,7 @@ function SupplierDebtSection({ branchId, toast, rate }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [detail, setDetail] = useState(null);
+  const [registerOpen, setRegisterOpen] = useState(false);
 
   const load = async () => {
     if (!branchId) { setLoading(false); return; }
@@ -65,6 +66,22 @@ function SupplierDebtSection({ branchId, toast, rate }) {
 
   return (
     <>
+      <div className="between m-page-head" style={{ flexWrap: 'wrap', gap: 12, marginBottom: 12 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Ta'minotchilarga qarzimiz</h3>
+          <p style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)' }}>Partiya kirimlari va qo‘lda kiritilgan qarzlar</p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary"
+          style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+          onClick={() => setRegisterOpen(true)}
+        >
+          <Plus size={16} />
+          <span>Qarz qo‘shish</span>
+        </button>
+      </div>
+
       <div className="dw-summary">
         <article className="card">
           <div>
@@ -101,9 +118,11 @@ function SupplierDebtSection({ branchId, toast, rate }) {
               <div>
                 <div className="between">
                   <b>{s.supplier_name}</b>
-                  <Status type="orange">{s.total_receipt_count || s.open_receipt_count} partiya</Status>
+                  <Status type="orange">
+                    {s.total_receipt_count || s.open_receipt_count ? `${s.total_receipt_count || s.open_receipt_count} partiya` : (s.manual_debt_count ? `${s.manual_debt_count} ta qarz` : 'Faol')}
+                  </Status>
                 </div>
-                <strong>Qarzimiz: <AmountView value={Number(s.total_balance || 0)} currency="USD" rate={rate} /></strong>
+                <strong>Qarzimiz: <AmountView value={Number(s.total_balance || 0)} currency={s.balance_currency || 'USD'} rate={rate} /></strong>
                 <small>{s.supplier_code}</small>
               </div>
               <ChevronRight />
@@ -112,6 +131,14 @@ function SupplierDebtSection({ branchId, toast, rate }) {
         </div>
       )}
       <SupplierDebtDetail supplier={detail} close={() => setDetail(null)} rate={rate} />
+      <RegisterSupplierDebtModal
+        open={registerOpen}
+        onClose={() => setRegisterOpen(false)}
+        branchId={branchId}
+        toast={toast}
+        onSuccess={load}
+        existingSuppliers={suppliers}
+      />
     </>
   );
 }
@@ -130,6 +157,23 @@ function SupplierDebtDetail({ supplier, close, rate }) {
           <span><small>Jami partiyalar</small><b>{supplier.total_receipt_count || 0} ta</b></span>
           <span><small>To`lanmagan</small><b>{supplier.open_receipt_count || 0} ta</b></span>
         </div>
+        {supplier.manual_debts && supplier.manual_debts.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>Qo‘lda kiritilgan qarzdorliklar</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {supplier.manual_debts.map(md => (
+                <div key={md.id} className="card" style={{ padding: 12, borderLeft: '4px solid var(--orange)' }}>
+                  <div className="between">
+                    <b><AmountView value={Number(md.amount)} currency={md.currency} rate={rate} /></b>
+                    <small><CalendarDays size={11} /> {formatUzDate(md.created_at, { day: true, month: 'long', year: true })}</small>
+                  </div>
+                  {md.notes && <p style={{ margin: '6px 0 2px', fontSize: 12, color: 'var(--ink)' }}>{md.notes}</p>}
+                  <small style={{ fontSize: 10, color: 'var(--muted)' }}>Kiritdi: {md.created_by_name || 'Menejer'}</small>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         <h3>Barcha partiyalar</h3>
         {receipts.length ? receipts.map(r => (
           <div key={r.id} className="supplier-receipt-card card" style={{ padding: 14, marginBottom: 10 }}>
@@ -175,6 +219,205 @@ function SupplierDebtDetail({ supplier, close, rate }) {
   );
 }
 
+function RegisterSupplierDebtModal({ open, onClose, branchId, toast, onSuccess, existingSuppliers }) {
+  const [selectedSupplierId, setSelectedSupplierId] = useState('');
+  const [customSupplierName, setCustomSupplierName] = useState('');
+  const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState('USD');
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState('');
+  const [allSuppliers, setAllSuppliers] = useState([]);
+
+  useEffect(() => {
+    if (open) {
+      setSelectedSupplierId('');
+      setCustomSupplierName('');
+      setAmount('');
+      setCurrency('USD');
+      setNotes('');
+      setFormError('');
+      // Fetch active suppliers list for selection
+      getBrowserClient()
+        .from('suppliers')
+        .select('id, name, code')
+        .eq('is_active', true)
+        .order('name')
+        .then(({ data, error }) => {
+          if (!error && data?.length) {
+            setAllSuppliers(data);
+          } else if (existingSuppliers?.length) {
+            setAllSuppliers(existingSuppliers.map(s => ({ id: s.supplier_id, name: s.supplier_name, code: s.supplier_code })));
+          }
+        })
+        .catch(() => {
+          if (existingSuppliers?.length) {
+            setAllSuppliers(existingSuppliers.map(s => ({ id: s.supplier_id, name: s.supplier_name, code: s.supplier_code })));
+          }
+        });
+    }
+  }, [open, existingSuppliers]);
+
+  const handleSubmit = async e => {
+    e.preventDefault();
+    const val = parseFloat(amount);
+    if (isNaN(val) || val <= 0) {
+      setFormError('Iltimos, noldan katta qarz summasini kiriting.');
+      return;
+    }
+
+    const finalSupplierId = (selectedSupplierId && selectedSupplierId !== '__custom__') ? selectedSupplierId : null;
+    let finalName = customSupplierName.trim();
+
+    if (!finalName && finalSupplierId) {
+      finalName = allSuppliers.find(s => s.id === finalSupplierId)?.name || '';
+    }
+
+    if (!finalSupplierId && finalName) {
+      const matched = allSuppliers.find(s => s.name?.toLowerCase().trim() === finalName.toLowerCase().trim());
+      if (matched) {
+        finalName = matched.name;
+      }
+    }
+
+    if (!finalName) {
+      setFormError('Iltimos, ta‘minotchi nomini kiriting yoki ro‘yxatdan tanlang.');
+      return;
+    }
+
+    setBusy(true);
+    setFormError('');
+    try {
+      await registerSupplierDebt({
+        supplierId: finalSupplierId,
+        supplierName: finalName,
+        amount: val,
+        currency,
+        notes: notes.trim() || null,
+        branchId: branchId || null,
+      });
+
+      toast?.(`"${finalName}" ta'minotchisiga ${val} ${currency} qarz muvaffaqiyatli saqlandi!`);
+      onSuccess?.();
+      onClose();
+    } catch (err) {
+      setFormError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title="Ta'minotchiga qarz kiritish">
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {formError && (
+          <div className="tw-inline-error">
+            {formError}
+          </div>
+        )}
+
+        <div>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+            Ta'minotchi (Ro‘yxatdan tanlang)
+          </label>
+          <select
+            className="select"
+            value={selectedSupplierId}
+            onChange={e => {
+              const val = e.target.value;
+              setSelectedSupplierId(val);
+              if (val === '__custom__') {
+                setCustomSupplierName('');
+              } else if (val) {
+                const s = allSuppliers.find(x => x.id === val);
+                if (s) setCustomSupplierName(s.name);
+              } else {
+                setCustomSupplierName('');
+              }
+            }}
+          >
+            <option value="">-- Mavjud ta'minotchilar ro‘yxatidan tanlang --</option>
+            {allSuppliers.map(s => (
+              <option key={s.id} value={s.id}>
+                📦 {s.name} {s.code ? `(${s.code})` : ''}
+              </option>
+            ))}
+            <option value="__custom__">➕ Yangi ta'minotchi nomini yozish...</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+            Ta'minotchi nomi (qo‘lda yozish ham mumkin) *
+          </label>
+          <input
+            type="text"
+            className="input"
+            placeholder="Masalan: Artel zavod, Akfa diler..."
+            value={customSupplierName}
+            onChange={e => setCustomSupplierName(e.target.value)}
+            required
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 10 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+              Qarz summasi *
+            </label>
+            <input
+              type="number"
+              className="input"
+              step="0.01"
+              min="0.01"
+              placeholder="Masalan: 1000"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              required
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+              Valyuta *
+            </label>
+            <select
+              className="select"
+              value={currency}
+              onChange={e => setCurrency(e.target.value)}
+            >
+              <option value="USD">USD ($)</option>
+              <option value="UZS">UZS (so‘m)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+            Izoh yoki sabab
+          </label>
+          <textarea
+            className="input textarea"
+            rows={3}
+            placeholder="Qarz sababi, shartnoma yoki tovarlar haqida ma'lumot..."
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+          />
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
+            Bekor qilish
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? 'Saqlanmoqda…' : 'Saqlash'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function BranchDebtSection({ branchId, toast, rate }) {
   const [direction, setDirection] = useState('debtor'); // 'debtor' | 'creditor' | 'all'
   const [rows, setRows] = useState([]);
@@ -190,11 +433,15 @@ function BranchDebtSection({ branchId, toast, rate }) {
     if (!branchId) return;
     getBrowserClient()
       .from('branches')
-      .select('id, name, code, manager_name, manager_phone')
+      .select('id, name, code, phone')
       .eq('is_active', true)
       .neq('id', branchId)
-      .then(({ data }) => setBranches(data || []))
-      .catch(() => {});
+      .order('name')
+      .then(({ data, error }) => {
+        if (error) console.error('Error fetching branches:', error);
+        setBranches(data || []);
+      })
+      .catch(err => console.error('Failed to load branches:', err));
   }, [branchId]);
 
   const load = async () => {
@@ -314,7 +561,12 @@ function BranchDebtSection({ branchId, toast, rate }) {
         branchId={branchId}
         branches={branches}
         toast={toast}
-        onSuccess={load}
+        onSuccess={() => {
+          if (direction !== 'creditor' && direction !== 'all') {
+            setDirection('creditor');
+          }
+          load();
+        }}
       />
 
       <DebtDetail debt={detail} close={() => setDetail(null)} toast={toast} refreshed={refreshed} rate={rate} branchId={branchId} />
@@ -349,9 +601,23 @@ function RegisterBranchDebtModal({ open, onClose, branchId, branches, toast, onS
       setFormError('Iltimos, noldan katta qarz summasini kiriting.');
       return;
     }
-    const finalName = selectedBranchId
-      ? branches.find(b => b.id === selectedBranchId)?.name || customBranchName
-      : customBranchName.trim();
+
+    const finalBranchId = (selectedBranchId && selectedBranchId !== '__custom__') ? selectedBranchId : null;
+    let finalName = customBranchName.trim();
+
+    if (!finalName && finalBranchId) {
+      finalName = branches.find(b => b.id === finalBranchId)?.name || '';
+    }
+
+    if (!finalBranchId && finalName) {
+      const matched = branches.find(b =>
+        b.name?.toLowerCase().trim() === finalName.toLowerCase().trim() ||
+        b.code?.toLowerCase().trim() === finalName.toLowerCase().trim()
+      );
+      if (matched) {
+        finalName = matched.name;
+      }
+    }
 
     if (!finalName) {
       setFormError('Iltimos, qarzdor filialni tanlang yoki nomini yozing.');
@@ -363,7 +629,7 @@ function RegisterBranchDebtModal({ open, onClose, branchId, branches, toast, onS
     try {
       await registerBranchDebt({
         creditorBranchId: branchId,
-        debtorBranchId: selectedBranchId || null,
+        debtorBranchId: finalBranchId,
         targetBranchName: finalName,
         amount: val,
         currency,
@@ -397,20 +663,25 @@ function RegisterBranchDebtModal({ open, onClose, branchId, branches, toast, onS
             className="select"
             value={selectedBranchId}
             onChange={e => {
-              setSelectedBranchId(e.target.value);
-              if (e.target.value) {
-                const b = branches.find(x => x.id === e.target.value);
+              const val = e.target.value;
+              setSelectedBranchId(val);
+              if (val === '__custom__') {
+                setCustomBranchName('');
+              } else if (val) {
+                const b = branches.find(x => x.id === val);
                 if (b) setCustomBranchName(b.name);
+              } else {
+                setCustomBranchName('');
               }
             }}
           >
             <option value="">-- Mavjud filiallar ro‘yxatidan tanlang --</option>
             {branches.map(b => (
               <option key={b.id} value={b.id}>
-                🏛 {b.name} {b.manager_name ? `(Rahbar: ${b.manager_name})` : ''}
+                🏛 {b.name} ({b.code})
               </option>
             ))}
-            <option value="">➕ Boshqa / ro‘yxatda yo‘q filial nomini yozish...</option>
+            <option value="__custom__">➕ Boshqa / ro‘yxatda yo‘q filial nomini yozish...</option>
           </select>
         </div>
 
