@@ -316,7 +316,7 @@ export default function App() {
         loadDeliveries(true);
       }
     };
-    const timer = setInterval(tick, 20000);
+    const timer = setInterval(tick, 45000);
     window.addEventListener('focus', tick);
     document.addEventListener('visibilitychange', tick);
     return () => {

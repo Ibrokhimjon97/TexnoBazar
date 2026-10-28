@@ -71,7 +71,7 @@ export default function App(){
         loadPending();
       }
     };
-    const timer = setInterval(tick, 20000);
+    const timer = setInterval(tick, 120000);
     window.addEventListener('focus', tick);
     document.addEventListener('visibilitychange', tick);
     return () => {
@@ -624,7 +624,7 @@ function NotificationCenter({profileId,onAlert,onOpenItem}){
         load();
       }
     };
-    const timer=setInterval(tick, 30000);
+    const timer=setInterval(tick, 120000);
     window.addEventListener('focus', tick);
     document.addEventListener('visibilitychange', tick);
     return()=>{

@@ -114,3 +114,9 @@ export const getPosConfirmedProfitDetails = ({ branchId, startDate = null, endDa
     p_start_date: startDate || null,
     p_end_date: endDate || null
   });
+
+export const releaseStalePosReservations = ({ branchId = null, hours = 24 } = {}) =>
+  rpc('release_stale_pos_reservations', {
+    p_branch_id: branchId || null,
+    p_hours: hours,
+  });

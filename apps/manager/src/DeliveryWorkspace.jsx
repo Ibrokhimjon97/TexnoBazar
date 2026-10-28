@@ -128,7 +128,7 @@ export default function DeliveryWorkspace({ branchId, branchName = 'TEXNOBAZAR',
         }).then(data => setResult(data || { items: [], total: 0, summary: {} })).catch(() => {});
       }
     };
-    const interval = setInterval(tick, 25000);
+    const interval = setInterval(tick, 60000);
     window.addEventListener('focus', tick);
     document.addEventListener('visibilitychange', tick);
     return () => {

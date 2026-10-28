@@ -14,6 +14,7 @@ import {
   listPosPendingSales,
   rejectPosPendingSale,
   releaseExpiredPosSales,
+  releaseStalePosReservations,
   completePosCashRefund,
   listSaleReturns,
   cancelSaleReturn,
@@ -248,14 +249,14 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
     return () => unsubscribe?.();
   }, [branchId, page, status, debounced, dateRange, paymentFilter, sortBy]);
 
-  // 2. Kassa sahifasida turganda xavfsiz avtomatik silent polling (har 20 soniyada faqat tab ko'rinib turganda)
+  // 2. Kassa sahifasida turganda xavfsiz avtomatik silent polling (har 60 soniyada faqat tab ko'rinib turganda)
   useEffect(() => {
     if (!branchId) return;
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
         load(page, true);
       }
-    }, 20000);
+    }, 60000);
     return () => clearInterval(timer);
   }, [branchId, page, status, debounced, dateRange, paymentFilter, sortBy]);
 
@@ -315,6 +316,23 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
       toast?.(msg(e));
     } finally {
       setDeleteBusy(false);
+    }
+  };
+
+  const [releasingStale, setReleasingStale] = useState(false);
+  const handleReleaseStale = async () => {
+    if (!window.confirm("24 soatdan ortiq vaqt davomida to‘lanmay qolib ketgan kassa so‘rovlari bekor qilinib, band qilingan tovarlar yana sotuvga qaytarilsinmi?")) {
+      return;
+    }
+    setReleasingStale(true);
+    try {
+      const res = await releaseStalePosReservations({ branchId, hours: 24 });
+      toast?.(res?.message || 'Eski kassa so‘rovlari tozalandi');
+      await load(page);
+    } catch (e) {
+      toast?.(msg(e));
+    } finally {
+      setReleasingStale(false);
     }
   };
 
@@ -468,6 +486,16 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
             disabled={loading}
           >
             <RotateCcw size={14} className={loading ? 'spin' : ''} /> Yangilash
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, borderColor: '#f59e0b', color: '#b45309' }}
+            onClick={handleReleaseStale}
+            disabled={releasingStale || loading}
+            title="24 soatdan ortiq vaqt davomida to‘lanmay qolib ketgan kassa so‘rovlarini bekor qilish va tovarlarni qoldiqqa qaytarish"
+          >
+            <Clock3 size={14} /> Eski bandliklarni bo‘shatish
           </button>
         </div>
       </div>

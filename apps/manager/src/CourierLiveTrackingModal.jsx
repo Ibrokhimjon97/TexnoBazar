@@ -97,7 +97,7 @@ export function CourierLiveTrackingModal({ open, onClose, branchId }) {
         fetchCouriers(true);
       }
     };
-    const interval = setInterval(tick, 15000);
+    const interval = setInterval(tick, 30000);
     window.addEventListener('focus', tick);
     document.addEventListener('visibilitychange', tick);
 
