@@ -3311,3 +3311,24 @@ html[data-theme="dark"] .fuzzy-suggestion-btn:hover {
   color: #fff;
 }
 
+/* =========================================================
+   STOCK CORRECTION MODAL (MOBILE RESPONSIVE ENHANCEMENTS)
+   ========================================================= */
+
+.stock-modal-hide-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+.stock-modal-hide-scrollbar::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+@media (max-width: 768px) {
+  .stock-modal-card {
+    padding: 10px !important;
+  }
+}
+

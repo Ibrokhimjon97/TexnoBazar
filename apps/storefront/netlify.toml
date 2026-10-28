@@ -1,8 +1,7 @@
 [build]
-base = "apps/storefront"
 command = "npm run build --workspace @texnobazar/storefront"
-publish = "dist"
-functions = "netlify/functions"
+publish = "apps/storefront/dist"
+functions = "apps/storefront/netlify/functions"
 
 [build.environment]
 NODE_VERSION = "20"

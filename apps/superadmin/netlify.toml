@@ -1,7 +1,7 @@
 [build]
 command = "npm run build --workspace @texnobazar/superadmin"
-publish = "dist"
-functions = "netlify/functions"
+publish = "apps/superadmin/dist"
+functions = "apps/superadmin/netlify/functions"
 
 [build.environment]
 NODE_VERSION = "20"
@@ -31,7 +31,7 @@ status = 200
 
 [[redirects]]
 from = "/api/*"
-to = "/.netlify/functions/api/:splat"
+to = "/.netlify/functions/api"
 status = 200
 
 [[redirects]]

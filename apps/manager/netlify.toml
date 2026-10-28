@@ -1,6 +1,6 @@
 [build]
   command = "npm run build --workspace @texnobazar/manager"
-  publish = "dist"
+  publish = "apps/manager/dist"
 
 [[redirects]]
   from = "/*"

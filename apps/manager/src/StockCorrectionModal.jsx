@@ -76,10 +76,12 @@ export default function StockCorrectionModal({
   const [filterMode, setFilterMode] = useState('all'); // 'all' | 'modified' | 'store' | 'warehouse' | 'zero'
 
   // Responsive mobile detection & view mode ('cards' vs 'table')
-  const [isMobile, setIsMobile] = useState(() => {
-    if (typeof window !== 'undefined') return window.innerWidth <= 768;
-    return false;
-  });
+  const checkIsMobile = () => {
+    if (typeof window === 'undefined') return false;
+    return window.innerWidth <= 768 || (window.innerWidth <= 1024 && window.innerHeight <= 520);
+  };
+
+  const [isMobile, setIsMobile] = useState(checkIsMobile);
   const [viewMode, setViewMode] = useState(() => {
     if (typeof window !== 'undefined' && window.innerWidth <= 768) return 'cards';
     return 'table';
@@ -87,8 +89,7 @@ export default function StockCorrectionModal({
 
   useEffect(() => {
     const handleResize = () => {
-      const mobile = window.innerWidth <= 768;
-      setIsMobile(mobile);
+      setIsMobile(checkIsMobile());
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -796,7 +797,7 @@ export default function StockCorrectionModal({
     >
       <div
         style={{
-          width: isMobile ? '100vw' : '98vw',
+          width: isMobile ? '100%' : '98vw',
           maxWidth: isMobile ? '100%' : '1600px',
           height: isMobile ? '100dvh' : '96vh',
           maxHeight: isMobile ? '100dvh' : '96vh',
@@ -806,6 +807,7 @@ export default function StockCorrectionModal({
           display: 'flex',
           flexDirection: 'column',
           overflow: 'hidden',
+          boxSizing: 'border-box',
           border: isMobile ? 'none' : '1px solid #cbd5e1'
         }}
       >
@@ -997,6 +999,7 @@ export default function StockCorrectionModal({
 
         {/* Stats Strip - Smooth horizontal scroll on mobile, no multi-line wrapping */}
         <div
+          className="stock-modal-hide-scrollbar"
           style={{
             background: '#f8fafc',
             borderBottom: '1px solid #e2e8f0',
@@ -1007,8 +1010,10 @@ export default function StockCorrectionModal({
             overflowX: 'auto',
             WebkitOverflowScrolling: 'touch',
             whiteSpace: 'nowrap',
-            fontSize: 11.5,
-            flexShrink: 0
+            fontSize: isMobile ? 11 : 11.5,
+            flexShrink: 0,
+            boxSizing: 'border-box',
+            width: '100%'
           }}
         >
           <span style={{ color: '#475569', background: '#fff', padding: '3px 8px', borderRadius: 6, border: '1px solid #e2e8f0' }}>
@@ -1148,8 +1153,11 @@ export default function StockCorrectionModal({
             </div>
           </div>
 
-          {/* Row 2: Category Filter & Quick Filter Tabs (Scrollable on mobile) */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 2 }}>
+          {/* Row 2: Category Filter & Quick Filter Tabs (Scrollable on mobile without ugly bar) */}
+          <div
+            className="stock-modal-hide-scrollbar"
+            style={{ display: 'flex', gap: 8, alignItems: 'center', overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 2, boxSizing: 'border-box', width: '100%' }}
+          >
             <select
               value={selectedCategory}
               onChange={e => setSelectedCategory(e.target.value)}
@@ -1237,8 +1245,8 @@ export default function StockCorrectionModal({
         {searchQuery.trim() && hasFuzzyOnly && suggestedProducts.length > 0 && (
           <div
             style={{
-              margin: '8px 20px 0',
-              padding: '10px 16px',
+              margin: isMobile ? '6px 8px 0' : '8px 20px 0',
+              padding: isMobile ? '8px 10px' : '10px 16px',
               background: 'linear-gradient(to right, #fefce8, #fffbeb)',
               border: '1.5px solid #fde047',
               borderRadius: 10,
@@ -1318,9 +1326,12 @@ export default function StockCorrectionModal({
             flex: '1 1 0%',
             minHeight: 0,
             overflowY: 'auto',
+            overflowX: 'hidden',
             WebkitOverflowScrolling: 'touch',
             background: viewMode === 'cards' ? '#f8fafc' : '#fff',
-            padding: viewMode === 'cards' ? (isMobile ? '10px 10px 24px' : '16px 20px 24px') : 0
+            padding: viewMode === 'cards' ? (isMobile ? '8px 8px 24px' : '16px 20px 24px') : 0,
+            width: '100%',
+            boxSizing: 'border-box'
           }}
         >
           {loading ? (
@@ -1357,12 +1368,14 @@ export default function StockCorrectionModal({
               )}
             </div>
           ) : viewMode === 'cards' ? (
-            /* Cards View - Highly Touch-Friendly & Optimized for Mobile Screens */
+            /* Cards View - Highly Touch-Friendly & Guaranteed No-Overflow for Mobile */
             <div
               style={{
                 display: 'grid',
-                gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(420px, 1fr))',
-                gap: 12
+                gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(360px, 1fr))',
+                gap: isMobile ? 8 : 12,
+                width: '100%',
+                boxSizing: 'border-box'
               }}
             >
               {filteredProducts.map((p, idx) => {
@@ -1383,15 +1396,18 @@ export default function StockCorrectionModal({
                       background: modified ? '#fffdf5' : '#ffffff',
                       border: modified ? '1.5px solid #f59e0b' : '1px solid #e2e8f0',
                       borderRadius: 12,
-                      padding: '12px 14px',
+                      padding: isMobile ? '10px 10px' : '12px 14px',
                       boxShadow: modified ? '0 4px 12px rgba(245, 158, 11, 0.12)' : '0 1px 3px rgba(0,0,0,0.04)',
                       display: 'flex',
                       flexDirection: 'column',
-                      gap: 10
+                      gap: 8,
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      overflow: 'hidden'
                     }}
                   >
                     {/* Card Top: №, Category, Status & Modified Badge */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8' }}>#{idx + 1}</span>
                         <span
@@ -1403,7 +1419,7 @@ export default function StockCorrectionModal({
                             padding: '2px 8px',
                             borderRadius: 6,
                             whiteSpace: 'nowrap',
-                            maxWidth: 180,
+                            maxWidth: isMobile ? 130 : 180,
                             overflow: 'hidden',
                             textOverflow: 'ellipsis'
                           }}
@@ -1411,18 +1427,18 @@ export default function StockCorrectionModal({
                           {p.category_name}
                         </span>
                         {(p.sku || p.barcode) && (
-                          <span style={{ fontSize: 10.5, color: '#94a3b8', fontFamily: 'monospace' }}>
+                          <span style={{ fontSize: 10, color: '#94a3b8', fontFamily: 'monospace' }}>
                             {p.barcode || p.sku}
                           </span>
                         )}
                       </div>
 
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                         <span
                           style={{
-                            fontSize: 11,
+                            fontSize: 10.5,
                             fontWeight: 700,
-                            padding: '2px 8px',
+                            padding: '2px 6px',
                             borderRadius: 6,
                             background: totalQty > 0 ? '#dcfce7' : '#fee2e2',
                             color: totalQty > 0 ? '#15803d' : '#b91c1c'
@@ -1436,13 +1452,13 @@ export default function StockCorrectionModal({
                               background: '#fef3c7',
                               color: '#b45309',
                               border: '1px solid #fcd34d',
-                              fontSize: 10.5,
+                              fontSize: 10,
                               fontWeight: 800,
-                              padding: '2px 6px',
+                              padding: '2px 5px',
                               borderRadius: 5
                             }}
                           >
-                            O‘zgargan
+                            O‘zgardi
                           </span>
                         )}
                       </div>
@@ -1457,11 +1473,11 @@ export default function StockCorrectionModal({
                         placeholder="Mahsulot nomi"
                         style={{
                           width: '100%',
-                          padding: '6px 10px',
-                          borderRadius: 8,
+                          padding: '6px 8px',
+                          borderRadius: 7,
                           border: p.name !== p.orig_name ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
                           fontWeight: 700,
-                          fontSize: 13.5,
+                          fontSize: 13,
                           outline: 'none',
                           background: p.name !== p.orig_name ? '#fef3c7' : '#fff',
                           boxSizing: 'border-box'
@@ -1470,45 +1486,47 @@ export default function StockCorrectionModal({
                     </div>
 
                     {/* Quantities: Do'konda & Omborda Steppers */}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                       {/* Do'konda */}
                       <div
                         style={{
                           background: storeChanged ? '#f0f9ff' : '#f8fafc',
                           border: storeChanged ? '1.5px solid #0284c7' : '1px solid #e2e8f0',
-                          borderRadius: 9,
-                          padding: '7px 8px'
+                          borderRadius: 8,
+                          padding: '6px 6px',
+                          minWidth: 0
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: '#0369a1', display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Store size={12} /> Do‘konda
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: '#0369a1', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <Store size={11} /> Do‘konda
                           </span>
                           {storeChanged && (
-                            <span style={{ fontSize: 10, color: '#0284c7', fontWeight: 800 }}>
+                            <span style={{ fontSize: 9.5, color: '#0284c7', fontWeight: 800 }}>
                               {storeQty > p.orig_store_qty ? `+${storeQty - p.orig_store_qty}` : storeQty - p.orig_store_qty}
                             </span>
                           )}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                           <button
                             type="button"
                             onClick={() => stepQty(p.product_id, 'store_qty', -1)}
                             style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 6,
+                              width: 28,
+                              height: 28,
+                              borderRadius: 5,
                               border: '1px solid #cbd5e1',
                               background: '#fff',
-                              fontSize: 16,
+                              fontSize: 14,
                               fontWeight: 800,
                               cursor: 'pointer',
                               display: 'grid',
                               placeItems: 'center',
-                              color: '#334155'
+                              color: '#334155',
+                              flexShrink: 0
                             }}
                           >
-                            <Minus size={13} />
+                            <Minus size={11} />
                           </button>
                           <input
                             type="number"
@@ -1518,35 +1536,39 @@ export default function StockCorrectionModal({
                             style={{
                               flex: 1,
                               minWidth: 0,
-                              height: 32,
+                              width: '100%',
+                              height: 28,
                               textAlign: 'center',
-                              fontSize: 14,
+                              fontSize: 13,
                               fontWeight: 800,
-                              borderRadius: 6,
+                              borderRadius: 5,
                               border: '1px solid #cbd5e1',
                               background: storeChanged ? '#e0f2fe' : '#fff',
                               color: '#0f172a',
-                              outline: 'none'
+                              outline: 'none',
+                              padding: 0,
+                              boxSizing: 'border-box'
                             }}
                           />
                           <button
                             type="button"
                             onClick={() => stepQty(p.product_id, 'store_qty', 1)}
                             style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 6,
+                              width: 28,
+                              height: 28,
+                              borderRadius: 5,
                               border: '1px solid #cbd5e1',
                               background: '#fff',
-                              fontSize: 16,
+                              fontSize: 14,
                               fontWeight: 800,
                               cursor: 'pointer',
                               display: 'grid',
                               placeItems: 'center',
-                              color: '#334155'
+                              color: '#334155',
+                              flexShrink: 0
                             }}
                           >
-                            <Plus size={13} />
+                            <Plus size={11} />
                           </button>
                         </div>
                       </div>
@@ -1556,39 +1578,41 @@ export default function StockCorrectionModal({
                         style={{
                           background: warehouseChanged ? '#f0f9ff' : '#f8fafc',
                           border: warehouseChanged ? '1.5px solid #0284c7' : '1px solid #e2e8f0',
-                          borderRadius: 9,
-                          padding: '7px 8px'
+                          borderRadius: 8,
+                          padding: '6px 6px',
+                          minWidth: 0
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <Warehouse size={12} /> Omborda
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: '#334155', display: 'flex', alignItems: 'center', gap: 3 }}>
+                            <Warehouse size={11} /> Omborda
                           </span>
                           {warehouseChanged && (
-                            <span style={{ fontSize: 10, color: '#0284c7', fontWeight: 800 }}>
+                            <span style={{ fontSize: 9.5, color: '#0284c7', fontWeight: 800 }}>
                               {warehouseQty > p.orig_warehouse_qty ? `+${warehouseQty - p.orig_warehouse_qty}` : warehouseQty - p.orig_warehouse_qty}
                             </span>
                           )}
                         </div>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                           <button
                             type="button"
                             onClick={() => stepQty(p.product_id, 'warehouse_qty', -1)}
                             style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 6,
+                              width: 28,
+                              height: 28,
+                              borderRadius: 5,
                               border: '1px solid #cbd5e1',
                               background: '#fff',
-                              fontSize: 16,
+                              fontSize: 14,
                               fontWeight: 800,
                               cursor: 'pointer',
                               display: 'grid',
                               placeItems: 'center',
-                              color: '#334155'
+                              color: '#334155',
+                              flexShrink: 0
                             }}
                           >
-                            <Minus size={13} />
+                            <Minus size={11} />
                           </button>
                           <input
                             type="number"
@@ -1598,48 +1622,54 @@ export default function StockCorrectionModal({
                             style={{
                               flex: 1,
                               minWidth: 0,
-                              height: 32,
+                              width: '100%',
+                              height: 28,
                               textAlign: 'center',
-                              fontSize: 14,
+                              fontSize: 13,
                               fontWeight: 800,
-                              borderRadius: 6,
+                              borderRadius: 5,
                               border: '1px solid #cbd5e1',
                               background: warehouseChanged ? '#e0f2fe' : '#fff',
                               color: '#0f172a',
-                              outline: 'none'
+                              outline: 'none',
+                              padding: 0,
+                              boxSizing: 'border-box'
                             }}
                           />
                           <button
                             type="button"
                             onClick={() => stepQty(p.product_id, 'warehouse_qty', 1)}
                             style={{
-                              width: 32,
-                              height: 32,
-                              borderRadius: 6,
+                              width: 28,
+                              height: 28,
+                              borderRadius: 5,
                               border: '1px solid #cbd5e1',
                               background: '#fff',
-                              fontSize: 16,
+                              fontSize: 14,
                               fontWeight: 800,
                               cursor: 'pointer',
                               display: 'grid',
                               placeItems: 'center',
-                              color: '#334155'
+                              color: '#334155',
+                              flexShrink: 0
                             }}
                           >
-                            <Plus size={13} />
+                            <Plus size={11} />
                           </button>
                         </div>
                       </div>
                     </div>
 
-                    {/* Prices: Tannarx, Sotish narxi, Tafovut */}
-                    <div style={{ background: '#f8fafc', borderRadius: 9, padding: '8px 10px', border: '1px solid #e2e8f0' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                    {/* Prices: Tannarx, Sotish narxi, Tafovut (Guaranteed 3 equal columns with minWidth: 0) */}
+                    <div style={{ background: '#f8fafc', borderRadius: 8, padding: isMobile ? '6px 8px' : '8px 10px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box', overflow: 'hidden' }}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 4, width: '100%' }}>
                         {/* Tannarx */}
-                        <div>
-                          <span style={{ display: 'block', fontSize: 10, color: '#64748b', fontWeight: 700, marginBottom: 2 }}>Tannarx</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <span style={{ fontSize: 11, color: '#64748b' }}>$</span>
+                        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                          <span style={{ display: 'block', fontSize: 9.5, color: '#64748b', fontWeight: 700, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            Tannarx
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
+                            <span style={{ fontSize: 10, color: '#64748b', flexShrink: 0 }}>$</span>
                             <input
                               type="number"
                               step="0.01"
@@ -1647,27 +1677,31 @@ export default function StockCorrectionModal({
                               onChange={e => handleFieldChange(p.product_id, 'cost_price_usd', e.target.value)}
                               style={{
                                 width: '100%',
+                                minWidth: 0,
                                 height: 26,
-                                fontSize: 11.5,
+                                fontSize: 11,
                                 fontWeight: 700,
-                                padding: '0 4px',
+                                padding: '0 3px',
                                 borderRadius: 5,
                                 border: '1px solid #cbd5e1',
                                 background: '#fff',
-                                outline: 'none'
+                                outline: 'none',
+                                boxSizing: 'border-box'
                               }}
                             />
                           </div>
-                          <span style={{ display: 'block', fontSize: 9.5, color: '#94a3b8', marginTop: 2 }}>
+                          <span style={{ display: 'block', fontSize: 9, color: '#94a3b8', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {Number(p.cost_price || 0).toLocaleString()} so‘m
                           </span>
                         </div>
 
                         {/* Sotish narxi */}
-                        <div>
-                          <span style={{ display: 'block', fontSize: 10, color: '#0369a1', fontWeight: 700, marginBottom: 2 }}>Sotish narxi</span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <span style={{ fontSize: 11, color: '#0369a1' }}>$</span>
+                        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                          <span style={{ display: 'block', fontSize: 9.5, color: '#0369a1', fontWeight: 700, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            Sotish
+                          </span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
+                            <span style={{ fontSize: 10, color: '#0369a1', flexShrink: 0 }}>$</span>
                             <input
                               type="number"
                               step="0.01"
@@ -1675,29 +1709,31 @@ export default function StockCorrectionModal({
                               onChange={e => handleFieldChange(p.product_id, 'retail_price_usd', e.target.value)}
                               style={{
                                 width: '100%',
+                                minWidth: 0,
                                 height: 26,
-                                fontSize: 11.5,
+                                fontSize: 11,
                                 fontWeight: 700,
-                                padding: '0 4px',
+                                padding: '0 3px',
                                 borderRadius: 5,
                                 border: '1.5px solid #38bdf8',
                                 background: '#f0f9ff',
-                                outline: 'none'
+                                outline: 'none',
+                                boxSizing: 'border-box'
                               }}
                             />
                           </div>
-                          <span style={{ display: 'block', fontSize: 9.5, color: '#0369a1', fontWeight: 600, marginTop: 2 }}>
+                          <span style={{ display: 'block', fontSize: 9, color: '#0369a1', fontWeight: 600, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {Number(p.retail_price || 0).toLocaleString()} so‘m
                           </span>
                         </div>
 
                         {/* Tafovut */}
-                        <div>
-                          <span style={{ display: 'block', fontSize: 10, color: diffUsd >= 0 ? '#15803d' : '#dc2626', fontWeight: 700, marginBottom: 2 }}>
-                            Tafovut ({diffUsd >= 0 ? '+foyda' : 'zarar'})
+                        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                          <span style={{ display: 'block', fontSize: 9.5, color: diffUsd >= 0 ? '#15803d' : '#dc2626', fontWeight: 700, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            Tafovut
                           </span>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                            <span style={{ fontSize: 11, color: diffUsd >= 0 ? '#15803d' : '#dc2626' }}>$</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0 }}>
+                            <span style={{ fontSize: 10, color: diffUsd >= 0 ? '#15803d' : '#dc2626', flexShrink: 0 }}>$</span>
                             <input
                               type="number"
                               step="0.01"
@@ -1706,19 +1742,21 @@ export default function StockCorrectionModal({
                               title="Tafovutni o‘zgartirganda sotish narxi avtomatik hisoblanadi"
                               style={{
                                 width: '100%',
+                                minWidth: 0,
                                 height: 26,
-                                fontSize: 11.5,
+                                fontSize: 11,
                                 fontWeight: 800,
-                                padding: '0 4px',
+                                padding: '0 3px',
                                 borderRadius: 5,
                                 border: '1.5px solid #86efac',
                                 background: diffUsd >= 0 ? '#f0fdf4' : '#fee2e2',
                                 color: diffUsd >= 0 ? '#15803d' : '#dc2626',
-                                outline: 'none'
+                                outline: 'none',
+                                boxSizing: 'border-box'
                               }}
                             />
                           </div>
-                          <span style={{ display: 'block', fontSize: 9.5, color: diffUzs >= 0 ? '#15803d' : '#dc2626', fontWeight: 700, marginTop: 2 }}>
+                          <span style={{ display: 'block', fontSize: 9, color: diffUzs >= 0 ? '#15803d' : '#dc2626', fontWeight: 700, marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {diffUzs >= 0 ? '+' : ''}{diffUzs.toLocaleString()} so‘m
                           </span>
                         </div>
@@ -1727,20 +1765,20 @@ export default function StockCorrectionModal({
 
                     {/* Card Actions (if modified) */}
                     {modified && (
-                      <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
+                      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
                         <button
                           type="button"
                           onClick={() => saveSingleRow(p)}
                           disabled={saving || isRowSaving}
                           style={{
                             flex: 1,
-                            height: 34,
+                            height: 32,
                             background: '#16a34a',
                             color: '#fff',
                             border: 'none',
-                            borderRadius: 7,
+                            borderRadius: 6,
                             fontWeight: 700,
-                            fontSize: 12,
+                            fontSize: 11.5,
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -1748,7 +1786,7 @@ export default function StockCorrectionModal({
                             cursor: 'pointer'
                           }}
                         >
-                          {isRowSaving ? <RefreshCw size={13} className="spin" /> : <Save size={13} />}
+                          {isRowSaving ? <RefreshCw size={12} className="spin" /> : <Save size={12} />}
                           {isRowSaving ? 'Saqlanmoqda…' : 'O‘zgarishni saqlash'}
                         </button>
                         <button
@@ -1756,12 +1794,12 @@ export default function StockCorrectionModal({
                           onClick={() => revertRow(p.product_id)}
                           disabled={saving || isRowSaving}
                           style={{
-                            height: 34,
-                            padding: '0 12px',
+                            height: 32,
+                            padding: '0 10px',
                             background: '#f1f5f9',
                             border: '1px solid #cbd5e1',
                             color: '#475569',
-                            borderRadius: 7,
+                            borderRadius: 6,
                             display: 'inline-flex',
                             alignItems: 'center',
                             justifyContent: 'center',
@@ -1769,7 +1807,7 @@ export default function StockCorrectionModal({
                           }}
                           title="Bekor qilish"
                         >
-                          <RotateCcw size={13} />
+                          <RotateCcw size={12} />
                         </button>
                       </div>
                     )}
@@ -1778,45 +1816,40 @@ export default function StockCorrectionModal({
               })}
             </div>
           ) : (
-            /* Table View with smooth horizontal and vertical scrolling */
+            /* Table View - Highly Optimized for Landscape Mobile & Large Screens */
             <div style={{ width: '100%', overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
               {isMobile && (
-                <div style={{ padding: '6px 12px', background: '#eff6ff', color: '#1e40af', fontSize: 11, fontWeight: 600, borderBottom: '1px solid #bfdbfe' }}>
-                  ⇄ Jadvalni to‘liq ko‘rish uchun chapga va o‘ngga siljiting (scroll qiling)
+                <div style={{ padding: '6px 10px', background: '#eff6ff', color: '#1e40af', fontSize: 11, fontWeight: 600, borderBottom: '1px solid #bfdbfe' }}>
+                  📱 Telefonni albom (gorizontal) rejimga aylantirganingizda barcha tahririy ustunlar ekranga to‘liq sig‘adi.
                 </div>
               )}
               <table
                 style={{
-                  minWidth: 1250,
+                  minWidth: isMobile ? 660 : 860,
                   width: '100%',
                   borderCollapse: 'separate',
                   borderSpacing: 0,
-                  fontSize: 12.5,
+                  fontSize: 12,
                   textAlign: 'left'
                 }}
               >
                 <thead>
                   <tr style={{ background: '#0f172a', color: '#fff', position: 'sticky', top: 0, zIndex: 10 }}>
-                    <th style={thStyle({ width: 50, textAlign: 'center' })}>№</th>
-                    <th style={thStyle({ width: 170 })}>Kategoriya</th>
-                    <th style={thStyle({ minWidth: 260 })}>Mahsulot nomi</th>
-                    <th style={thStyle({ width: 110, textAlign: 'center', background: '#0284c7' })}>
-                      <Store size={13} style={{ display: 'inline', verticalAlign: '-1px', marginRight: 3 }} />
-                      Do‘konda (dona)
+                    <th style={thStyle({ width: 32, textAlign: 'center', padding: '8px 4px' })}>№</th>
+                    <th style={thStyle({ minWidth: 150, padding: '8px 8px' })}>Mahsulot</th>
+                    <th style={thStyle({ width: 80, textAlign: 'center', background: '#0284c7', padding: '8px 4px' })}>
+                      <Store size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: 2 }} />
+                      Do‘konda
                     </th>
-                    <th style={thStyle({ width: 110, textAlign: 'center', background: '#0284c7' })}>
-                      <Warehouse size={13} style={{ display: 'inline', verticalAlign: '-1px', marginRight: 3 }} />
-                      Omborda (dona)
+                    <th style={thStyle({ width: 80, textAlign: 'center', background: '#0284c7', padding: '8px 4px' })}>
+                      <Warehouse size={12} style={{ display: 'inline', verticalAlign: '-1px', marginRight: 2 }} />
+                      Omborda
                     </th>
-                    <th style={thStyle({ width: 100, textAlign: 'center' })}>Jami qoldiq</th>
-                    <th style={thStyle({ width: 100, textAlign: 'right' })}>Tannarx ($)</th>
-                    <th style={thStyle({ width: 120, textAlign: 'right' })}>Tannarx (so‘m)</th>
-                    <th style={thStyle({ width: 100, textAlign: 'right' })}>Sotish ($)</th>
-                    <th style={thStyle({ width: 120, textAlign: 'right' })}>Sotish (so‘m)</th>
-                    <th style={thStyle({ width: 100, textAlign: 'right', background: '#059669' })}>Tafovut ($)</th>
-                    <th style={thStyle({ width: 120, textAlign: 'right', background: '#059669' })}>Tafovut (so‘m)</th>
-                    <th style={thStyle({ width: 90, textAlign: 'center' })}>Holat</th>
-                    <th style={thStyle({ width: 90, textAlign: 'center' })}>Amal</th>
+                    <th style={thStyle({ width: 46, textAlign: 'center', padding: '8px 4px' })}>Jami</th>
+                    <th style={thStyle({ width: 78, textAlign: 'right', padding: '8px 6px' })}>Tannarx ($)</th>
+                    <th style={thStyle({ width: 78, textAlign: 'right', padding: '8px 6px' })}>Sotish ($)</th>
+                    <th style={thStyle({ width: 78, textAlign: 'right', background: '#059669', padding: '8px 6px' })}>Tafovut ($)</th>
+                    <th style={thStyle({ width: 48, textAlign: 'center', padding: '8px 4px' })}>Amal</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1842,136 +1875,231 @@ export default function StockCorrectionModal({
                         }}
                       >
                         {/* № */}
-                        <td style={tdStyle({ textAlign: 'center', color: '#64748b' })}>
+                        <td style={tdStyle({ textAlign: 'center', color: '#64748b', padding: '6px 4px', fontSize: 11 })}>
                           {idx + 1}
                         </td>
 
-                        {/* Kategoriya */}
-                        <td style={tdStyle({ fontWeight: 600, color: '#334155' })}>
-                          {p.category_name}
-                        </td>
-
-                        {/* Mahsulot nomi (Editable) */}
-                        <td style={tdStyle()}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <input
-                              type="text"
-                              value={p.name}
-                              onChange={e => handleFieldChange(p.product_id, 'name', e.target.value)}
+                        {/* Mahsulot nomi (Editable) + Category & SKU badges underneath */}
+                        <td style={tdStyle({ padding: '6px 8px', minWidth: 150 })}>
+                          <input
+                            type="text"
+                            value={p.name}
+                            onChange={e => handleFieldChange(p.product_id, 'name', e.target.value)}
+                            placeholder="Nomi"
+                            style={{
+                              width: '100%',
+                              padding: '4px 6px',
+                              borderRadius: 5,
+                              border: p.name !== p.orig_name ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
+                              fontWeight: 600,
+                              fontSize: 12,
+                              outline: 'none',
+                              background: p.name !== p.orig_name ? '#fef3c7' : '#fff',
+                              boxSizing: 'border-box'
+                            }}
+                          />
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 3, flexWrap: 'wrap' }}>
+                            <span
                               style={{
-                                width: '100%',
-                                padding: '4px 8px',
-                                borderRadius: 6,
-                                border: p.name !== p.orig_name ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
-                                fontWeight: 600,
-                                fontSize: 12.5,
-                                outline: 'none',
-                                background: p.name !== p.orig_name ? '#fef3c7' : '#fff'
+                                background: '#f1f5f9',
+                                color: '#475569',
+                                fontSize: 9.5,
+                                fontWeight: 700,
+                                padding: '1px 5px',
+                                borderRadius: 4,
+                                whiteSpace: 'nowrap',
+                                maxWidth: 120,
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis'
                               }}
-                            />
+                            >
+                              {p.category_name}
+                            </span>
+                            {(p.sku || p.barcode) && (
+                              <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'monospace' }}>
+                                {p.sku || p.barcode}
+                              </span>
+                            )}
                             {!p._searchExact && searchQuery.trim() && (
                               <span
                                 style={{
-                                  fontSize: 10,
+                                  fontSize: 9,
                                   background: '#fef3c7',
                                   color: '#92400e',
                                   border: '1px solid #fde68a',
-                                  padding: '2px 6px',
+                                  padding: '1px 4px',
                                   borderRadius: 4,
-                                  fontWeight: 700,
-                                  whiteSpace: 'nowrap',
-                                  flexShrink: 0
+                                  fontWeight: 700
                                 }}
-                                title="Belgilar (probel, chiziqcha) yoki orfografiya farqi hisobiga yaqin tovar sifatida topildi"
+                                title="Yaqin qidiruv mosligi"
                               >
-                                Yaqin moslik
+                                Yaqin
                               </span>
                             )}
                           </div>
-                          {(p.sku || p.barcode) && (
-                            <div style={{ display: 'flex', gap: 6, marginTop: 2, fontSize: 10, color: '#64748b' }}>
-                              {p.sku && <span>SKU: {p.sku}</span>}
-                              {p.barcode && <span>Kod: {p.barcode}</span>}
-                            </div>
-                          )}
                         </td>
 
-                        {/* Do'konda qoldiq (Editable) */}
-                        <td style={tdStyle({ textAlign: 'center' })}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                        {/* Do'konda qoldiq (Editable Stepper) */}
+                        <td style={tdStyle({ textAlign: 'center', padding: '6px 4px', width: 80 })}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                            <button
+                              type="button"
+                              onClick={() => stepQty(p.product_id, 'store_qty', -1)}
+                              style={{
+                                width: 22,
+                                height: 24,
+                                borderRadius: 4,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                fontSize: 13,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'grid',
+                                placeItems: 'center',
+                                color: '#334155',
+                                flexShrink: 0
+                              }}
+                            >
+                              <Minus size={11} />
+                            </button>
                             <input
                               type="number"
                               min="0"
                               value={p.store_qty}
                               onChange={e => handleFieldChange(p.product_id, 'store_qty', e.target.value)}
                               style={{
-                                width: 65,
-                                padding: '4px 6px',
-                                textAlign: 'right',
-                                borderRadius: 6,
-                                border: storeChanged ? '2px solid #0284c7' : '1px solid #86efac',
+                                width: 34,
+                                height: 24,
+                                textAlign: 'center',
+                                borderRadius: 4,
+                                border: storeChanged ? '1.5px solid #0284c7' : '1px solid #86efac',
                                 background: storeChanged ? '#e0f2fe' : '#f0fdf4',
-                                fontWeight: 700,
-                                fontSize: 12.5,
+                                fontWeight: 800,
+                                fontSize: 12,
                                 color: '#0f172a',
-                                outline: 'none'
+                                outline: 'none',
+                                padding: 0,
+                                boxSizing: 'border-box'
                               }}
                             />
-                            {storeChanged && (
-                              <span style={{ fontSize: 10, color: '#0284c7', fontWeight: 800 }}>
-                                {storeQty > p.orig_store_qty ? `+${storeQty - p.orig_store_qty}` : storeQty - p.orig_store_qty}
-                              </span>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => stepQty(p.product_id, 'store_qty', 1)}
+                              style={{
+                                width: 22,
+                                height: 24,
+                                borderRadius: 4,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                fontSize: 13,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'grid',
+                                placeItems: 'center',
+                                color: '#334155',
+                                flexShrink: 0
+                              }}
+                            >
+                              <Plus size={11} />
+                            </button>
                           </div>
+                          {storeChanged && (
+                            <div style={{ fontSize: 9.5, color: '#0284c7', fontWeight: 800, textAlign: 'center', marginTop: 1 }}>
+                              {storeQty > p.orig_store_qty ? `+${storeQty - p.orig_store_qty}` : storeQty - p.orig_store_qty}
+                            </div>
+                          )}
                         </td>
 
-                        {/* Omborda qoldiq (Editable) */}
-                        <td style={tdStyle({ textAlign: 'center' })}>
-                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                        {/* Omborda qoldiq (Editable Stepper) */}
+                        <td style={tdStyle({ textAlign: 'center', padding: '6px 4px', width: 80 })}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2 }}>
+                            <button
+                              type="button"
+                              onClick={() => stepQty(p.product_id, 'warehouse_qty', -1)}
+                              style={{
+                                width: 22,
+                                height: 24,
+                                borderRadius: 4,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                fontSize: 13,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'grid',
+                                placeItems: 'center',
+                                color: '#334155',
+                                flexShrink: 0
+                              }}
+                            >
+                              <Minus size={11} />
+                            </button>
                             <input
                               type="number"
                               min="0"
                               value={p.warehouse_qty}
                               onChange={e => handleFieldChange(p.product_id, 'warehouse_qty', e.target.value)}
                               style={{
-                                width: 65,
-                                padding: '4px 6px',
-                                textAlign: 'right',
-                                borderRadius: 6,
-                                border: warehouseChanged ? '2px solid #0284c7' : '1px solid #93c5fd',
+                                width: 34,
+                                height: 24,
+                                textAlign: 'center',
+                                borderRadius: 4,
+                                border: warehouseChanged ? '1.5px solid #0284c7' : '1px solid #93c5fd',
                                 background: warehouseChanged ? '#e0f2fe' : '#eff6ff',
-                                fontWeight: 700,
-                                fontSize: 12.5,
+                                fontWeight: 800,
+                                fontSize: 12,
                                 color: '#0f172a',
-                                outline: 'none'
+                                outline: 'none',
+                                padding: 0,
+                                boxSizing: 'border-box'
                               }}
                             />
-                            {warehouseChanged && (
-                              <span style={{ fontSize: 10, color: '#0284c7', fontWeight: 800 }}>
-                                {warehouseQty > p.orig_warehouse_qty ? `+${warehouseQty - p.orig_warehouse_qty}` : warehouseQty - p.orig_warehouse_qty}
-                              </span>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => stepQty(p.product_id, 'warehouse_qty', 1)}
+                              style={{
+                                width: 22,
+                                height: 24,
+                                borderRadius: 4,
+                                border: '1px solid #cbd5e1',
+                                background: '#fff',
+                                fontSize: 13,
+                                fontWeight: 800,
+                                cursor: 'pointer',
+                                display: 'grid',
+                                placeItems: 'center',
+                                color: '#334155',
+                                flexShrink: 0
+                              }}
+                            >
+                              <Plus size={11} />
+                            </button>
                           </div>
+                          {warehouseChanged && (
+                            <div style={{ fontSize: 9.5, color: '#0284c7', fontWeight: 800, textAlign: 'center', marginTop: 1 }}>
+                              {warehouseQty > p.orig_warehouse_qty ? `+${warehouseQty - p.orig_warehouse_qty}` : warehouseQty - p.orig_warehouse_qty}
+                            </div>
+                          )}
                         </td>
 
                         {/* Jami qoldiq */}
-                        <td style={tdStyle({ textAlign: 'center' })}>
+                        <td style={tdStyle({ textAlign: 'center', padding: '6px 4px', width: 46 })}>
                           <span
                             style={{
                               display: 'inline-block',
-                              padding: '3px 8px',
-                              borderRadius: 6,
+                              padding: '2px 5px',
+                              borderRadius: 5,
                               fontWeight: 700,
+                              fontSize: 11,
                               background: totalQty > 0 ? '#e2e8f0' : '#fee2e2',
                               color: totalQty > 0 ? '#0f172a' : '#b91c1c'
                             }}
                           >
-                            {totalQty} dona
+                            {totalQty}
                           </span>
                         </td>
 
-                        {/* Tannarxi USD (Editable) */}
-                        <td style={tdStyle({ textAlign: 'right' })}>
+                        {/* Tannarxi USD (Editable) with live UZS amount underneath */}
+                        <td style={tdStyle({ textAlign: 'right', padding: '6px 6px', width: 78 })}>
                           <input
                             type="number"
                             step="0.01"
@@ -1979,43 +2107,27 @@ export default function StockCorrectionModal({
                             value={p.cost_price_usd}
                             onChange={e => handleFieldChange(p.product_id, 'cost_price_usd', e.target.value)}
                             style={{
-                              width: 75,
-                              padding: '4px 6px',
+                              width: '100%',
+                              height: 24,
+                              padding: '2px 4px',
                               textAlign: 'right',
-                              borderRadius: 6,
+                              borderRadius: 5,
                               border: p.cost_price_usd !== p.orig_cost_price_usd ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
                               background: p.cost_price_usd !== p.orig_cost_price_usd ? '#fef3c7' : '#fff',
-                              fontWeight: 600,
-                              fontSize: 12,
-                              color: '#0369a1',
-                              outline: 'none'
+                              fontWeight: 700,
+                              fontSize: 11.5,
+                              color: '#0f172a',
+                              outline: 'none',
+                              boxSizing: 'border-box'
                             }}
                           />
+                          <div style={{ fontSize: 9.5, color: '#64748b', textAlign: 'right', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {Number(p.cost_price || 0).toLocaleString()} so‘m
+                          </div>
                         </td>
 
-                        {/* Tannarxi UZS (Editable) */}
-                        <td style={tdStyle({ textAlign: 'right' })}>
-                          <input
-                            type="number"
-                            min="0"
-                            value={p.cost_price}
-                            onChange={e => handleFieldChange(p.product_id, 'cost_price', e.target.value)}
-                            style={{
-                              width: 95,
-                              padding: '4px 6px',
-                              textAlign: 'right',
-                              borderRadius: 6,
-                              border: p.cost_price !== p.orig_cost_price ? '1.5px solid #f59e0b' : '1px solid #cbd5e1',
-                              background: p.cost_price !== p.orig_cost_price ? '#fef3c7' : '#fff',
-                              fontSize: 12,
-                              color: '#334155',
-                              outline: 'none'
-                            }}
-                          />
-                        </td>
-
-                        {/* Sotish narxi USD (Editable) */}
-                        <td style={tdStyle({ textAlign: 'right' })}>
+                        {/* Sotish narxi USD (Editable) with live UZS amount underneath */}
+                        <td style={tdStyle({ textAlign: 'right', padding: '6px 6px', width: 78 })}>
                           <input
                             type="number"
                             step="0.01"
@@ -2023,108 +2135,57 @@ export default function StockCorrectionModal({
                             value={p.retail_price_usd}
                             onChange={e => handleFieldChange(p.product_id, 'retail_price_usd', e.target.value)}
                             style={{
-                              width: 75,
-                              padding: '4px 6px',
+                              width: '100%',
+                              height: 24,
+                              padding: '2px 4px',
                               textAlign: 'right',
-                              borderRadius: 6,
-                              border: p.retail_price_usd !== p.orig_retail_price_usd ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
-                              background: p.retail_price_usd !== p.orig_retail_price_usd ? '#eff6ff' : '#fff',
+                              borderRadius: 5,
+                              border: p.retail_price_usd !== p.orig_retail_price_usd ? '1.5px solid #2563eb' : '1px solid #38bdf8',
+                              background: p.retail_price_usd !== p.orig_retail_price_usd ? '#eff6ff' : '#f0f9ff',
                               fontWeight: 700,
-                              fontSize: 12,
-                              color: '#0f172a',
-                              outline: 'none'
+                              fontSize: 11.5,
+                              color: '#0369a1',
+                              outline: 'none',
+                              boxSizing: 'border-box'
                             }}
                           />
+                          <div style={{ fontSize: 9.5, color: '#0284c7', fontWeight: 600, textAlign: 'right', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {Number(p.retail_price || 0).toLocaleString()} so‘m
+                          </div>
                         </td>
 
-                        {/* Sotish narxi UZS (Editable) */}
-                        <td style={tdStyle({ textAlign: 'right' })}>
-                          <input
-                            type="number"
-                            min="0"
-                            value={p.retail_price}
-                            onChange={e => handleFieldChange(p.product_id, 'retail_price', e.target.value)}
-                            style={{
-                              width: 95,
-                              padding: '4px 6px',
-                              textAlign: 'right',
-                              borderRadius: 6,
-                              border: p.retail_price !== p.orig_retail_price ? '1.5px solid #2563eb' : '1px solid #cbd5e1',
-                              background: p.retail_price !== p.orig_retail_price ? '#eff6ff' : '#fff',
-                              fontWeight: 700,
-                              fontSize: 12,
-                              color: '#0f172a',
-                              outline: 'none'
-                            }}
-                          />
-                        </td>
-
-                        {/* Tafovut USD (Editable) */}
-                        <td style={tdStyle({ textAlign: 'right' })}>
+                        {/* Tafovut USD (Editable) with live UZS amount underneath */}
+                        <td style={tdStyle({ textAlign: 'right', padding: '6px 6px', width: 78 })}>
                           <input
                             type="number"
                             step="0.01"
                             value={p.diff_usd}
                             onChange={e => handleFieldChange(p.product_id, 'diff_usd', e.target.value)}
-                            title="Tafovutni o‘zgartirganda sotish narxi avtomatik qayta hisoblanadi (Sotish = Tannarx + Tafovut)"
+                            title="Tafovutni o‘zgartirganda sotish narxi avtomatik hisoblanadi (Sotish = Tannarx + Tafovut)"
                             style={{
-                              width: 75,
-                              padding: '4px 6px',
+                              width: '100%',
+                              height: 24,
+                              padding: '2px 4px',
                               textAlign: 'right',
-                              borderRadius: 6,
+                              borderRadius: 5,
                               border: '1.5px solid #86efac',
                               background: diffUsd >= 0 ? '#f0fdf4' : '#fee2e2',
                               fontWeight: 800,
-                              fontSize: 12,
+                              fontSize: 11.5,
                               color: diffUsd >= 0 ? '#15803d' : '#dc2626',
-                              outline: 'none'
+                              outline: 'none',
+                              boxSizing: 'border-box'
                             }}
                           />
-                        </td>
-
-                        {/* Tafovut UZS (Editable) */}
-                        <td style={tdStyle({ textAlign: 'right' })}>
-                          <input
-                            type="number"
-                            value={p.diff_uzs}
-                            onChange={e => handleFieldChange(p.product_id, 'diff_uzs', e.target.value)}
-                            title="Tafovutni o‘zgartirganda sotish narxi avtomatik qayta hisoblanadi (Sotish = Tannarx + Tafovut)"
-                            style={{
-                              width: 95,
-                              padding: '4px 6px',
-                              textAlign: 'right',
-                              borderRadius: 6,
-                              border: '1.5px solid #86efac',
-                              background: diffUzs >= 0 ? '#f0fdf4' : '#fee2e2',
-                              fontWeight: 800,
-                              fontSize: 12,
-                              color: diffUzs >= 0 ? '#15803d' : '#dc2626',
-                              outline: 'none'
-                            }}
-                          />
-                        </td>
-
-                        {/* Holati */}
-                        <td style={tdStyle({ textAlign: 'center' })}>
-                          <span
-                            style={{
-                              display: 'inline-block',
-                              padding: '2px 8px',
-                              borderRadius: 6,
-                              fontSize: 11,
-                              fontWeight: 700,
-                              background: totalQty > 0 ? '#dcfce7' : '#fee2e2',
-                              color: totalQty > 0 ? '#15803d' : '#b91c1c'
-                            }}
-                          >
-                            {totalQty > 0 ? 'Mavjud' : 'Tugagan'}
-                          </span>
+                          <div style={{ fontSize: 9.5, color: diffUzs >= 0 ? '#15803d' : '#dc2626', fontWeight: 700, textAlign: 'right', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {diffUzs >= 0 ? '+' : ''}{diffUzs.toLocaleString()} so‘m
+                          </div>
                         </td>
 
                         {/* Amal: Row Save / Revert */}
-                        <td style={tdStyle({ textAlign: 'center' })}>
+                        <td style={tdStyle({ textAlign: 'center', padding: '6px 4px', width: 48 })}>
                           {modified ? (
-                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
                               <button
                                 type="button"
                                 onClick={() => saveSingleRow(p)}
@@ -2134,15 +2195,15 @@ export default function StockCorrectionModal({
                                   background: '#16a34a',
                                   border: 'none',
                                   color: '#fff',
-                                  width: 28,
-                                  height: 28,
-                                  borderRadius: 6,
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: 5,
                                   display: 'grid',
                                   placeItems: 'center',
                                   cursor: 'pointer'
                                 }}
                               >
-                                {isRowSaving ? <RefreshCw size={12} className="spin" /> : <Save size={13} />}
+                                {isRowSaving ? <RefreshCw size={11} className="spin" /> : <Save size={12} />}
                               </button>
                               <button
                                 type="button"
@@ -2153,19 +2214,19 @@ export default function StockCorrectionModal({
                                   background: '#f1f5f9',
                                   border: '1px solid #cbd5e1',
                                   color: '#475569',
-                                  width: 28,
-                                  height: 28,
-                                  borderRadius: 6,
+                                  width: 24,
+                                  height: 24,
+                                  borderRadius: 5,
                                   display: 'grid',
                                   placeItems: 'center',
                                   cursor: 'pointer'
                                 }}
                               >
-                                <RotateCcw size={12} />
+                                <RotateCcw size={11} />
                               </button>
                             </div>
                           ) : (
-                            <span style={{ color: '#cbd5e1' }}>—</span>
+                            <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>
                           )}
                         </td>
                       </tr>
