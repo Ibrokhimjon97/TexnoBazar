@@ -9,6 +9,7 @@ import {
   Package,
   Phone,
   Printer,
+  FileText,
   Search,
   Truck,
   User,
@@ -16,7 +17,9 @@ import {
   Tag,
   Check,
   X,
-  ArrowLeftRight
+  ArrowLeftRight,
+  Navigation,
+  Calendar
 } from 'lucide-react';
 import {
   DualPrice,
@@ -28,14 +31,25 @@ import {
 } from '@texnobazar/ui';
 import {
   listPosDeliveries,
+  markPosDeliveriesPrinted,
   managerAcceptDeliveryCash,
   managerUpdateDeliveryStatus,
   managerCancelDelivery,
   posDeliverySwapUnit
 } from '@texnobazar/data';
+import { CourierLiveTrackingModal } from './CourierLiveTrackingModal.jsx';
+import { DeliveryA4PrintModal } from './DeliveryA4PrintModal.jsx';
 
 const msg = e => String(e?.message || 'Amalni bajarib bo‘lmadi.');
 const formatDateTime = val => val ? new Date(val).toLocaleString('uz-UZ') : '—';
+
+const getTodayDate = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 
 const deliveryStatusLabels = {
   pending: 'Kutilmoqda',
@@ -51,11 +65,13 @@ const deliveryStatusColors = {
   cancelled: 'red'
 };
 
-export default function DeliveryWorkspace({ branchId, toast }) {
+export default function DeliveryWorkspace({ branchId, branchName = 'TEXNOBAZAR', toast }) {
   const rate = useExchangeRate();
   const [status, setStatus] = useState('all');
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
+  const [dateFilter, setDateFilter] = useState(getTodayDate());
+  const [selectedIds, setSelectedIds] = useState(new Set());
   const [result, setResult] = useState({ items: [], total: 0, summary: {} });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -63,9 +79,11 @@ export default function DeliveryWorkspace({ branchId, toast }) {
 
   // Modals
   const [stickersPayload, setStickersPayload] = useState(null);
+  const [a4PrintDeliveries, setA4PrintDeliveries] = useState(null);
   const [cancellingDelivery, setCancellingDelivery] = useState(null);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [trackingModalOpen, setTrackingModalOpen] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 300);
@@ -81,7 +99,8 @@ export default function DeliveryWorkspace({ branchId, toast }) {
         branchId,
         status: status === 'all' ? null : status,
         query: debounced,
-        pageSize: 60
+        date: dateFilter || null,
+        pageSize: 100
       });
       setResult(data || { items: [], total: 0, summary: {} });
     } catch (e) {
@@ -93,21 +112,31 @@ export default function DeliveryWorkspace({ branchId, toast }) {
 
   useEffect(() => {
     load();
-  }, [branchId, status, debounced]);
+  }, [branchId, status, debounced, dateFilter]);
 
-  // Auto-refresh every 20 seconds
+  // Smart Auto-refresh (faqat tab ko'rinib turganda har 25s va focusda darhol)
   useEffect(() => {
     if (!branchId) return;
-    const interval = setInterval(() => {
-      listPosDeliveries({
-        branchId,
-        status: status === 'all' ? null : status,
-        query: debounced,
-        pageSize: 60
-      }).then(data => setResult(data || { items: [], total: 0, summary: {} })).catch(() => {});
-    }, 20000);
-    return () => clearInterval(interval);
-  }, [branchId, status, debounced]);
+    const tick = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        listPosDeliveries({
+          branchId,
+          status: status === 'all' ? null : status,
+          query: debounced,
+          date: dateFilter || null,
+          pageSize: 100
+        }).then(data => setResult(data || { items: [], total: 0, summary: {} })).catch(() => {});
+      }
+    };
+    const interval = setInterval(tick, 25000);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, [branchId, status, debounced, dateFilter]);
 
   // Manager clicks "Pulni oldim" (accept courier COD cash)
   const handleAcceptCash = async (delivery) => {
@@ -202,28 +231,104 @@ export default function DeliveryWorkspace({ branchId, toast }) {
 
   // Open stickers reprint modal
   const openStickers = (delivery) => {
+    const codAmt = Number(delivery.cod_amount || 0);
+    const seller = delivery.seller_name || delivery.courier_display_name || '';
     setStickersPayload({
-      items: Array.isArray(delivery.items) ? delivery.items : [],
+      items: (Array.isArray(delivery.items) ? delivery.items : []).map(item => ({
+        ...item,
+        seller_name: seller,
+        sellerName: seller
+      })),
       customer: {
         full_name: delivery.customer_name,
         phone: delivery.customer_phone,
-        address: delivery.delivery_address
+        address: delivery.delivery_address,
+        cod_amount: codAmt,
+        seller_name: seller,
+        sellerName: seller
       },
       sale: {
         sale_no: delivery.delivery_no || delivery.sale_no,
         total: delivery.total_amount,
-        created_at: delivery.created_at
-      }
+        cod_amount: codAmt,
+        payment_type: delivery.payment_type,
+        payment_status: delivery.payment_status,
+        created_at: delivery.created_at,
+        seller_name: seller,
+        sellerName: seller
+      },
+      seller_name: seller,
+      sellerName: seller
     });
+  };
+
+  // Multi-select handlers
+  const toggleSelectAll = () => {
+    const allIds = (result.items || []).map(r => r.id);
+    if (selectedIds.size === allIds.length && allIds.length > 0) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(allIds));
+    }
+  };
+
+  const toggleSelect = (id) => {
+    const next = new Set(selectedIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setSelectedIds(next);
+  };
+
+  const handlePrintA4Selected = () => {
+    const list = (result.items || []).filter(r => selectedIds.has(r.id));
+    if (!list.length) {
+      toast?.('Chop etish uchun kamida bitta dostavka tanlang');
+      return;
+    }
+    setA4PrintDeliveries(list);
+  };
+
+  const handlePrintA4Single = (delivery) => {
+    setA4PrintDeliveries([delivery]);
+  };
+
+  const handlePrintedCallback = async (printedIds) => {
+    try {
+      await markPosDeliveriesPrinted(printedIds);
+      toast?.(`${printedIds.length} ta dostavka muvaffaqiyatli chop etildi deb belgilandi`);
+      await load();
+    } catch (e) {
+      console.error(e);
+    }
   };
 
   const s = result.summary || {};
 
   return (
     <section className="cash-real-workspace">
-      <div className="m-page-head">
-        <h2>Dostavka</h2>
-        <p>Yetkazib beriladigan tovarlar, kuryer pullari va yetkazish holatlari</p>
+      <div className="m-page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h2>Dostavka</h2>
+          <p>Yetkazib beriladigan tovarlar, kuryer pullari va yetkazish holatlari</p>
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary"
+          onClick={() => setTrackingModalOpen(true)}
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 8,
+            padding: '9px 18px',
+            fontSize: 13,
+            fontWeight: 700,
+            background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+            boxShadow: '0 4px 14px rgba(2, 132, 199, 0.3)'
+          }}
+        >
+          <Navigation size={16} />
+          Kuryerlarni kuzatish (Xarita)
+        </button>
       </div>
 
       {/* KPI Cards */}
@@ -265,35 +370,181 @@ export default function DeliveryWorkspace({ branchId, toast }) {
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="cash-real-toolbar">
-        <div className="cash-real-tabs">
-          {[
-            ['all', 'Barchasi'],
-            ['pending', 'Kutilmoqda'],
-            ['in_transit', 'Yo‘lda'],
-            ['delivered', 'Yetkazildi'],
-            ['cancelled', 'Bekor qilingan']
-          ].map(([key, label]) => (
+      <div className="cash-real-toolbar" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10, width: '100%' }}>
+          <div className="cash-real-tabs">
+            {[
+              ['all', 'Barchasi'],
+              ['pending', 'Kutilmoqda'],
+              ['in_transit', 'Yo‘lda'],
+              ['delivered', 'Yetkazildi'],
+              ['cancelled', 'Bekor qilingan']
+            ].map(([key, label]) => (
+              <button
+                type="button"
+                key={key}
+                className={status === key ? 'active' : ''}
+                onClick={() => setStatus(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* Date Picker Controls */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 6,
+              background: '#f8fafc',
+              padding: '5px 10px',
+              borderRadius: 8,
+              border: '1.5px solid var(--line, #e2e8f0)',
+              boxShadow: '0 1px 2px rgba(0,0,0,0.03)'
+            }}>
+              <Calendar size={15} style={{ color: '#0284c7' }} />
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={e => {
+                  setDateFilter(e.target.value);
+                  setSelectedIds(new Set());
+                }}
+                style={{
+                  border: 'none',
+                  background: 'transparent',
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: 'var(--navy, #0f172a)',
+                  cursor: 'pointer',
+                  outline: 'none'
+                }}
+                title="Sana bo‘yicha ko‘rish"
+              />
+            </div>
+
             <button
               type="button"
-              key={key}
-              className={status === key ? 'active' : ''}
-              onClick={() => setStatus(key)}
+              className={`btn btn-xs ${dateFilter === getTodayDate() ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => {
+                setDateFilter(getTodayDate());
+                setSelectedIds(new Set());
+              }}
+              style={{ fontSize: 12, padding: '6px 12px', fontWeight: 700 }}
+              title="Bugungi dostavkalar"
             >
-              {label}
+              Bugun
             </button>
-          ))}
+
+            <button
+              type="button"
+              className={`btn btn-xs ${!dateFilter ? 'btn-primary' : 'btn-outline'}`}
+              onClick={() => {
+                setDateFilter('');
+                setSelectedIds(new Set());
+              }}
+              style={{ fontSize: 12, padding: '6px 12px', fontWeight: 700 }}
+              title="Barcha kunlar bo‘yicha ko‘rish"
+            >
+              Barcha kunlar
+            </button>
+          </div>
         </div>
 
-        <label>
+        {/* Deep Search Input */}
+        <label style={{ width: '100%', margin: 0 }}>
           <Search />
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Mijoz ismi, telefoni, manzili yoki buyurtma..."
+            placeholder="Qidirish: Tovar raqami (QR/SKU), nomi, sotuvchi, mijoz ismi yoki telefon..."
           />
         </label>
       </div>
+
+      {/* Multi-Select & Batch Actions Toolbar */}
+      {result.items?.length > 0 && (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: 10,
+          padding: '10px 16px',
+          background: selectedIds.size > 0 ? '#f0f9ff' : '#ffffff',
+          border: selectedIds.size > 0 ? '1.5px solid #7dd3fc' : '1px solid var(--line, #e2e8f0)',
+          borderRadius: 10,
+          boxShadow: '0 1px 4px rgba(0,0,0,0.03)'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontWeight: 700, fontSize: 13, userSelect: 'none' }}>
+              <input
+                type="checkbox"
+                checked={result.items.length > 0 && selectedIds.size === result.items.length}
+                onChange={toggleSelectAll}
+                style={{ width: 18, height: 18, accentColor: '#0284c7', cursor: 'pointer' }}
+              />
+              <span>Barchasini tanlash ({result.items.length} ta)</span>
+            </label>
+
+            {selectedIds.size > 0 && (
+              <span style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: '#0369a1',
+                background: '#e0f2fe',
+                padding: '2px 8px',
+                borderRadius: 6
+              }}>
+                Tanlangan: {selectedIds.size} ta
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            {selectedIds.size > 0 ? (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-outline btn-sm"
+                  onClick={() => setSelectedIds(new Set())}
+                  style={{ fontSize: 12 }}
+                >
+                  Tanlovni bekor qilish
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary btn-sm"
+                  onClick={handlePrintA4Selected}
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                    boxShadow: '0 2px 8px rgba(2, 132, 199, 0.3)'
+                  }}
+                >
+                  <Printer size={15} />
+                  Tanlanganlarni A4 ga chop etish / PDF ({selectedIds.size} ta)
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setA4PrintDeliveries(result.items)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 600 }}
+              >
+                <Printer size={14} />
+                Barcha {result.items.length} ta dostavkani A4 da chop etish
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Delivery List */}
       {loading ? (
@@ -330,13 +581,46 @@ export default function DeliveryWorkspace({ branchId, toast }) {
               >
                 {/* Header row */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(row.id)}
+                      onChange={() => toggleSelect(row.id)}
+                      style={{
+                        width: 19,
+                        height: 19,
+                        accentColor: '#0284c7',
+                        cursor: 'pointer',
+                        borderRadius: 4
+                      }}
+                      title="Ushbu dostavkani tanlash"
+                    />
+
                     <span style={{ fontWeight: 800, fontSize: 16, color: 'var(--navy, #0f172a)' }}>
                       {row.delivery_no}
                     </span>
                     <Status type={deliveryStatusColors[row.delivery_status] || 'gray'}>
                       {deliveryStatusLabels[row.delivery_status] || row.delivery_status}
                     </Status>
+
+                    {/* Printed Badge */}
+                    {row.printed_at && (
+                      <span style={{
+                        background: '#f0fdf4',
+                        color: '#15803d',
+                        border: '1px solid #bbf7d0',
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        padding: '2px 8px',
+                        borderRadius: 6,
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4
+                      }} title={`Chop etilgan vaqt: ${formatDateTime(row.printed_at)}`}>
+                        🖨️ Chop etildi
+                      </span>
+                    )}
+
                     {isCodPending ? (
                       <span style={{
                         background: '#fff7ed',
@@ -422,6 +706,16 @@ export default function DeliveryWorkspace({ branchId, toast }) {
                       <Phone size={13} /> {row.customer_phone}
                     </a>
                   </div>
+
+                  {row.seller_name && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                      <small style={{ color: 'var(--muted, #64748b)', fontSize: 11, fontWeight: 600 }}>SOTUVCHI</small>
+                      <b style={{ color: 'var(--navy, #0f172a)', fontSize: 13.5, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <User size={14} style={{ color: '#0284c7' }} />
+                        {row.seller_name}
+                      </b>
+                    </div>
+                  )}
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
                     <small style={{ color: 'var(--muted, #64748b)', fontSize: 11, fontWeight: 600 }}>YETKAZIB BERISH MANZILI</small>
@@ -530,22 +824,43 @@ export default function DeliveryWorkspace({ branchId, toast }) {
                   paddingTop: 10,
                   borderTop: '1px solid var(--line, #e2e8f0)'
                 }}>
-                  {/* Left actions: Reprint stickers */}
-                  <button
-                    type="button"
-                    className="btn btn-outline btn-sm"
-                    onClick={() => openStickers(row)}
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: 6,
-                      fontSize: 12,
-                      fontWeight: 600
-                    }}
-                  >
-                    <Printer size={14} />
-                    Stikerlarni chop etish ({items.length} ta)
-                  </button>
+                  {/* Left actions: A4 Print and Thermal Stickers */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => handlePrintA4Single(row)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontSize: 12,
+                        fontWeight: 700,
+                        background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                        boxShadow: '0 2px 6px rgba(2, 132, 199, 0.25)'
+                      }}
+                      title="A4 formatda 1/4 qismiga moslab chop etish yoki PDF yuklab olish"
+                    >
+                      <FileText size={14} />
+                      A4 Chop etish / PDF
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn-outline btn-sm"
+                      onClick={() => openStickers(row)}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 6,
+                        fontSize: 12,
+                        fontWeight: 600
+                      }}
+                    >
+                      <Printer size={14} />
+                      Stikerlar ({items.length} ta)
+                    </button>
+                  </div>
 
                   {/* Right actions: Status transitions and Cash collection */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -681,6 +996,26 @@ export default function DeliveryWorkspace({ branchId, toast }) {
           </div>
         </div>
       </Modal>
+
+      {/* Courier Live Tracking Modal */}
+      {trackingModalOpen && (
+        <CourierLiveTrackingModal
+          open={trackingModalOpen}
+          onClose={() => setTrackingModalOpen(false)}
+          branchId={branchId}
+        />
+      )}
+
+      {/* A4 Delivery Vouchers Print / PDF Modal */}
+      {a4PrintDeliveries && (
+        <DeliveryA4PrintModal
+          open={Boolean(a4PrintDeliveries)}
+          onClose={() => setA4PrintDeliveries(null)}
+          deliveries={a4PrintDeliveries}
+          branchName={branchName}
+          onPrinted={handlePrintedCallback}
+        />
+      )}
     </section>
   );
 }

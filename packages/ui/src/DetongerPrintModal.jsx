@@ -16,7 +16,9 @@ import {
   X,
   FileText,
   Sliders,
-  Sparkles
+  Sparkles,
+  Square,
+  ShieldCheck
 } from 'lucide-react';
 import {
   detongerClient,
@@ -37,6 +39,7 @@ import {
   MHT_CANVAS_WIDTH_PX,
   MHT_CANVAS_HEIGHT_PX,
 } from './mhtBluetooth';
+import { backgroundKeepAlive } from './backgroundKeepAlive';
 
 export function DetongerPrintModal({
   open,
@@ -46,6 +49,9 @@ export function DetongerPrintModal({
   receiptDate = '',
   onClassicPrint,
   initialPrinter,
+  initialLabelSize,
+  modalTitle,
+  renderCustomCanvas,
 }) {
   const [envInfo, setEnvInfo] = useState(() => getBluetoothEnvironmentInfo());
 
@@ -91,12 +97,19 @@ export function DetongerPrintModal({
 
   // Detonger Paper Size: '40x20' (default 40x20 mm) | '40x30' (40x30 mm)
   const [labelSize, setLabelSize] = useState(() => {
+    if (initialLabelSize) return initialLabelSize;
     try {
       return localStorage.getItem('texnobazar_detonger_label_size') || '40x20';
     } catch {
       return '40x20';
     }
   });
+
+  useEffect(() => {
+    if (open && initialLabelSize) {
+      setLabelSize(initialLabelSize);
+    }
+  }, [open, initialLabelSize]);
 
   const handleSizeChange = (newSize) => {
     setLabelSize(newSize);
@@ -133,10 +146,37 @@ export function DetongerPrintModal({
 
   // Printing state
   const [printing, setPrinting] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const cancelRequestedRef = useRef(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, label: null });
 
   // Canvas preview ref
   const previewCanvasRef = useRef(null);
+
+  // Stop / Cancel active print job
+  const handleStopPrint = () => {
+    setCancelling(true);
+    cancelRequestedRef.current = true;
+    try {
+      detongerClient.cancelPrint();
+      mhtClient.cancelPrint();
+    } catch (e) {
+      console.warn("Cancel print error:", e);
+    }
+  };
+
+  // Cleanup keepalive on unmount or when modal is closed
+  useEffect(() => {
+    return () => {
+      backgroundKeepAlive.stop();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!open && printing) {
+      handleStopPrint();
+    }
+  }, [open, printing]);
 
   // Sync Detonger client events
   useEffect(() => {
@@ -160,10 +200,16 @@ export function DetongerPrintModal({
         setProgress({ current: event.current, total: event.total, label: event.item });
       } else if (event.type === 'print_complete' && selectedPrinter === 'detonger') {
         setPrinting(false);
+        setCancelling(false);
         setSuccessMsg(`${event.total} ta yorliq muvaffaqiyatli chop etildi!`);
+      } else if (event.type === 'print_cancelled' && selectedPrinter === 'detonger') {
+        setPrinting(false);
+        setCancelling(false);
+        setSuccessMsg(`Chop etish to‘xtatildi (${event.completed || progress.current || 0} ta chiqarildi).`);
       } else if (event.type === 'error' && selectedPrinter === 'detonger') {
         setError(event.error);
         setPrinting(false);
+        setCancelling(false);
       }
     });
 
@@ -187,10 +233,16 @@ export function DetongerPrintModal({
         setProgress({ current: event.current, total: event.total, label: event.item });
       } else if (event.type === 'print_complete' && selectedPrinter === 'mht') {
         setPrinting(false);
+        setCancelling(false);
         setSuccessMsg(`${event.total} ta yorliq muvaffaqiyatli chop etildi!`);
+      } else if (event.type === 'print_cancelled' && selectedPrinter === 'mht') {
+        setPrinting(false);
+        setCancelling(false);
+        setSuccessMsg(`Chop etish to‘xtatildi (${event.completed || progress.current || 0} ta chiqarildi).`);
       } else if (event.type === 'error' && selectedPrinter === 'mht') {
         setError(event.error);
         setPrinting(false);
+        setCancelling(false);
       }
     });
 
@@ -207,6 +259,33 @@ export function DetongerPrintModal({
     if (!item) return;
 
     let isMounted = true;
+
+    if (renderCustomCanvas) {
+      const sizeConfig = selectedPrinter === 'mht'
+        ? { widthPx: MHT_CANVAS_WIDTH_PX, heightPx: MHT_CANVAS_HEIGHT_PX }
+        : (LABEL_SIZES[labelSize] || LABEL_SIZES['40x30']);
+
+      Promise.resolve(renderCustomCanvas(item, {
+        printer: selectedPrinter,
+        labelSize,
+        width: sizeConfig.widthPx,
+        height: sizeConfig.heightPx,
+        index: currentIndex,
+        total: labels.length,
+      })).then((canvas) => {
+        if (!isMounted || !previewCanvasRef.current || !canvas) return;
+        const targetCanvas = previewCanvasRef.current;
+        targetCanvas.width = canvas.width;
+        targetCanvas.height = canvas.height;
+        const ctx = targetCanvas.getContext('2d');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(canvas, 0, 0);
+      }).catch((err) => {
+        console.error("Custom preview render error:", err);
+      });
+      return () => { isMounted = false; };
+    }
+
     const title = item.title || item.product_name || 'Mahsulot';
     const color = item.color || item.variant_color || '';
     const date = item.date || item.received_at || receiptDate || new Date().toLocaleDateString('uz-UZ');
@@ -269,7 +348,7 @@ export function DetongerPrintModal({
     }
 
     return () => { isMounted = false; };
-  }, [open, currentIndex, labels, receiptDate, selectedPrinter, labelSize]);
+  }, [open, currentIndex, labels, receiptDate, selectedPrinter, labelSize, renderCustomCanvas]);
 
   if (!open) return null;
 
@@ -343,29 +422,100 @@ export function DetongerPrintModal({
     }
 
     setPrinting(true);
+    setCancelling(false);
+    cancelRequestedRef.current = false;
     setProgress({ current: 0, total: targets.length, label: targets[0] });
 
+    // Enable background execution & screen wake lock
+    await backgroundKeepAlive.start();
+
+    let completedCount = 0;
+
     try {
-      if (selectedPrinter === 'mht') {
-        await mhtClient.printLabels(targets, {
+      if (renderCustomCanvas) {
+        const sizeConfig = selectedPrinter === 'mht'
+          ? { widthPx: MHT_CANVAS_WIDTH_PX, heightPx: MHT_CANVAS_HEIGHT_PX }
+          : (LABEL_SIZES[labelSize] || LABEL_SIZES['40x30']);
+
+        for (let i = 0; i < targets.length; i++) {
+          if (cancelRequestedRef.current) break;
+
+          const item = targets[i];
+          const canvas = await renderCustomCanvas(item, {
+            printer: selectedPrinter,
+            labelSize,
+            width: sizeConfig.widthPx,
+            height: sizeConfig.heightPx,
+            index: i,
+            total: targets.length,
+          });
+
+          if (cancelRequestedRef.current) break;
+
+          if (selectedPrinter === 'mht') {
+            await mhtClient.printCanvas(canvas, 1);
+          } else {
+            await detongerClient.printCanvas(canvas);
+          }
+
+          completedCount = i + 1;
+          setProgress({ current: completedCount, total: targets.length, label: item });
+
+          if (cancelRequestedRef.current) break;
+
+          if (i < targets.length - 1) {
+            const delayMs = 350;
+            const start = Date.now();
+            while (Date.now() - start < delayMs) {
+              if (cancelRequestedRef.current) break;
+              await new Promise(r => setTimeout(r, 35));
+            }
+          }
+        }
+
+        if (cancelRequestedRef.current) {
+          setSuccessMsg(`Chop etish to‘xtatildi: ${completedCount} ta yorliq chiqarildi.`);
+        } else {
+          setSuccessMsg(`${targets.length} ta yorliq muvaffaqiyatli chop etildi!`);
+        }
+      } else if (selectedPrinter === 'mht') {
+        const res = await mhtClient.printLabels(targets, {
           copies: 1,
           onProgress: (current, total, label) => {
+            completedCount = current;
             setProgress({ current, total, label });
           }
         });
+        if (res?.cancelled || cancelRequestedRef.current) {
+          setSuccessMsg(`Chop etish to‘xtatildi: ${completedCount} ta yorliq chiqarildi.`);
+        } else {
+          setSuccessMsg(`${targets.length} ta yorliq muvaffaqiyatli chop etildi!`);
+        }
       } else {
-        await detongerClient.printLabels(targets, {
+        const res = await detongerClient.printLabels(targets, {
           copies: 1,
           labelSize,
           onProgress: (current, total, label) => {
+            completedCount = current;
             setProgress({ current, total, label });
           }
         });
+        if (res?.cancelled || cancelRequestedRef.current) {
+          setSuccessMsg(`Chop etish to‘xtatildi: ${completedCount} ta yorliq chiqarildi.`);
+        } else {
+          setSuccessMsg(`${targets.length} ta yorliq muvaffaqiyatli chop etildi!`);
+        }
       }
     } catch (err) {
-      setError(err.message || 'Chop etish jarayonida xatolik yuz berdi.');
+      if (cancelRequestedRef.current) {
+        setSuccessMsg(`Chop etish to‘xtatildi: ${completedCount} ta yorliq chiqarildi.`);
+      } else {
+        setError(err.message || 'Chop etish jarayonida xatolik yuz berdi.');
+      }
     } finally {
+      backgroundKeepAlive.stop();
       setPrinting(false);
+      setCancelling(false);
     }
   };
 
@@ -409,12 +559,12 @@ export function DetongerPrintModal({
             </div>
             <div>
               <b style={{ fontSize: 15, display: 'block', lineHeight: 1.2 }}>
-                {selectedPrinter === 'mht' ? 'MHT-L80G Termoprinter' : 'Detonger Termoprinter'}
+                {modalTitle || (selectedPrinter === 'mht' ? 'MHT-L80G Termoprinter' : 'Detonger Termoprinter')}
               </b>
               <small style={{ color: '#94a3b8', fontSize: 11 }}>
                 {selectedPrinter === 'mht'
-                  ? 'Katta QR kod yorliqlari (58 × 40 mm · TSPL)'
-                  : `Kichik yorliqlar (${labelSize === '40x20' ? '40 × 20 mm' : '40 × 30 mm'})`}
+                  ? 'Katta yorliq / chek (58 × 40 mm · TSPL)'
+                  : `Termoprinter yorlig‘i (${labelSize === '40x20' ? '40 × 20 mm' : '40 × 30 mm'})`}
               </small>
             </div>
           </div>
@@ -980,70 +1130,117 @@ export function DetongerPrintModal({
           {printing && (
             <div style={{
               background: '#fff7ed',
-              border: '1px solid #fdba74',
-              borderRadius: 12,
-              padding: 12,
-              marginBottom: 14
+              border: '1.5px solid #fdba74',
+              borderRadius: 14,
+              padding: 14,
+              marginBottom: 14,
+              boxShadow: '0 4px 14px rgba(249, 115, 22, 0.1)'
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <span style={{ fontSize: 12, fontWeight: 700, color: selectedPrinter === 'mht' ? '#0369a1' : '#c2410c' }}>
-                  Chop etilmoqda ({selectedPrinter === 'mht' ? 'MHT-L80G' : 'Detonger'}): {progress.current} / {progress.total} dona
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <span style={{ fontSize: 13, fontWeight: 800, color: cancelling ? '#dc2626' : (selectedPrinter === 'mht' ? '#0369a1' : '#c2410c') }}>
+                  {cancelling
+                    ? 'Chop etish to‘xtatilmoqda…'
+                    : `Chop etilmoqda (${selectedPrinter === 'mht' ? 'MHT-L80G' : 'Detonger'}): ${progress.current} / ${progress.total} dona`}
                 </span>
-                <span style={{ fontSize: 11, fontWeight: 800, color: selectedPrinter === 'mht' ? '#0284c7' : '#ea580c' }}>
+                <span style={{ fontSize: 13, fontWeight: 900, color: cancelling ? '#dc2626' : (selectedPrinter === 'mht' ? '#0284c7' : '#ea580c') }}>
                   {Math.round((progress.current / Math.max(1, progress.total)) * 100)}%
                 </span>
               </div>
-              <div style={{ height: 6, background: '#e2e8f0', borderRadius: 99, overflow: 'hidden' }}>
+              <div style={{ height: 8, background: '#e2e8f0', borderRadius: 99, overflow: 'hidden' }}>
                 <div style={{
                   height: '100%',
-                  background: selectedPrinter === 'mht' ? '#0284c7' : '#f97316',
+                  background: cancelling ? '#ef4444' : (selectedPrinter === 'mht' ? '#0284c7' : '#f97316'),
                   width: `${(progress.current / Math.max(1, progress.total)) * 100}%`,
                   transition: 'width 0.2s ease'
                 }} />
               </div>
               {progress.label && (
-                <div style={{ fontSize: 11, color: '#334155', marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  Hozirgi: {progress.label.title || progress.label.product_name} ({progress.label.code || progress.label.qr_code})
+                <div style={{ fontSize: 11.5, color: '#334155', marginTop: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <b>Hozirgi:</b> {progress.label.title || progress.label.product_name} ({progress.label.code || progress.label.qr_code || '—'})
                 </div>
               )}
+
+              {/* Background KeepAlive / WakeLock status indicator */}
+              <div style={{
+                marginTop: 10,
+                padding: '8px 12px',
+                background: '#f0fdf4',
+                border: '1px solid #86efac',
+                borderRadius: 10,
+                fontSize: 11.5,
+                color: '#166534',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                lineHeight: 1.4
+              }}>
+                <ShieldCheck size={16} style={{ color: '#16a34a', flexShrink: 0 }} />
+                <span>
+                  <b>Ekran o‘chmasligi va fon rejimi (WakeLock) faol:</b> boshqa dasturga kirsangiz yoki ekran podsvetkasi o‘chsa ham chop etish to‘xtamaydi.
+                </span>
+              </div>
             </div>
           )}
 
           {/* Action Buttons */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <button
-              type="button"
-              className="btn btn-primary btn-block"
-              disabled={printing || !labels.length}
-              onClick={handlePrint}
-              style={{
-                padding: '12px',
-                fontSize: 14,
-                fontWeight: 700,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: 8,
-                background: isConnected
-                  ? (selectedPrinter === 'mht'
-                      ? 'linear-gradient(135deg, #0284c7, #0369a1)'
-                      : 'linear-gradient(135deg, #f97316, #ea580c)')
-                  : undefined
-              }}
-            >
-              <Printer size={18} />
-              {printing
-                ? 'Chop etilmoqda…'
-                : isConnected
-                ? `${selectedPrinter === 'mht' ? 'MHT-L80G (58x40)' : 'Detonger'} orqali chop etish (${totalPrintCount} dona)`
-                : `Bluetooth orqali ulash va chop etish (${totalPrintCount} dona)`}
-            </button>
+            {printing ? (
+              <button
+                type="button"
+                className="btn btn-danger btn-block"
+                onClick={handleStopPrint}
+                disabled={cancelling}
+                style={{
+                  padding: '13px 18px',
+                  fontSize: 14,
+                  fontWeight: 800,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  background: 'linear-gradient(135deg, #ef4444, #dc2626)',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: 12,
+                  boxShadow: '0 4px 14px rgba(239, 68, 68, 0.4)',
+                  cursor: cancelling ? 'not-allowed' : 'pointer'
+                }}
+              >
+                <Square size={16} fill="#ffffff" />
+                {cancelling ? 'To‘xtatilmoqda…' : `Chop etishni to‘xtatish (${progress.current}/${progress.total})`}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="btn btn-primary btn-block"
+                disabled={!labels.length}
+                onClick={handlePrint}
+                style={{
+                  padding: '12px',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 8,
+                  background: isConnected
+                    ? (selectedPrinter === 'mht'
+                        ? 'linear-gradient(135deg, #0284c7, #0369a1)'
+                        : 'linear-gradient(135deg, #f97316, #ea580c)')
+                    : undefined
+                }}
+              >
+                <Printer size={18} />
+                {isConnected
+                  ? `${selectedPrinter === 'mht' ? 'MHT-L80G (58x40)' : 'Detonger'} orqali chop etish (${totalPrintCount} dona)`
+                  : `Bluetooth orqali ulash va chop etish (${totalPrintCount} dona)`}
+              </button>
+            )}
 
-            {onClassicPrint && (
+            {onClassicPrint && !printing && (
               <button
                 type="button"
                 className="btn btn-outline btn-block"
-                disabled={printing}
                 onClick={onClassicPrint}
                 style={{ fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
               >

@@ -1,10 +1,11 @@
-import React, { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Clock, Clock3, FileText, Layers, Printer, ReceiptText, RotateCcw, Search, Trash2, WalletCards, X, Truck, Tag, DollarSign, Check, CreditCard, Banknote, Edit3 } from 'lucide-react';
-import { DualPrice, Empty, Modal, Status, useExchangeRate, ThermalReceiptPreview, printThermalReceipt, ProductDeliveryStickersModal } from '@texnobazar/ui';
+import React, { useEffect, useRef, useState } from 'react';
+import { AlertTriangle, Calendar, ChevronLeft, ChevronRight, Clock, Clock3, FileText, Layers, Printer, ReceiptText, RotateCcw, Search, Trash2, WalletCards, X, Truck, Tag, DollarSign, Check, CreditCard, Banknote, Edit3, Bluetooth, QrCode, Volume2, VolumeX, MinusCircle, TrendingUp, Eye, EyeOff } from 'lucide-react';
+import { DualPrice, Empty, Modal, Status, useExchangeRate, ThermalReceiptPreview, printThermalReceipt, ProductDeliveryStickersModal, DetongerPrintModal, renderThermalReceiptCanvas } from '@texnobazar/ui';
 import {
   confirmPosSale,
   createPosDelivery,
   deletePosPendingSale,
+  deletePosPendingSaleLine,
   getPosPendingSale,
   getSaleReceipt,
   getPendingSaleReceipt,
@@ -17,8 +18,50 @@ import {
   listSaleReturns,
   cancelSaleReturn,
   updateConfirmedSalePayments,
+  subscribePosPendingSales,
   getBrowserClient
 } from '@texnobazar/data';
+import { playCashierAlert, isAudioEnabled, setAudioEnabled } from './audioAlert.js';
+import { CashExpenseModal } from './CashExpenseModal.jsx';
+import { CashProfitDetailsModal } from './CashProfitDetailsModal.jsx';
+
+function getTashkentDateString(d = new Date()) {
+  const pad = n => String(n).padStart(2, '0');
+  const y = d.getFullYear();
+  const m = pad(d.getMonth() + 1);
+  const day = pad(d.getDate());
+  return `${y}-${m}-${day}`;
+}
+
+function computePresetDates(preset) {
+  const now = new Date();
+  const todayStr = getTashkentDateString(now);
+
+  if (preset === 'today') {
+    return { startDate: todayStr, endDate: todayStr };
+  }
+  if (preset === 'yesterday') {
+    const yest = new Date(now);
+    yest.setDate(yest.getDate() - 1);
+    const yestStr = getTashkentDateString(yest);
+    return { startDate: yestStr, endDate: yestStr };
+  }
+  if (preset === 'week') {
+    const d = new Date(now);
+    const day = d.getDay();
+    const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(d.setDate(diff));
+    return { startDate: getTashkentDateString(monday), endDate: todayStr };
+  }
+  if (preset === 'month') {
+    const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { startDate: getTashkentDateString(firstDay), endDate: todayStr };
+  }
+  if (preset === 'all') {
+    return { startDate: null, endDate: null };
+  }
+  return { startDate: todayStr, endDate: todayStr };
+}
 
 const rejectCourierDelivery = async (handoverId, reason = null) => {
   const { data, error } = await getBrowserClient().rpc('reject_courier_delivery', {
@@ -80,20 +123,78 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
   const PAGE_SIZE = 30;
   const [page, setPage] = useState(1);
   const [deletingSale, setDeletingSale] = useState(null);
+  const [deletingLine, setDeletingLine] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(false);
   const [editingPaymentSale, setEditingPaymentSale] = useState(null);
+  const [soundOn, setSoundOn] = useState(() => isAudioEnabled());
+  const knownPendingIds = useRef(new Set());
+  const isInitialLoad = useRef(true);
+  const [expenseModalOpen, setExpenseModalOpen] = useState(false);
+  const [profitDetailsOpen, setProfitDetailsOpen] = useState(false);
+
+  // Calendar & Date Range Filter States
+  const [datePreset, setDatePreset] = useState('today');
+  const [dateRange, setDateRange] = useState(() => computePresetDates('today'));
+  const [customStart, setCustomStart] = useState(() => getTashkentDateString());
+  const [customEnd, setCustomEnd] = useState(() => getTashkentDateString());
+  const [showCustomRange, setShowCustomRange] = useState(false);
+  const [paymentFilter, setPaymentFilter] = useState('all'); // 'all' | 'cod' | 'cash' | 'card'
+  const [sortBy, setSortBy] = useState('created_desc'); // 'created_desc' | 'cash_desc' | 'cash_asc' | 'total_desc' | 'total_asc'
+
+  const handlePresetSelect = preset => {
+    setDatePreset(preset);
+    if (preset === 'custom') {
+      setShowCustomRange(true);
+      setDateRange({ startDate: customStart, endDate: customEnd });
+    } else {
+      setShowCustomRange(false);
+      setDateRange(computePresetDates(preset));
+    }
+    setPage(1);
+  };
+
+  const handleCustomApply = () => {
+    setDatePreset('custom');
+    setDateRange({ startDate: customStart, endDate: customEnd });
+    setPage(1);
+  };
+
+  const getPeriodTitle = () => {
+    if (datePreset === 'today') return 'Bugun';
+    if (datePreset === 'yesterday') return 'Kecha';
+    if (datePreset === 'week') return 'Bu hafta';
+    if (datePreset === 'month') return 'Bu oy';
+    if (datePreset === 'all') return 'Barcha davr';
+    if (dateRange.startDate && dateRange.endDate) {
+      if (dateRange.startDate === dateRange.endDate) return dateRange.startDate;
+      return `${dateRange.startDate} — ${dateRange.endDate}`;
+    }
+    return 'Tanlangan davr';
+  };
+
+  const toggleSound = () => {
+    const next = !soundOn;
+    setSoundOn(next);
+    setAudioEnabled(next);
+    if (next) {
+      playCashierAlert();
+      toast?.('Kassa signali yoqildi (sinov ovozi chalindi)');
+    } else {
+      toast?.('Kassa signali o‘chirildi');
+    }
+  };
 
   useEffect(() => {
     const id = setTimeout(() => setDebounced(query.trim()), 300);
     return () => clearTimeout(id);
   }, [query]);
 
-  const load = async (p = page) => {
+  const load = async (p = page, silent = false) => {
     if (!branchId) {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError('');
     try {
       const data = await listPosPendingSales({
@@ -101,21 +202,77 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
         status: status === 'all' ? null : status,
         query: debounced,
         page: p,
-        pageSize: PAGE_SIZE
+        pageSize: PAGE_SIZE,
+        startDate: dateRange.startDate,
+        endDate: dateRange.endDate,
+        paymentFilter: status === 'confirmed' && paymentFilter !== 'all' ? paymentFilter : null,
+        sortBy: status === 'confirmed' ? sortBy : null
       });
+      const items = data?.items || [];
       setResult(data || { items: [], summary: {} });
       onSummary?.(data?.summary);
+
+      // Yangi tushgan 'pending' so'rovlarni aniqlash va signal chalish:
+      const currentPending = items.filter(it => it.status === 'pending');
+      if (!isInitialLoad.current) {
+        const hasNewPending = currentPending.some(it => !knownPendingIds.current.has(it.id));
+        if (hasNewPending) {
+          playCashierAlert();
+          toast?.('Kassaga yangi savdo so‘rovi keldi!');
+        }
+      }
+      knownPendingIds.current = new Set(currentPending.map(it => it.id));
+      isInitialLoad.current = false;
     } catch (e) {
-      setError(msg(e));
+      if (!silent) setError(msg(e));
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
   useEffect(() => {
     setPage(1);
     load(1);
-  }, [branchId, status, debounced]);
+  }, [branchId, status, debounced, dateRange, paymentFilter, sortBy]);
+
+  // 1. Supabase Realtime orqali pos_pending_sales o'zgarishlarini tinglash
+  useEffect(() => {
+    if (!branchId) return;
+    const unsubscribe = subscribePosPendingSales(
+      () => {
+        load(page, true);
+      },
+      err => console.warn('Realtime pos_pending_sales ogohlantirish:', err),
+      branchId
+    );
+    return () => unsubscribe?.();
+  }, [branchId, page, status, debounced, dateRange, paymentFilter, sortBy]);
+
+  // 2. Kassa sahifasida turganda xavfsiz avtomatik silent polling (har 20 soniyada faqat tab ko'rinib turganda)
+  useEffect(() => {
+    if (!branchId) return;
+    const timer = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        load(page, true);
+      }
+    }, 20000);
+    return () => clearInterval(timer);
+  }, [branchId, page, status, debounced, dateRange, paymentFilter, sortBy]);
+
+  // 3. Brauzer tabiga qaytib kirilganda yoki tab ochilganda darhol tekshirish
+  useEffect(() => {
+    const onFocus = () => {
+      if (branchId && (typeof document === 'undefined' || document.visibilityState === 'visible')) {
+        load(page, true);
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [branchId, page, status, debounced, dateRange, paymentFilter, sortBy]);
 
   const handleDelete = async (restoreStock = true) => {
     if (!deletingSale) return;
@@ -125,6 +282,34 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
       toast?.(res?.message || (restoreStock ? 'Kassa kirimi o‘chirildi va tovar omborga qaytarildi.' : 'Kassa kirimi butunlay o‘chirildi.'));
       setDeletingSale(null);
       if (detail?.id === deletingSale.id) setDetail(null);
+      await load(page);
+    } catch (e) {
+      toast?.(msg(e));
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
+  const handleDeleteLine = async (restoreStock = true) => {
+    if (!deletingLine?.sale?.id || !deletingLine?.line?.id) return;
+    setDeleteBusy(true);
+    try {
+      const res = await deletePosPendingSaleLine(deletingLine.sale.id, deletingLine.line.id, restoreStock);
+      toast?.(res?.message || (restoreStock ? 'Tovar chekdan o‘chirildi va omborga qaytarildi.' : 'Tovar chekdan o‘chirildi.'));
+      const saleId = deletingLine.sale.id;
+      setDeletingLine(null);
+      if (res?.deleted_entire_sale) {
+        if (detail?.id === saleId) setDetail(null);
+      } else {
+        if (detail?.id === saleId) {
+          try {
+            const updated = await getPosPendingSale(saleId);
+            setDetail(updated);
+          } catch (err) {
+            setDetail(null);
+          }
+        }
+      }
       await load(page);
     } catch (e) {
       toast?.(msg(e));
@@ -179,16 +364,19 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
     setDetail(null);
 
     if (deliveryInfo && deliveryInfo.needed) {
+      const codAmt = deliveryInfo.isCod ? Number(deliveryInfo.codAmount || deliveryInfo.totalAmount || 0) : Number(check.cod_amount || 0);
       setStickersPayload({
         items: deliveryInfo.items && deliveryInfo.items.length ? deliveryInfo.items : (check.lines || []),
         customer: {
           full_name: deliveryInfo.customerName,
           phone: deliveryInfo.customerPhone,
-          address: deliveryInfo.deliveryAddress
+          address: deliveryInfo.deliveryAddress,
+          cod_amount: codAmt
         },
         sale: {
           sale_no: check.sale_no,
           total: check.total,
+          cod_amount: codAmt,
           sold_at: check.sold_at
         }
       });
@@ -227,17 +415,160 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
   };
 
   const s = result.summary || {};
+  const cashGross = Number(s.confirmed_today_cash || 0);
+  const cardGross = Number(s.confirmed_today_card || 0);
+  const totalExpenseAmt = Number(s.confirmed_today_expense || 0);
+  const expenseCount = Number(s.confirmed_today_expense_count || 0);
+  const cashExpenseAmt = Number(s.confirmed_today_expense_cash ?? totalExpenseAmt);
+  const cardExpenseAmt = Number(s.confirmed_today_expense_card || 0);
+  const cashNet = cashGross - cashExpenseAmt;
+  const cardNet = cardGross - cardExpenseAmt;
+  const totalCost = Number(s.confirmed_today_cost || 0);
+  const confirmedAmount = Number(s.confirmed_today_amount || 0);
+  // Sof foyda: Foydalanuvchi talabiga ko'ra savdo foydasi (Savdo tushumi - Tannarx), chiqimlar (harajatlar) ayirilmagan holda
+  const todayProfit = Number(s.confirmed_today_profit ?? s.confirmed_today_gross_profit ?? (confirmedAmount - totalCost));
+  const profitMargin = confirmedAmount > 0 ? Math.round((todayProfit / confirmedAmount) * 100) : 0;
 
   return (
     <section className="cash-real-workspace">
-      <div className="m-page-head">
-        <h2>Kassa kirimlari</h2>
-        <p>Sotuvchi rezervlarini tasdiqlash va yakunlash</p>
+      <div className="m-page-head" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
+        <div>
+          <h2>Kassa kirimlari</h2>
+          <p>Sotuvchi rezervlarini tasdiqlash va yakunlash</p>
+        </div>
+        <div style={{ display: 'inline-flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${soundOn ? 'btn-success' : 'btn-outline'}`}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 13,
+              borderRadius: 20,
+              padding: '6px 14px',
+              fontWeight: 600,
+              cursor: 'pointer'
+            }}
+            onClick={toggleSound}
+            title="Yangi savdo so‘rovi tushganda brauzer signali"
+          >
+            {soundOn ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            {soundOn ? 'Signal: Yoqilgan (Sinash)' : 'Signal: O‘chiq'}
+          </button>
+          <span style={{ fontSize: 12.5, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+            <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', display: 'inline-block', boxShadow: '0 0 6px rgba(16,185,129,0.7)' }} />
+            Realtime yangilanish faol (Refresh shart emas)
+          </span>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}
+            onClick={() => load(page, false)}
+            disabled={loading}
+          >
+            <RotateCcw size={14} className={loading ? 'spin' : ''} /> Yangilash
+          </button>
+        </div>
       </div>
+
+      {/* Calendar & Period Filter Bar */}
+      <div className="cash-date-filter-bar card" style={{ padding: '10px 14px', marginBottom: 14, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, background: '#fff', borderRadius: 12, border: '1px solid var(--line)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--navy)', display: 'inline-flex', alignItems: 'center', gap: 6, marginRight: 4 }}>
+            <Calendar size={16} color="var(--primary)" /> Davr:
+          </span>
+          {[
+            ['today', 'Bugun'],
+            ['yesterday', 'Kecha'],
+            ['week', 'Bu hafta'],
+            ['month', 'Bu oy'],
+            ['all', 'Barcha davr'],
+            ['custom', 'Kalendar / Oraliq']
+          ].map(([presetKey, label]) => (
+            <button
+              type="button"
+              key={presetKey}
+              className={`btn btn-sm ${datePreset === presetKey ? 'btn-primary' : 'btn-outline'}`}
+              style={{
+                borderRadius: 20,
+                fontSize: 12.5,
+                padding: '4px 12px',
+                fontWeight: datePreset === presetKey ? 700 : 500,
+                cursor: 'pointer'
+              }}
+              onClick={() => handlePresetSelect(presetKey)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {showCustomRange && (
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#f8fafc', padding: '4px 10px', borderRadius: 10, border: '1px solid var(--line)' }}>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--muted)' }}>
+              Dan:
+              <input
+                type="date"
+                className="input input-sm"
+                value={customStart}
+                onChange={e => setCustomStart(e.target.value)}
+                style={{ fontSize: 12.5, padding: '3px 8px', borderRadius: 6 }}
+              />
+            </label>
+            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--muted)' }}>
+              Gacha:
+              <input
+                type="date"
+                className="input input-sm"
+                value={customEnd}
+                min={customStart}
+                onChange={e => setCustomEnd(e.target.value)}
+                style={{ fontSize: 12.5, padding: '3px 8px', borderRadius: 6 }}
+              />
+            </label>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6 }}
+              onClick={handleCustomApply}
+            >
+              Filtrlash
+            </button>
+          </div>
+        )}
+
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => setExpenseModalOpen(true)}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12.5,
+              fontWeight: 700,
+              background: 'linear-gradient(135deg, #e11d48, #be123c)',
+              color: '#ffffff',
+              borderRadius: 8,
+              padding: '6px 14px',
+              border: 'none',
+              boxShadow: '0 2px 8px rgba(225, 29, 72, 0.25)',
+              cursor: 'pointer'
+            }}
+            title="Kassadagi naqd puldan xarajat chiqarish"
+          >
+            <MinusCircle size={15} />
+            Harajat qo‘shish
+          </button>
+        </div>
+      </div>
+
       <div className="cash-real-summary">
         <article className="is-pending">
           <div className="cash-real-summary-icon">
-            <WalletCards size={22} />
+            <WalletCards size={19} />
           </div>
           <span>
             <small>Kutilmoqda</small>
@@ -248,33 +579,138 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
 
         <article className="is-confirmed">
           <div className="cash-real-summary-icon">
-            <ReceiptText size={22} />
+            <ReceiptText size={19} />
           </div>
           <span>
-            <small>Jami tasdiqlandi (Bugun)</small>
+            <small>Jami tasdiqlandi ({getPeriodTitle()})</small>
             <b>{s.confirmed_today_count || 0} ta savdo</b>
             <strong><DualPrice value={Number(s.confirmed_today_amount || 0)} rate={rate} /></strong>
           </span>
         </article>
 
+        <article
+          className="is-profit"
+          role="button"
+          tabIndex={0}
+          onClick={() => setProfitDetailsOpen(true)}
+          style={{
+            background: todayProfit >= 0 ? '#f0fdf4' : '#fef2f2',
+            borderColor: todayProfit >= 0 ? '#bbf7d0' : '#fecaca',
+            cursor: 'pointer',
+            transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+            position: 'relative'
+          }}
+          title="Batafsil tovarlar ro‘yxati va sof foyda jadvalini ko‘rish uchun bosing"
+        >
+          <div className="cash-real-summary-icon" style={{ background: todayProfit >= 0 ? '#dcfce7' : '#fee2e2', color: todayProfit >= 0 ? '#15803d' : '#b91c1c' }}>
+            <TrendingUp size={19} />
+          </div>
+          <span>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4 }}>
+              <small style={{ color: todayProfit >= 0 ? '#166534' : '#991b1b', fontWeight: 700 }}>
+                {datePreset === 'today' ? 'Bugungi sof foyda' : `Sof foyda (${getPeriodTitle()})`}
+              </small>
+              <span style={{ fontSize: 9.5, fontWeight: 700, color: todayProfit >= 0 ? '#15803d' : '#b91c1c', background: todayProfit >= 0 ? '#dcfce7' : '#fee2e2', padding: '1px 5px', borderRadius: 4 }}>
+                Jadval ↗
+              </span>
+            </div>
+            <b style={{ color: todayProfit >= 0 ? '#15803d' : '#b91c1c' }}>
+              {profitMargin}% marja
+            </b>
+            <strong style={{ color: todayProfit >= 0 ? '#15803d' : '#b91c1c' }}>
+              <DualPrice value={todayProfit} rate={rate} />
+            </strong>
+            <div style={{
+              marginTop: 4,
+              paddingTop: 4,
+              borderTop: `1px dashed ${todayProfit >= 0 ? '#bbf7d0' : '#fecaca'}`,
+              fontSize: 10,
+              color: '#475569',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 4
+            }}>
+              <span>Tannarx: {new Intl.NumberFormat('uz-UZ').format(totalCost)}</span>
+              <span>Savdo: {new Intl.NumberFormat('uz-UZ').format(confirmedAmount)}</span>
+            </div>
+          </span>
+        </article>
+
         <article className="is-cash">
           <div className="cash-real-summary-icon">
-            <Banknote size={22} />
+            <Banknote size={19} />
           </div>
           <span>
             <small>Shundan naqd pul</small>
             <b>
               {Number(s.confirmed_today_amount || 0) > 0
-                ? `${Math.round((Number(s.confirmed_today_cash || 0) / Number(s.confirmed_today_amount)) * 100)}% ulush`
+                ? `${Math.round((cashGross / Number(s.confirmed_today_amount)) * 100)}% ulush`
                 : '0% ulush'}
             </b>
-            <strong><DualPrice value={Number(s.confirmed_today_cash || 0)} rate={rate} /></strong>
+            <strong><DualPrice value={cashGross} rate={rate} /></strong>
+            <div style={{
+              marginTop: 4,
+              paddingTop: 4,
+              borderTop: '1px dashed #cbd5e1',
+              fontSize: 10.5,
+              color: cashNet >= 0 ? '#15803d' : '#b91c1c',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 4
+            }}>
+              <span style={{ fontSize: 10, color: '#475569', whiteSpace: 'nowrap' }}>Sof naqd:</span>
+              <span style={{ whiteSpace: 'nowrap', fontWeight: 800 }}>{new Intl.NumberFormat('uz-UZ').format(cashNet)} so‘m</span>
+            </div>
+          </span>
+        </article>
+
+        <article
+          className="is-expense"
+          style={{
+            cursor: 'pointer',
+            background: '#fff1f2',
+            borderColor: '#fecdd3'
+          }}
+          onClick={() => setExpenseModalOpen(true)}
+          title="Xarajatlar ro‘yxati va yangi harajat qo‘shish"
+        >
+          <div className="cash-real-summary-icon" style={{ background: '#ffe4e6', color: '#e11d48' }}>
+            <MinusCircle size={19} />
+          </div>
+          <span>
+            <small style={{ color: '#be123c', fontWeight: 700 }}>
+              {datePreset === 'today' ? 'Bugungi harajat' : `Harajat (${getPeriodTitle()})`}
+            </small>
+            <b style={{ color: '#e11d48' }}>
+              {expenseCount} ta chiqim
+            </b>
+            <strong style={{ color: '#e11d48' }}>
+              <DualPrice value={totalExpenseAmt} rate={rate} />
+            </strong>
+            <div style={{
+              marginTop: 4,
+              paddingTop: 4,
+              borderTop: '1px dashed #fecdd3',
+              fontSize: 10.5,
+              color: '#be123c',
+              fontWeight: 600,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 4
+            }}>
+              <span>{cardExpenseAmt > 0 ? `Naqd: ${new Intl.NumberFormat('uz-UZ').format(cashExpenseAmt)}` : 'Chiqimlar'}</span>
+              <span>{cardExpenseAmt > 0 ? `Plastik: ${new Intl.NumberFormat('uz-UZ').format(cardExpenseAmt)}` : 'Ko‘rish →'}</span>
+            </div>
           </span>
         </article>
 
         <article className="is-card">
           <div className="cash-real-summary-icon">
-            <CreditCard size={22} />
+            <CreditCard size={19} />
           </div>
           <span>
             <small>Shundan plastik karta</small>
@@ -284,20 +720,39 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                 : '0% ulush'}
             </b>
             <strong><DualPrice value={Number(s.confirmed_today_card || 0)} rate={rate} /></strong>
+            <div style={{
+              marginTop: 4,
+              paddingTop: 4,
+              borderTop: '1px dashed #cbd5e1',
+              fontSize: 10.5,
+              color: cardNet >= 0 ? '#0284c7' : '#b91c1c',
+              fontWeight: 700,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: 4
+            }}>
+              <span style={{ fontSize: 10, color: '#475569', whiteSpace: 'nowrap' }}>Sof plastik:</span>
+              <span style={{ whiteSpace: 'nowrap', fontWeight: 800 }}>{new Intl.NumberFormat('uz-UZ').format(cardNet)} so‘m</span>
+            </div>
           </span>
         </article>
 
         <article
           className={`is-cod ${status === 'cod' ? 'active-filter' : ''}`}
           style={{ cursor: 'pointer', outline: status === 'cod' ? '2px solid #f59e0b' : 'none' }}
-          onClick={() => setStatus('cod')}
+          onClick={() => {
+            setStatus('cod');
+            setPaymentFilter('all');
+            setSortBy('created_desc');
+          }}
           title="Kuryerga to‘laydi bo‘limini ochish"
         >
           <div className="cash-real-summary-icon">
-            <Truck size={22} />
+            <Truck size={19} />
           </div>
           <span>
-            <small>Kuryerga to‘laydi (Kutilmoqda)</small>
+            <small>Kuryer to‘laydi ({getPeriodTitle()})</small>
             <b>
               {Number(s.cod_count || 0) > 0
                 ? `${s.cod_count} ta savdo`
@@ -317,14 +772,18 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
             background: '#faf5ff',
             borderColor: '#e9d5ff'
           }}
-          onClick={() => setStatus('nasiya')}
+          onClick={() => {
+            setStatus('nasiya');
+            setPaymentFilter('all');
+            setSortBy('created_desc');
+          }}
           title="Nasiyalar bo‘limini ochish"
         >
           <div className="cash-real-summary-icon" style={{ background: '#f3e8ff', color: '#9333ea' }}>
-            <Clock size={22} />
+            <Clock size={19} />
           </div>
           <span>
-            <small style={{ color: '#7e22ce' }}>Nasiya (Qarzlar)</small>
+            <small style={{ color: '#7e22ce' }}>Nasiya (Qarzlar — {getPeriodTitle()})</small>
             <b style={{ color: '#9333ea' }}>
               {Number(s.nasiya_count || 0) > 0
                 ? `${s.nasiya_count} ta savdo`
@@ -339,7 +798,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
         {Number(s.confirmed_today_other || 0) > 0 && (
           <article className="is-other">
             <div className="cash-real-summary-icon">
-              <Layers size={22} />
+              <Layers size={19} />
             </div>
             <span>
               <small>Shundan boshqa to‘lov</small>
@@ -353,17 +812,21 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
         <div className="cash-real-tabs">
           {[
             ['pending', 'Kutilmoqda', s.pending_count],
-            ['confirmed', 'Tasdiqlangan', null],
+            ['confirmed', 'Tasdiqlangan', s.confirmed_today_count],
             ['cod', 'Kuryerga to‘laydi', s.cod_count],
             ['nasiya', 'Nasiyalar', s.nasiya_count],
-            ['rejected', 'Rad etilgan', null],
-            ['all', 'Barchasi', null]
+            ['rejected', 'Rad etilgan', s.rejected_count],
+            ['all', 'Barchasi', s.total_count]
           ].map(([key, text, badgeCount]) => (
             <button
               type="button"
               key={key}
               className={status === key ? 'active' : ''}
-              onClick={() => setStatus(key)}
+              onClick={() => {
+                setStatus(key);
+                setPaymentFilter('all');
+                setSortBy('created_desc');
+              }}
             >
               {text}
               {Number(badgeCount || 0) > 0 && (
@@ -390,10 +853,98 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
           <input
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Raqam yoki sotuvchi"
+            placeholder="Raqam, sotuvchi yoki mahsulot nomi"
           />
         </label>
       </div>
+
+      {status === 'confirmed' && (
+        <div
+          className="confirmed-filter-bar"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 10,
+            padding: '8px 14px',
+            marginBottom: 12,
+            background: '#ffffff',
+            borderRadius: 10,
+            border: '1px solid var(--line, #e2e8f0)',
+            boxShadow: '0 1px 3px rgba(0,0,0,0.03)'
+          }}
+        >
+          {/* Payment method filter buttons */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--navy, #0f172a)', marginRight: 2 }}>
+              To‘lov filtri:
+            </span>
+            {[
+              ['all', 'Barchasi'],
+              ['cod', '🚚 Kuryerdan to‘lovlar'],
+              ['cash', '💵 Naqd to‘lovlar'],
+              ['card', '💳 Plastik to‘lovlar']
+            ].map(([fKey, fLabel]) => {
+              const active = paymentFilter === fKey;
+              return (
+                <button
+                  key={fKey}
+                  type="button"
+                  style={{
+                    fontSize: 12,
+                    padding: '4px 11px',
+                    borderRadius: 20,
+                    border: `1.5px solid ${active ? '#0284c7' : 'var(--line, #cbd5e1)'}`,
+                    background: active ? '#f0f9ff' : '#ffffff',
+                    color: active ? '#0369a1' : 'var(--navy, #0f172a)',
+                    fontWeight: active ? 700 : 500,
+                    cursor: 'pointer',
+                    transition: 'all 0.15s ease'
+                  }}
+                  onClick={() => {
+                    setPaymentFilter(fKey);
+                    setPage(1);
+                  }}
+                >
+                  {fLabel}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Sort options */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--navy, #0f172a)' }}>
+              Saralash:
+            </span>
+            <select
+              value={sortBy}
+              onChange={e => {
+                setSortBy(e.target.value);
+                setPage(1);
+              }}
+              style={{
+                fontSize: 12,
+                padding: '4px 10px',
+                borderRadius: 6,
+                border: '1.5px solid var(--line, #cbd5e1)',
+                background: '#ffffff',
+                color: 'var(--navy, #0f172a)',
+                fontWeight: 600,
+                cursor: 'pointer',
+                outline: 'none'
+              }}
+            >
+              <option value="created_desc">📅 Eng yangilari (Vaqt bo‘yicha)</option>
+              <option value="cash_desc">💵 Naqd pul: Ko‘pdan kamga ↓</option>
+              <option value="cash_asc">💵 Naqd pul: Kamdan ko‘pga ↑</option>
+              <option value="total_desc">💰 Jami summa: Ko‘pdan kamga ↓</option>
+              <option value="total_asc">💰 Jami summa: Kamdan ko‘pga ↑</option>
+            </select>
+          </div>
+        </div>
+      )}
       {loading ? (
         <State text="Kassa so'rovlari yuklanmoqda…" />
       ) : error ? (
@@ -408,19 +959,30 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                 key={row.id}
                 onClick={() => open(row.id)}
               >
-                <div className="between">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <b>{row.pending_no}</b>
+                <div className="between" style={{ alignItems: 'flex-start', gap: 8 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', minWidth: 0, flex: 1 }}>
+                    <b style={{ fontFamily: 'ui-monospace, SFMono-Regular, monospace', fontSize: 13, wordBreak: 'break-all' }}>{row.pending_no}</b>
                     {(row.is_edited || (row.updated_at && row.updated_at !== row.created_at)) && (
-                      <span style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', fontSize: '9.5px', padding: '1px 5px', borderRadius: '4px', fontWeight: 700 }}>
+                      <span style={{ background: '#fef3c7', color: '#b45309', border: '1px solid #fde68a', fontSize: '9.5px', padding: '1px 5px', borderRadius: '4px', fontWeight: 700, whiteSpace: 'nowrap' }}>
                         ✏️ Tahrirlangan
                       </span>
                     )}
                   </div>
-                  <Status type={colors[row.status]}>{labels[row.status] || row.status}</Status>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                    <Status type={colors[row.status]}>{labels[row.status] || row.status}</Status>
+                    <ChevronRight size={16} style={{ color: 'var(--muted)' }} />
+                  </div>
                 </div>
                 <span>Sotuvchi <strong>{row.seller_name}</strong></span>
                 <span>{row.unit_count} dona · {row.location_name}</span>
+                {(row.product_names || (row.lines?.length ? row.lines.map(l => l.product_name || l.name).filter(Boolean).join(', ') : '')) && (
+                  <div style={{ fontSize: 12, fontWeight: 650, color: 'var(--navy)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5, overflow: 'hidden' }}>
+                    <span style={{ color: '#f97316' }}>📦</span>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {row.product_names || row.lines?.map(l => l.product_name || l.name).filter(Boolean).join(', ')}
+                    </span>
+                  </div>
+                )}
                 {row.customer && (row.customer.full_name || row.customer.phone) && (
                   <div style={{ fontSize: 11.5, color: '#334155', marginTop: 4, display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ fontWeight: 700 }}>👤 Mijoz:</span>
@@ -435,7 +997,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                 )}
                 <div className="cash-real-card-total">
                   <b><DualPrice value={Number(row.total || 0)} rate={rate} /></b>
-                  <small><Clock3 /> {date(row.expires_at)}</small>
+                  <small><Clock3 /> {date(row.created_at)}</small>
                 </div>
                 {row.payments && row.payments.length > 0 && (
                   <div className="cash-real-card-pmts" style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
@@ -472,7 +1034,8 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                     display: 'flex',
                     justifyContent: 'flex-end',
                     alignItems: 'center',
-                    gap: 8,
+                    flexWrap: 'wrap',
+                    gap: 6,
                     marginTop: 8,
                     paddingTop: 8,
                     borderTop: '1px dashed var(--line)'
@@ -494,7 +1057,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                               gap: 5,
                               fontSize: 11,
                               fontWeight: 700,
-                              padding: '4px 10px',
+                              padding: '4px 9px',
                               background: hasNasiya ? '#faf5ff' : hasCod ? '#fffbeb' : '#eff6ff',
                               color: hasNasiya ? '#7e22ce' : hasCod ? '#b45309' : '#1d4ed8',
                               borderColor: hasNasiya ? '#e9d5ff' : hasCod ? '#fde68a' : '#bfdbfe'
@@ -503,8 +1066,9 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                               e.stopPropagation();
                               setEditingPaymentSale(row);
                             }}
+                            title={hasNasiya ? 'Nasiya qarzini to‘lash yoki tahrirlash' : hasCod ? 'Kuryer to‘lovini qabul qilish yoki tahrirlash' : 'To‘lov usulini tahrirlash'}
                           >
-                            <Edit3 size={13} /> {hasNasiya ? 'To‘lovni tahrirlash (Nasiya to‘lash)' : hasCod ? 'To‘lovni tahrirlash (Kuryer/Naqd)' : 'To‘lovni tahrirlash'}
+                            <Edit3 size={12} /> {hasNasiya ? 'Nasiya to‘lash' : hasCod ? 'Kuryer to‘lash' : 'To‘lovni tahrirlash'}
                           </span>
                         );
                       })()}
@@ -515,10 +1079,10 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
-                          gap: 6,
+                          gap: 5,
                           fontSize: 11,
                           fontWeight: 700,
-                          padding: '4px 10px',
+                          padding: '4px 9px',
                           background: '#fff',
                           color: 'var(--navy)'
                         }}
@@ -526,8 +1090,9 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                           e.stopPropagation();
                           openReceipt(row.id);
                         }}
+                        title="Chekni chop etish"
                       >
-                        <Printer size={13} /> Chekni chop etish
+                        <Printer size={12} /> Chek
                       </span>
                     </>
                   )}
@@ -538,10 +1103,10 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                     style={{
                       display: 'inline-flex',
                       alignItems: 'center',
-                      gap: 5,
+                      gap: 4,
                       fontSize: 11,
                       fontWeight: 600,
-                      padding: '4px 10px',
+                      padding: '4px 9px',
                       background: '#fff1f2',
                       color: '#e11d48',
                       border: '1px solid #fecdd3'
@@ -550,11 +1115,11 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
                       e.stopPropagation();
                       setDeletingSale(row);
                     }}
+                    title="Kassa so‘rovini o‘chirish"
                   >
-                    <Trash2 size={13} /> O‘chirish
+                    <Trash2 size={12} /> O‘chirish
                   </span>
                 </div>
-                <ChevronRight />
               </button>
             ))}
           </div>
@@ -618,27 +1183,49 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
         reject={rejected}
         onViewReceipt={openReceipt}
         onEditPayment={s => setEditingPaymentSale(s)}
-        onOpenStickers={(s) => setStickersPayload({
-          items: s.lines?.map(l => ({
-            product_name: l.product_name,
-            unit_price: l.unit_price,
-            line_total: l.line_total,
-            batch_code: l.batch_code || l.reference || (l.qr_code ? `QR: ${l.qr_code}` : ''),
-            qr_code: l.qr_code,
-            quantity: 1
-          })) || [],
-          customer: {
-            full_name: s.customer?.full_name || '',
-            phone: s.customer?.phone || '',
-            address: s.customer?.address || ''
-          },
-          sale: {
-            sale_no: s.pending_no,
-            total: s.total,
-            sold_at: s.updated_at || s.created_at
-          }
-        })}
+        onOpenStickers={(s) => {
+          const codAmt = Number(
+            s.cod_amount ||
+            (s.delivery_is_cod ? (s.delivery_cod_amount || s.total) : 0) ||
+            s.delivery?.cod_amount ||
+            (s.payments?.find(p => (p.method_code || p.code) === 'cod')?.amount) ||
+            0
+          );
+          const seller = s.seller_name || s.seller?.full_name || s.created_by_profile?.full_name || s.seller_display_name || '';
+          setStickersPayload({
+            items: s.lines?.map(l => ({
+              product_name: l.product_name,
+              unit_price: l.unit_price,
+              line_total: l.line_total,
+              batch_code: l.batch_code || l.reference || (l.qr_code ? `QR: ${l.qr_code}` : ''),
+              qr_code: l.qr_code,
+              quantity: 1,
+              cod_amount: codAmt,
+              seller_name: seller,
+              sellerName: seller
+            })) || [],
+            customer: {
+              full_name: s.customer?.full_name || s.customer_name || '',
+              phone: s.customer?.phone || s.customer_phone || '',
+              address: s.customer?.address || s.delivery_address || s.address || '',
+              cod_amount: codAmt,
+              seller_name: seller,
+              sellerName: seller
+            },
+            sale: {
+              sale_no: s.pending_no || s.sale_no,
+              total: s.total,
+              cod_amount: codAmt,
+              sold_at: s.updated_at || s.created_at,
+              seller_name: seller,
+              sellerName: seller
+            },
+            seller_name: seller,
+            sellerName: seller
+          });
+        }}
         onDelete={setDeletingSale}
+        onDeleteLine={(s, l) => setDeletingLine({ sale: s, line: l })}
         rate={rate}
       />
       <Receipt receipt={receipt} close={() => setReceipt(null)} rate={rate} />
@@ -711,6 +1298,92 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
           </div>
         </div>
       </Modal>
+
+      <Modal
+        open={Boolean(deletingLine)}
+        onClose={() => !deleteBusy && setDeletingLine(null)}
+        title="Tovarni chekdan o‘chirish"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--navy)' }}>
+            Haqiqatan ham <b>{deletingLine?.sale?.pending_no}</b> chekidan «<b>{deletingLine?.line?.product_name}</b>» tovarini o‘chirmoqchimisiz?
+          </p>
+          <div style={{ padding: '8px 12px', background: '#f8fafc', border: '1px solid var(--line)', borderRadius: 8, fontSize: 13, color: '#334155' }}>
+            <div>Narxi: <b><DualPrice value={Number(deletingLine?.line?.line_total || 0)} rate={rate} /></b></div>
+            {deletingLine?.line?.qr_code && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                QR / Seriya: <b>{deletingLine.line.qr_code}</b> {deletingLine.line.sku ? `(${deletingLine.line.sku})` : ''}
+              </div>
+            )}
+            {deletingLine?.sale?.lines?.length <= 1 && (
+              <div style={{ marginTop: 6, color: '#b45309', fontWeight: 600, fontSize: 12 }}>
+                ⚠️ Bu chekdagi so‘nggi tovar. Uni o‘chirsangiz, butun kassa kirimi bekor qilinadi.
+              </div>
+            )}
+          </div>
+          <div style={{ padding: '10px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 13, color: '#166534' }}>
+            <b>1-usul:</b> Tovar omborga qaytariladi — mahsulot yana mavjud holatga o‘tadi va chek summasi qayta hisoblanadi.
+          </div>
+          <div style={{ padding: '10px 14px', background: '#fff1f2', border: '1px solid #fecdd3', borderRadius: 8, fontSize: 13, color: '#be123c' }}>
+            <b>2-usul:</b> Tovar omborga qaytarilmaydi — test yoki xato yozuvlarni tozalash uchun.
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="btn"
+              disabled={deleteBusy}
+              onClick={() => setDeletingLine(null)}
+            >
+              Bekor qilish
+            </button>
+            <button
+              type="button"
+              className="btn"
+              style={{ background: '#ef4444', borderColor: '#ef4444', color: '#fff', fontWeight: 600 }}
+              disabled={deleteBusy}
+              onClick={() => handleDeleteLine(false)}
+            >
+              {deleteBusy ? 'O‘chirilmoqda…' : 'Qaytarmasdan o‘chirish'}
+            </button>
+            <button
+              type="button"
+              className="btn"
+              style={{ background: '#16a34a', borderColor: '#16a34a', color: '#fff', fontWeight: 600 }}
+              disabled={deleteBusy}
+              onClick={() => handleDeleteLine(true)}
+            >
+              {deleteBusy ? 'O‘chirilmoqda…' : 'Qaytarib o‘chirish'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Cash Expense Modal */}
+      {expenseModalOpen && (
+        <CashExpenseModal
+          open={expenseModalOpen}
+          onClose={() => setExpenseModalOpen(false)}
+          branchId={branchId}
+          dateRange={dateRange}
+          periodTitle={getPeriodTitle()}
+          rate={rate}
+          toast={toast}
+          onSaved={() => load(page, true)}
+        />
+      )}
+
+      {/* Cash Profit Details Modal */}
+      {profitDetailsOpen && (
+        <CashProfitDetailsModal
+          open={profitDetailsOpen}
+          onClose={() => setProfitDetailsOpen(false)}
+          branchId={branchId}
+          dateRange={dateRange}
+          datePreset={datePreset}
+          periodTitle={getPeriodTitle()}
+          rate={rate}
+        />
+      )}
     </section>
   );
 }
@@ -725,7 +1398,7 @@ function State({ text, error, retry }) {
   );
 }
 
-function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment, onOpenStickers, onDelete, rate }) {
+function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment, onOpenStickers, onDelete, onDeleteLine, rate }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [reason, setReason] = useState('');
@@ -743,6 +1416,22 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
   const [customerAddress, setCustomerAddress] = useState('');
   const [fulfillmentSource, setFulfillmentSource] = useState('warehouse'); // 'warehouse' | 'store'
   const [notes, setNotes] = useState('');
+  const [showAllSecrets, setShowAllSecrets] = useState(false);
+  const [revealedKeys, setRevealedKeys] = useState({});
+
+  useEffect(() => {
+    setShowAllSecrets(false);
+    setRevealedKeys({});
+  }, [sale?.id]);
+
+  const toggleSecret = key => {
+    setRevealedKeys(prev => ({
+      ...prev,
+      [key]: !prev[key]
+    }));
+  };
+
+  const isSecretRevealed = key => showAllSecrets || Boolean(revealedKeys[key]);
 
   useEffect(() => {
     setError('');
@@ -947,38 +1636,202 @@ function CashDetail({ sale, close, confirm, reject, onViewReceipt, onEditPayment
               {sale.customer.address && <small style={{ display: 'block', color: 'var(--muted)', marginTop: 2 }}>Manzil: {sale.customer.address}</small>}
             </div>
           )}
-          <h3>Mahsulotlar ({sale.lines?.length || 0} ta)</h3>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 14, marginBottom: 8, flexWrap: 'wrap', gap: 6 }}>
+            <h3 style={{ margin: 0 }}>Mahsulotlar ({sale.lines?.length || 0} ta)</h3>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setShowAllSecrets(prev => !prev)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 5,
+                fontSize: 11.5,
+                fontWeight: 650,
+                padding: '3px 9px',
+                borderRadius: 7,
+                cursor: 'pointer',
+                color: showAllSecrets ? '#15803d' : '#475569',
+                borderColor: showAllSecrets ? '#bbf7d0' : '#cbd5e1',
+                background: showAllSecrets ? '#f0fdf4' : '#f8fafc',
+                border: '1px solid'
+              }}
+              title={showAllSecrets ? "Barcha tannarx va foydani yashirish (****)" : "Barcha tannarx va foydani ko‘rsatish"}
+            >
+              {showAllSecrets ? <EyeOff size={13} /> : <Eye size={13} />}
+              <span>{showAllSecrets ? "Yashirish (****)" : "Tannarx va foydani ochish"}</span>
+            </button>
+          </div>
+
           <div className="cash-real-lines">
-            {sale.lines?.map(line => (
-              <article key={line.id}>
-                <div>
-                  <b>{line.product_name}</b>
-                  <small>{line.sku} · {line.qr_code}</small>
-                  {line.selected_components?.length > 0 && (
-                    <small style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, color: 'var(--muted, #64748b)', marginTop: 2 }}>
-                      Qismlar: {line.selected_components.map((c, i) => (
-                        <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
-                          {(c.image_url || c.imageUrl) && <img src={c.image_url || c.imageUrl} alt="" style={{ width: 14, height: 14, borderRadius: 2, objectFit: 'cover' }} />}
-                          {c.name}{c.color ? ` (${c.color})` : ''}{i < line.selected_components.length - 1 ? ', ' : ''}
+            {sale.lines?.map(line => {
+              const unitCost = Number(line.unit_cost ?? line.cost_price ?? 0);
+              const retailPrice = Number(line.retail_price ?? 0);
+              const unitPrice = Number(line.unit_price ?? 0);
+              const discount = Number(line.discount || 0);
+              const tax = Number(line.tax || 0);
+              const profit = Number(line.profit ?? (unitPrice - unitCost - tax));
+              const isProfitPos = profit >= 0;
+              const costKey = `cost_${line.id}`;
+              const profitKey = `profit_${line.id}`;
+              const isCostShown = isSecretRevealed(costKey);
+              const isProfitShown = isSecretRevealed(profitKey);
+
+              return (
+                <article key={line.id}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <b style={{ display: 'block', fontSize: 13.5, color: 'var(--navy)' }}>{line.product_name}</b>
+                      <small style={{ color: 'var(--muted)' }}>{line.sku} · {line.qr_code}</small>
+                      {line.selected_components?.length > 0 && (
+                        <small style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 4, color: 'var(--muted, #64748b)', marginTop: 2 }}>
+                          Qismlar: {line.selected_components.map((c, i) => (
+                            <span key={i} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                              {(c.image_url || c.imageUrl) && <img src={c.image_url || c.imageUrl} alt="" style={{ width: 14, height: 14, borderRadius: 2, objectFit: 'cover' }} />}
+                              {c.name}{c.color ? ` (${c.color})` : ''}{i < line.selected_components.length - 1 ? ', ' : ''}
+                            </span>
+                          ))}
+                        </small>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: 4,
+                        padding: '4px 8px',
+                        fontSize: 11,
+                        fontWeight: 600,
+                        borderRadius: 6,
+                        background: '#fff1f2',
+                        color: '#e11d48',
+                        border: '1px solid #fecdd3',
+                        cursor: 'pointer',
+                        flexShrink: 0
+                      }}
+                      disabled={busy}
+                      title="Ushbu tovarni chekdan o‘chirish"
+                      onClick={() => onDeleteLine?.(sale, line)}
+                    >
+                      <Trash2 size={12} /> Tovarni o‘chirish
+                    </button>
+                  </div>
+                  <dl style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(105px, 1fr))', gap: '6px', margin: '8px 0', padding: '8px 10px', background: '#f8fafc', borderRadius: '8px', border: '1px solid var(--line)' }}>
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={e => {
+                        e.stopPropagation();
+                        toggleSecret(costKey);
+                      }}
+                      style={{ cursor: 'pointer', userSelect: 'none' }}
+                      title={isCostShown ? "Yashirish uchun bosing" : "Tan narxini ko‘rish uchun ustiga bosing"}
+                    >
+                      <small style={{ color: '#64748b', fontSize: 10, display: 'block', fontWeight: 600 }}>Tan narxi</small>
+                      {isCostShown ? (
+                        <b style={{ color: '#334155', fontSize: 12 }}><DualPrice value={unitCost} rate={rate} /></b>
+                      ) : (
+                        <span style={{ fontFamily: 'monospace', fontWeight: 800, letterSpacing: 2, color: '#64748b', background: '#e2e8f0', padding: '1px 6px', borderRadius: 4, fontSize: 12, display: 'inline-block' }}>
+                          ****
                         </span>
-                      ))}
-                    </small>
-                  )}
-                </div>
-                <dl>
-                  <span>Narx <b><DualPrice value={Number(line.unit_price || 0)} rate={rate} /></b></span>
-                  <span>Chegirma <b><DualPrice value={Number(line.discount || 0)} rate={rate} /></b></span>
-                  <span>Soliq <b><DualPrice value={Number(line.tax || 0)} rate={rate} /></b></span>
-                  <span>Foyda <b><DualPrice value={Number(line.profit || 0)} rate={rate} /></b></span>
-                </dl>
-                <strong><DualPrice value={Number(line.line_total || 0)} rate={rate} /></strong>
-              </article>
-            ))}
+                      )}
+                    </span>
+                    <span>
+                      <small style={{ color: '#64748b', fontSize: 10, display: 'block', fontWeight: 600 }}>Aytish (sotish) narxi</small>
+                      <b style={{ color: '#334155', fontSize: 12 }}><DualPrice value={retailPrice} rate={rate} /></b>
+                    </span>
+                    <span>
+                      <small style={{ color: '#0369a1', fontSize: 10, display: 'block', fontWeight: 700 }}>Sotilgan narx</small>
+                      <b style={{ color: '#0284c7', fontSize: 12, fontWeight: 750 }}><DualPrice value={unitPrice} rate={rate} /></b>
+                    </span>
+                    {discount > 0 && (
+                      <span>
+                        <small style={{ color: '#b45309', fontSize: 10, display: 'block', fontWeight: 600 }}>Chegirma</small>
+                        <b style={{ color: '#d97706', fontSize: 12 }}><DualPrice value={discount} rate={rate} /></b>
+                      </span>
+                    )}
+                    {tax > 0 && (
+                      <span>
+                        <small style={{ color: '#64748b', fontSize: 10, display: 'block', fontWeight: 600 }}>Soliq</small>
+                        <b style={{ color: '#334155', fontSize: 12 }}><DualPrice value={tax} rate={rate} /></b>
+                      </span>
+                    )}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={e => {
+                        e.stopPropagation();
+                        toggleSecret(profitKey);
+                      }}
+                      style={{ cursor: 'pointer', userSelect: 'none' }}
+                      title={isProfitShown ? "Yashirish uchun bosing" : "Sof foydani ko‘rish uchun ustiga bosing"}
+                    >
+                      <small style={{ color: isProfitPos ? '#15803d' : '#b91c1c', fontSize: 10, display: 'block', fontWeight: 700 }}>Sof foyda</small>
+                      {isProfitShown ? (
+                        <b style={{ color: isProfitPos ? '#16a34a' : '#dc2626', fontSize: 12, fontWeight: 800 }}>
+                          <DualPrice value={profit} rate={rate} />
+                        </b>
+                      ) : (
+                        <span style={{ fontFamily: 'monospace', fontWeight: 800, letterSpacing: 2, color: isProfitPos ? '#15803d' : '#b91c1c', background: isProfitPos ? '#dcfce7' : '#fee2e2', padding: '1px 6px', borderRadius: 4, fontSize: 12, display: 'inline-block' }}>
+                          ****
+                        </span>
+                      )}
+                    </span>
+                  </dl>
+                  <strong><DualPrice value={Number(line.line_total || 0)} rate={rate} /></strong>
+                </article>
+              );
+            })}
           </div>
           <div className="cash-real-total">
             <span>Subtotal <b><DualPrice value={Number(sale.subtotal || 0)} rate={rate} /></b></span>
-            <span>Chegirma <b><DualPrice value={Number(sale.discount || 0)} rate={rate} /></b></span>
-            <span>Soliq <b><DualPrice value={Number(sale.tax || 0)} rate={rate} /></b></span>
+            {Number(sale.discount || 0) > 0 && <span>Chegirma <b><DualPrice value={Number(sale.discount || 0)} rate={rate} /></b></span>}
+            {Number(sale.tax || 0) > 0 && <span>Soliq <b><DualPrice value={Number(sale.tax || 0)} rate={rate} /></b></span>}
+            {(() => {
+              const saleTotalCost = sale.lines?.reduce((acc, l) => acc + Number(l.unit_cost ?? l.cost_price ?? 0), 0) || 0;
+              const saleTotalProfit = sale.lines?.reduce((acc, l) => acc + Number(l.profit ?? (Number(l.unit_price || 0) - Number(l.unit_cost ?? l.cost_price ?? 0) - Number(l.tax || 0))), 0) || 0;
+              const isTotCostShown = isSecretRevealed('totalCost');
+              const isTotProfitShown = isSecretRevealed('totalProfit');
+
+              return (
+                <>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleSecret('totalCost')}
+                    style={{ borderTop: '1px dashed var(--line)', paddingTop: 4, marginTop: 4, cursor: 'pointer', userSelect: 'none' }}
+                    title={isTotCostShown ? "Yashirish uchun bosing" : "Jami tannarxni ko‘rish uchun ustiga bosing"}
+                  >
+                    <small style={{ color: 'var(--muted)', fontWeight: 600 }}>Jami tannarx:</small>
+                    {isTotCostShown ? (
+                      <b style={{ color: '#475569' }}><DualPrice value={saleTotalCost} rate={rate} /></b>
+                    ) : (
+                      <span style={{ fontFamily: 'monospace', fontWeight: 800, letterSpacing: 2, color: '#64748b', background: '#e2e8f0', padding: '1px 6px', borderRadius: 4, fontSize: 12, display: 'inline-block' }}>
+                        ****
+                      </span>
+                    )}
+                  </span>
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => toggleSecret('totalProfit')}
+                    style={{ cursor: 'pointer', userSelect: 'none' }}
+                    title={isTotProfitShown ? "Yashirish uchun bosing" : "Jami sof foydani ko‘rish uchun ustiga bosing"}
+                  >
+                    <small style={{ color: saleTotalProfit >= 0 ? '#15803d' : '#b91c1c', fontWeight: 700 }}>Jami sof foyda:</small>
+                    {isTotProfitShown ? (
+                      <b style={{ color: saleTotalProfit >= 0 ? '#16a34a' : '#dc2626', fontWeight: 800 }}><DualPrice value={saleTotalProfit} rate={rate} /></b>
+                    ) : (
+                      <span style={{ fontFamily: 'monospace', fontWeight: 800, letterSpacing: 2, color: saleTotalProfit >= 0 ? '#15803d' : '#b91c1c', background: saleTotalProfit >= 0 ? '#dcfce7' : '#fee2e2', padding: '1px 6px', borderRadius: 4, fontSize: 12, display: 'inline-block' }}>
+                        ****
+                      </span>
+                    )}
+                  </span>
+                </>
+              );
+            })()}
             <strong>Jami <b><DualPrice value={Number(sale.total || 0)} rate={rate} /></b></strong>
           </div>
 
@@ -2442,6 +3295,24 @@ function EditSalePaymentModal({ open, sale, onClose, onSuccess, rate, toast }) {
 function Receipt({ receipt, close, rate }) {
   const [printMode, setPrintMode] = useState('per_item');
   const [previewIndex, setPreviewIndex] = useState(0);
+  const [preferredPrinter, setPreferredPrinter] = useState(() => {
+    try {
+      return localStorage.getItem('texnobazar_selected_thermal_printer') || 'detonger';
+    } catch {
+      return 'detonger';
+    }
+  });
+  const [bluetoothModalOpen, setBluetoothModalOpen] = useState(false);
+
+  const openBluetoothPrint = (printerType) => {
+    if (printerType) {
+      setPreferredPrinter(printerType);
+      try {
+        localStorage.setItem('texnobazar_selected_thermal_printer', printerType);
+      } catch {}
+    }
+    setBluetoothModalOpen(true);
+  };
 
   if (!receipt) return null;
   const lines = receipt.lines || [];
@@ -2518,15 +3389,101 @@ function Receipt({ receipt, close, rate }) {
             <ThermalReceiptPreview receipt={receipt} mode={printMode} activeIndex={previewIndex} />
           </div>
 
-          <button
-            type="button"
-            className="btn btn-primary btn-block cash-real-no-print"
-            style={{ marginTop: 14, padding: '12px', fontSize: 14, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-            onClick={handlePrint}
-          >
-            <Printer size={16} /> Chekni chop etish (40 × 30 mm)
-          </button>
+          {/* Bluetooth Termoprinterlar & Kompyuter chop etish bo'limi (huddi partiyalar sahifasi kabi) */}
+          <div style={{
+            fontSize: 11,
+            color: 'var(--muted, #64748b)',
+            background: '#f8fafc',
+            border: '1.5px solid #e2e8f0',
+            padding: '10px 14px',
+            borderRadius: 12,
+            marginTop: 14,
+            marginBottom: 8
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 700, color: 'var(--navy, #0f172a)', marginBottom: 3 }}>
+              <Printer size={15} color="#ea580c" />
+              <span>Bluetooth Termoprinterlar (Detonger & MHT-L80G):</span>
+            </div>
+            <div style={{ lineHeight: 1.4 }}>
+              Telefonda Bluetooth yoki kompyuterda ulanib, <b>Detonger (40 mm)</b> yoki yangi <b>MHT-L80G (58 mm)</b> termoprinterida chekni chop eting:
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{
+                  padding: '12px 8px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #f97316, #ea580c)',
+                  boxShadow: '0 4px 14px rgba(249,115,22,0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6
+                }}
+                onClick={() => openBluetoothPrint('detonger')}
+                title="Detonger printerida chekni chop etish"
+              >
+                <Bluetooth size={15} />
+                <span>Detonger (40 mm)</span>
+              </button>
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{
+                  padding: '12px 8px',
+                  fontSize: 12,
+                  fontWeight: 700,
+                  background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+                  boxShadow: '0 4px 14px rgba(2,132,199,0.3)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: 6
+                }}
+                onClick={() => openBluetoothPrint('mht')}
+                title="MHT-L80G printerida 58 mm o‘lchamda chekni chop etish"
+              >
+                <Bluetooth size={15} />
+                <span>MHT-L80G (58 mm)</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-outline btn-block cash-real-no-print"
+              style={{ padding: '9px', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+              onClick={handlePrint}
+            >
+              <QrCode size={14} />
+              Kompyuter / Tizim orqali klassik chop etish
+            </button>
+          </div>
         </div>
+
+        <DetongerPrintModal
+          open={bluetoothModalOpen}
+          onClose={() => setBluetoothModalOpen(false)}
+          labels={printMode === 'summary' || lines.length <= 1 ? [receipt] : lines.map((l, idx) => ({ ...receipt, lineIndex: idx, activeLine: l }))}
+          modalTitle="Tasdiqlangan savdo cheki"
+          initialPrinter={preferredPrinter}
+          initialLabelSize="40x30"
+          onClassicPrint={() => {
+            setBluetoothModalOpen(false);
+            handlePrint();
+          }}
+          renderCustomCanvas={(item, opts) => renderThermalReceiptCanvas({
+            receipt,
+            mode: printMode,
+            activeIndex: item.lineIndex !== undefined ? item.lineIndex : previewIndex,
+            ...opts
+          })}
+        />
 
         <details style={{ border: '1px solid var(--line)', borderRadius: 10, padding: '10px 14px' }}>
           <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700, color: 'var(--muted)', userSelect: 'none' }}>

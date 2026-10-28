@@ -1,6 +1,6 @@
 import React,{useEffect,useMemo,useRef,useState}from'react';
 import{createPortal}from'react-dom';
-import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,Camera,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Layers,Loader2,MapPin,PackagePlus,Download,Pencil,Percent,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,ShieldAlert,Tag,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
+import{AlertTriangle,ArrowRight,ArrowUpDown,Bluetooth,Boxes,Calendar,Camera,CheckCircle2,ChevronDown,ChevronLeft,ChevronRight,Clock3,Copy,Eye,EyeOff,ExternalLink,FileArchive,FileSpreadsheet,HardDriveDownload,HardDriveUpload,Layers,Loader2,MapPin,PackagePlus,Download,Pencil,Percent,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,ShieldAlert,SlidersHorizontal,Tag,Trash2,Upload,UploadCloud,Warehouse,X}from'lucide-react';
 import{DualPrice,Empty,Modal,ProductExcelImportModal,ProductEditor,ProductComponentEditor,QrScanButton,Status,formatDualMoney,formatMoney,useExchangeRate,DetongerPrintModal,formatSecretCostCode,BASE_COLOR_PALETTE,detectColorFromImageSource}from'@texnobazar/ui';
 import QRCode from'qrcode';
 import RichTextEditor from'./RichTextEditor';
@@ -8,15 +8,35 @@ import{CreateProductInline}from'./InventoryRegisterModal';
 import InventoryExcelImportModal from'./InventoryExcelImportModal';
 import BatchPriceExcelModal from'./BatchPriceExcelModal';
 import BulkMinimumPriceModal from'./BulkMinimumPriceModal';
-import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,convertStockReceiptsCurrency,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia,exportBatchesBackup,exportReceiptBackup,inspectBatchesBackupFile,restoreBatchesBackupFile,saveProductComponents,getProductComponents}from'@texnobazar/data';
+import StockCorrectionModal from'./StockCorrectionModal';
+import{formatUzDate,getUzMonthName,getBrowserClient,createStockReceipt,deleteStockReceipt,convertStockReceiptsCurrency,getInventoryReferences,getInventoryUnitPassport,getLatestExchangeRate,getStockReceipt,listInventoryBalances,listReceiptQrLabels,listStockReceipts,placeInventoryUnits,revertUnitSale,updateStockReceipt,uploadProductMedia,exportBatchesBackup,exportReceiptBackup,inspectBatchesBackupFile,restoreBatchesBackupFile,saveProductComponents,getProductComponents,syncAllBatchPricesToLatest}from'@texnobazar/data';
 const err=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 // Visual marker only: INV-* kirimlar inventarizatsiya orqali ro‘yxatga olingan,
 // qolganlari esa oddiy yetkazib berish partiyasi.
 const isInventoryReceipt=receiptNo=>/^INV-/i.test(String(receiptNo||'').trim());
+
+const downloadExcelWorkbook=async(wb,fileName)=>{
+  const buffer=await wb.xlsx.writeBuffer();
+  const blob=new Blob([buffer],{
+    type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+  });
+  const url=window.URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.style.display='none';
+  a.href=url;
+  a.download=fileName.endsWith('.xlsx')?fileName:`${fileName}.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>{
+    window.URL.revokeObjectURL(url);
+  },20000);
+};
+
 export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInventory,toast,autoOpenReceiptId,onAutoOpenReceiptHandled,refreshTrigger}){
   const getTodayDate=()=>{const d=new Date();return new Date(d.getFullYear(),d.getMonth(),d.getDate());};
   const isSameDay=(d1,d2)=>{if(!d1||!d2)return false;return d1.getFullYear()===d2.getFullYear()&&d1.getMonth()===d2.getMonth()&&d1.getDate()===d2.getDate();};
-  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[aggregates,setAggregates]=useState({totalUnits:0,totalCost:0,totalMinPrice:0,batchCount:0,invCount:0}),[query,setQuery]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[currencyFilter,setCurrencyFilter]=useState('all'),[locationFilter,setLocationFilter]=useState('all'),[locations,setLocations]=useState([]),[sortBy,setSortBy]=useState('newest'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
+  const[rows,setRows]=useState([]),[total,setTotal]=useState(0),[aggregates,setAggregates]=useState({totalUnits:0,totalCost:0,totalMinPrice:0,batchCount:0,invCount:0}),[query,setQuery]=useState(''),[typeFilter,setTypeFilter]=useState('all'),[currencyFilter,setCurrencyFilter]=useState('all'),[locationFilter,setLocationFilter]=useState('all'),[qtyFilter,setQtyFilter]=useState('all'),[locations,setLocations]=useState([]),[sortBy,setSortBy]=useState('newest'),[loading,setLoading]=useState(true),[error,setError]=useState(''),[detail,setDetail]=useState(null),[detailEdit,setDetailEdit]=useState(false),[deletingId,setDeletingId]=useState(null);
   const[selectedIds,setSelectedIds]=useState([]),[convertingCurrency,setConvertingCurrency]=useState(false);
   const[passwordModal,setPasswordModal]=useState(null);
   const[selectedDate,setSelectedDate]=useState(()=>getTodayDate());
@@ -38,24 +58,6 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     getInventoryReferences(branchId).then(r=>setLocations(r.locations||[])).catch(()=>{});
   },[branchId]);
 
-  const downloadExcelWorkbook=async(wb,fileName)=>{
-    const buffer=await wb.xlsx.writeBuffer();
-    const blob=new Blob([buffer],{
-      type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    });
-    const url=window.URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.style.display='none';
-    a.href=url;
-    a.download=fileName.endsWith('.xlsx')?fileName:`${fileName}.xlsx`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(()=>{
-      window.URL.revokeObjectURL(url);
-    },20000);
-  };
-
   const handleExportExcel=async(specificReceipt=null)=>{
     const listToExport=specificReceipt?[specificReceipt]:displayRows;
     if(!listToExport.length){
@@ -73,7 +75,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         views:[{state:'frozen',ySplit:1}]
       });
 
-      // 19 ta ustun: Tovarlar izohi hamda UZS va USD alohida ustunlarda
+      // Ustunlar: Tovarlar izohi hamda UZS va USD, Kirim soni, Mavjud qoldiq va Sotilgan
       ws.columns=[
         {header:'№',key:'idx',width:8},
         {header:'Mahsulot nomi',key:'product_name',width:38},
@@ -84,12 +86,16 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         {header:'Tan narxi (USD)',key:'unit_cost_usd',width:18},
         {header:'Sotish narxi (UZS)',key:'retail_price_uzs',width:20},
         {header:'Sotish narxi (USD)',key:'retail_price_usd',width:18},
+        {header:'Tafovut (UZS)',key:'diff_price_uzs',width:20},
+        {header:'Tafovut (USD)',key:'diff_price_usd',width:18},
         {header:'Ulgurji narxi (UZS)',key:'wholesale_price_uzs',width:20},
         {header:'Ulgurji narxi (USD)',key:'wholesale_price_usd',width:18},
         {header:'Minimal sotish narxi (UZS)',key:'minimum_sale_price_uzs',width:24},
         {header:'Minimal sotish narxi (USD)',key:'minimum_sale_price_usd',width:22},
         {header:'Valyuta',key:'currency',width:12},
-        {header:'Miqdori (soni)',key:'quantity',width:16},
+        {header:'Kirim soni',key:'quantity',width:16},
+        {header:'Mavjud qoldiq',key:'available_count',width:16},
+        {header:'Sotilgan soni',key:'sold_count',width:16},
         {header:'Partiya umumiy kodi',key:'qr_code',width:22},
         {header:'Partiya raqami',key:'receipt_no',width:24},
         {header:'Qabul qilingan sana',key:'received_at',width:18},
@@ -122,6 +128,8 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
 
       let rowIdx=1;
       let totalUnitsSum=0;
+      let totalAvailableSum=0;
+      let totalSoldSum=0;
 
       listToExport.forEach(receipt=>{
         const receiptNo=receipt.receipt_no||'—';
@@ -134,6 +142,8 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         if(items.length>0){
           items.forEach(it=>{
             const qty=Number(it.quantity)||1;
+            const availQty=Number(it.available_count ?? qty);
+            const soldQty=Number(it.sold_count || 0);
 
             // Tannarx
             let costUzs=Number(it.unit_cost)||0;
@@ -172,12 +182,17 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
             }
 
             totalUnitsSum+=qty;
+            totalAvailableSum+=availQty;
+            totalSoldSum+=soldQty;
 
             const fullName=it.variant_color
               ?`${it.product_name||'Nomsiz tovar'} (${it.variant_color})`
               :(it.product_name||'Nomsiz tovar');
 
             const itemCurrency=receiptCurrency;
+
+            const diffUzs=retailUzs-costUzs;
+            const diffUsd=Number((retailUsd-costUsd).toFixed(2));
 
             const addedRow=ws.addRow({
               idx:rowIdx,
@@ -189,12 +204,16 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
               unit_cost_usd:costUsd,
               retail_price_uzs:retailUzs,
               retail_price_usd:retailUsd,
+              diff_price_uzs:{formula:`H${rowIdx+1}-F${rowIdx+1}`,result:diffUzs},
+              diff_price_usd:{formula:`I${rowIdx+1}-G${rowIdx+1}`,result:diffUsd},
               wholesale_price_uzs:wholesaleUzs,
               wholesale_price_usd:wholesaleUsd,
               minimum_sale_price_uzs:minPriceUzs,
               minimum_sale_price_usd:minPriceUsd,
               currency:itemCurrency,
               quantity:qty,
+              available_count:availQty,
+              sold_count:soldQty,
               qr_code:it.qr_code||'—',
               receipt_no:receiptNo,
               received_at:receivedDate,
@@ -226,29 +245,50 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
                 // Tovarlar izohi
                 cell.alignment={horizontal:'left',vertical:'middle'};
                 cell.font={name:'Calibri',size:10,italic:true};
-              }else if(colNumber===6||colNumber===8||colNumber===10||colNumber===12){
-                // UZS ustunlar
+              }else if(colNumber===6||colNumber===8||colNumber===12||colNumber===14){
+                // UZS ustunlar (Tan narxi, Sotish narxi, Ulgurji, Minimal)
                 cell.numFmt='#,##0';
                 cell.alignment={horizontal:'right',vertical:'middle'};
-              }else if(colNumber===7||colNumber===9||colNumber===11||colNumber===13){
+              }else if(colNumber===7||colNumber===9||colNumber===13||colNumber===15){
                 // USD ustunlar
                 cell.numFmt='$#,##0.00';
                 cell.alignment={horizontal:'right',vertical:'middle'};
                 cell.font={name:'Calibri',size:10,color:{argb:'FF0369A1'}};
-              }else if(colNumber===14){
+              }else if(colNumber===10){
+                // Tafovut UZS
+                cell.numFmt='#,##0;[Red]-#,##0;"0"';
+                cell.alignment={horizontal:'right',vertical:'middle'};
+                cell.font={name:'Calibri',size:10,bold:true,color:{argb:diffUzs>=0?'FF15803D':'FFDC2626'}};
+              }else if(colNumber===11){
+                // Tafovut USD
+                cell.numFmt='$#,##0.00;[Red]-$#,##0.00;"$0.00"';
+                cell.alignment={horizontal:'right',vertical:'middle'};
+                cell.font={name:'Calibri',size:10,bold:true,color:{argb:diffUsd>=0?'FF15803D':'FFDC2626'}};
+              }else if(colNumber===16){
                 // Valyuta
                 cell.alignment={horizontal:'center',vertical:'middle'};
                 cell.font={name:'Calibri',size:10,bold:true,color:{argb:itemCurrency==='USD'?'FF0284C7':'FF16A34A'}};
-              }else if(colNumber===15){
-                // Miqdori
+              }else if(colNumber===17){
+                // Kirim miqdori
                 cell.numFmt='#,##0';
                 cell.alignment={horizontal:'right',vertical:'middle'};
                 cell.font={name:'Calibri',size:10,bold:true};
-              }else if(colNumber===16){
+              }else if(colNumber===18){
+                // Mavjud qoldiq
+                cell.numFmt='#,##0';
+                cell.alignment={horizontal:'right',vertical:'middle'};
+                cell.font={name:'Calibri',size:10,bold:true,color:{argb:cell.value===0?'FFDC2626':'FF15803D'}};
+              }else if(colNumber===19){
+                // Sotilgan soni
+                cell.numFmt='#,##0';
+                cell.alignment={horizontal:'right',vertical:'middle'};
+                cell.font={name:'Calibri',size:10,bold:true,color:{argb:'FFB45309'}};
+              }else if(colNumber===20){
                 // QR kod
                 cell.alignment={horizontal:'center',vertical:'middle'};
                 cell.font={name:'Consolas',size:10,bold:true,color:{argb:'FF0369A1'}};
-              }else if(colNumber===18){
+              }else if(colNumber===21||colNumber===22){
+                // Partiya raqami, Qabul qilingan sana
                 cell.alignment={horizontal:'center',vertical:'middle'};
               }else{
                 cell.alignment={horizontal:'left',vertical:'middle'};
@@ -271,12 +311,16 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         unit_cost_usd:'',
         retail_price_uzs:'',
         retail_price_usd:'',
+        diff_price_uzs:'',
+        diff_price_usd:'',
         wholesale_price_uzs:'',
         wholesale_price_usd:'',
         minimum_sale_price_uzs:'',
         minimum_sale_price_usd:'',
         currency:'',
         quantity:totalUnitsSum,
+        available_count:totalAvailableSum,
+        sold_count:totalSoldSum,
         qr_code:'',
         receipt_no:'',
         received_at:'',
@@ -296,7 +340,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
           left:{style:'thin',color:{argb:'FFCBD5E1'}},
           right:{style:'thin',color:{argb:'FFCBD5E1'}}
         };
-        if(colNumber===15){
+        if(colNumber===17||colNumber===18||colNumber===19){
           cell.numFmt='#,##0';
           cell.alignment={horizontal:'right',vertical:'middle'};
         }else if(colNumber===2){
@@ -377,6 +421,8 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       }
       setAggregates({
         totalUnits: Number(r.total_units ?? items.reduce((s, x) => s + Number(x.unit_count || 0), 0)),
+        totalAvailableUnits: Number(r.total_available_units ?? items.reduce((s, x) => s + Number((x.available_unit_count ?? x.unit_count) || 0), 0)),
+        totalSoldUnits: Number(r.total_sold_units ?? items.reduce((s, x) => s + Number(x.sold_unit_count || 0), 0)),
         totalCost: Number(r.total_cost ?? items.reduce((s, x) => s + Number(x.total_cost || 0), 0)),
         totalMinPrice: Number(r.total_min_price ?? items.reduce((s, x) => s + Number(x.total_min_price || 0), 0)),
         batchCount: Number(r.batch_count ?? items.filter(x => !isInventoryReceipt(x.receipt_no)).length),
@@ -393,7 +439,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     }
   };
   useEffect(()=>{const t=setTimeout(()=>load(selectedDate),query?350:0);return()=>clearTimeout(t)},[branchId,query,locationFilter,selectedDate]);
-  useEffect(()=>{setVisibleCount(30);},[selectedDate,query,typeFilter,currencyFilter,locationFilter,sortBy]);
+  useEffect(()=>{setVisibleCount(30);},[selectedDate,query,typeFilter,currencyFilter,locationFilter,qtyFilter,sortBy]);
   const open=async(id,isEdit=false)=>{try{setDetail(await getStockReceipt(id));setDetailEdit(Boolean(isEdit));}catch(e){setError(err(e))}};
 
   const handleNewlyCreatedReceipt=async(receiptId)=>{
@@ -404,6 +450,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       setLocationFilter('all');
       setQuery('');
       setSortBy('newest');
+      setQtyFilter('all');
 
       const fullReceipt=await getStockReceipt(receiptId);
       if(fullReceipt){
@@ -467,6 +514,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     }else if(refreshTrigger){
       setSelectedDate(getTodayDate());
       setTypeFilter('all');
+      setQtyFilter('all');
       setQuery('');
       load(getTodayDate());
     }
@@ -474,7 +522,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   const deleteBatch=async(id,receiptNo,password=null)=>{
     const cleanPassword = typeof password === 'string' ? password.trim() : null;
     if(deletingId)return;
-    if(!cleanPassword&&!confirm(`"${receiptNo}" partiyasini o'chirishni tasdiqlaysizmi?\n\nDIQQAT: Ushbu partiyaga tegishli tovar birliklari o'chiriladi!`))return;
+    if(!confirm(`"${receiptNo}" partiyasini o'chirishni tasdiqlaysizmi?\n\n• Sotilgan tovarlar, hisobotlar va kassa tushumlari to‘liq saqlanib qoladi.\n• Faqat omborda qolgan sotilmagan qoldiqlar o'chiriladi.`))return;
     setDeletingId(id);
     try{
       await deleteStockReceipt(id,cleanPassword);
@@ -489,18 +537,8 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         setPasswordModal(null);
         setError('');
         await load();
-      }else if(message.includes('sotilganlari bor')||e?.code==='P0001'||message.includes('Parol')||message.includes('parol')){
-        if(cleanPassword){
-          setPasswordModal(prev=>({...(prev||{id,receiptNo,password:''}),error:message||'Noto\'g\'ri parol kiritildi!'}));
-        }else{
-          setPasswordModal({id,receiptNo,password:'',error:''});
-        }
       }else{
-        if(passwordModal){
-          setPasswordModal(prev=>({...prev,error:message}));
-        }else{
-          alert(message);
-        }
+        alert(message);
       }
     }finally{
       setDeletingId(null);
@@ -529,6 +567,11 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
   const invCount=useMemo(()=>rows.filter(x=>isInventoryReceipt(x.receipt_no)).length,[rows]);
   const uzsCount=useMemo(()=>rows.filter(x=>String(x.currency||'USD').toUpperCase()==='UZS').length,[rows]);
   const usdCount=useMemo(()=>rows.filter(x=>String(x.currency||'USD').toUpperCase()==='USD').length,[rows]);
+  const zeroQtyCount=useMemo(()=>rows.filter(x=>(Number(x.available_unit_count ?? x.unit_count)||0)===0).length,[rows]);
+  const hasQtyCount=useMemo(()=>rows.filter(x=>(Number(x.available_unit_count ?? x.unit_count)||0)>0).length,[rows]);
+  const units1to5Count=useMemo(()=>rows.filter(x=>{const u=Number(x.available_unit_count ?? x.unit_count)||0;return u>=1&&u<=5;}).length,[rows]);
+  const units6to20Count=useMemo(()=>rows.filter(x=>{const u=Number(x.available_unit_count ?? x.unit_count)||0;return u>=6&&u<=20;}).length,[rows]);
+  const units21PlusCount=useMemo(()=>rows.filter(x=>(Number(x.available_unit_count ?? x.unit_count)||0)>=21).length,[rows]);
   const totalCostAll=useMemo(()=>rows.reduce((s,x)=>s+Number(x.total_cost||0),0),[rows]);
   const totalMinAll=useMemo(()=>rows.reduce((s,x)=>s+Number(x.total_min_price||0),0),[rows]);
   const cleanQ = query ? query.trim() : '';
@@ -538,6 +581,12 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       if(typeFilter==='inventory'&&!isInventoryReceipt(x.receipt_no))return false;
       if(currencyFilter!=='all'&&String(x.currency||'USD').toUpperCase()!==currencyFilter)return false;
       if(locationFilter!=='all'&&x.receiving_location_id!==locationFilter)return false;
+      const curQty = Number(x.available_unit_count ?? x.unit_count) || 0;
+      if(qtyFilter==='zero' && curQty !== 0) return false;
+      if(qtyFilter==='has_stock' && curQty <= 0) return false;
+      if(qtyFilter==='1-5' && (curQty < 1 || curQty > 5)) return false;
+      if(qtyFilter==='6-20' && (curQty < 6 || curQty > 20)) return false;
+      if(qtyFilter==='21+' && curQty < 21) return false;
       // Faqat qidiruv bo'lmagandagina tanlangan sana bo'yicha cheklaymiz. Qidiruv paytida barcha kunlardagi yozuvlar chiqadi!
       if(selectedDate && !cleanQ){
         const d=new Date(x.received_at);
@@ -548,7 +597,7 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       }
       return true;
     });
-  },[rows,selectedDate,typeFilter,currencyFilter,locationFilter,cleanQ]);
+  },[rows,selectedDate,typeFilter,currencyFilter,locationFilter,qtyFilter,cleanQ]);
 
   const allVisibleSelected = displayRows.length > 0 && displayRows.every(r => selectedIds.includes(r.id));
   const someVisibleSelected = displayRows.some(r => selectedIds.includes(r.id));
@@ -617,10 +666,30 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         return String(a.receipt_no||'').localeCompare(String(b.receipt_no||''));
       }
       if(sortBy==='units_desc'){
-        return(Number(b.unit_count)||0)-(Number(a.unit_count)||0);
+        const diff = (Number(b.unit_count)||0)-(Number(a.unit_count)||0);
+        if(diff !== 0) return diff;
+        const tA=new Date(a.created_at||a.received_at||0).getTime();
+        const tB=new Date(b.created_at||b.received_at||0).getTime();
+        if(tB!==tA)return tB-tA;
+        return String(b.receipt_no||'').localeCompare(String(a.receipt_no||''));
+      }
+      if(sortBy==='units_asc'){
+        const diff = (Number(a.unit_count)||0)-(Number(b.unit_count)||0);
+        if(diff !== 0) return diff;
+        const tA=new Date(a.created_at||a.received_at||0).getTime();
+        const tB=new Date(b.created_at||b.received_at||0).getTime();
+        if(tB!==tA)return tB-tA;
+        return String(b.receipt_no||'').localeCompare(String(a.receipt_no||''));
       }
       if(sortBy==='cost_desc'){
-        return(Number(b.total_cost)||0)-(Number(a.total_cost)||0);
+        const diff = (Number(b.total_cost)||0)-(Number(a.total_cost)||0);
+        if(diff !== 0) return diff;
+        return (Number(b.unit_count)||0)-(Number(a.unit_count)||0);
+      }
+      if(sortBy==='cost_asc'){
+        const diff = (Number(a.total_cost)||0)-(Number(b.total_cost)||0);
+        if(diff !== 0) return diff;
+        return (Number(a.unit_count)||0)-(Number(b.unit_count)||0);
       }
       if(sortBy==='receipt_no'){
         return String(a.receipt_no||'').localeCompare(String(b.receipt_no||''));
@@ -688,6 +757,28 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       >
         <ShieldAlert size={16}/>Minimal narx sozlamalari
       </button>
+      <button
+        type="button"
+        className="btn btn-outline"
+        style={{borderColor:'#0284c7',color:'#0284c7',background:'#f0f9ff',display:'inline-flex',alignItems:'center',gap:6,fontWeight:700}}
+        onClick={async ()=>{
+          if (!window.confirm("Barcha tovar turlarining avvalgi partiyalaridagi narxlarini eng oxirgi belgilangan narxga tenglashtirishni xohlaysizmi?")) return;
+          try {
+            setLoading(true);
+            const res = await syncAllBatchPricesToLatest();
+            toast?.(`${res.synced_batches_count || 0} ta partiya narxi oxirgisiga sinxronlashtirildi!`);
+            load(selectedDate);
+          } catch(err) {
+            toast?.('Xatolik: ' + (err?.message || err));
+          } finally {
+            setLoading(false);
+          }
+        }}
+        title="Barcha tovar turlarining avvalgi partiyalaridagi narxlarini eng oxirgi belgilangan narxga sinxronlashtirish"
+      >
+        <RotateCcw size={15}/>Narxlarni sinxronlash
+      </button>
+
       <button className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6,fontSize:13,color:'#64748b'}} onClick={handleExportAll} disabled={exportingAll} title="Barcha partiyalarni dasturiy JSON zahira fayliga yuklash">
         <Download size={14}/>{exportingAll?'Eksport…':'Zahira (JSON)'}
       </button>
@@ -753,7 +844,17 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
     <div><b>{total}</b><span>Jami yozuvlar</span></div>
     <div><b>{aggregates.batchCount ?? batchCount}</b><span>Kirim partiyalari</span></div>
     <div><b>{aggregates.invCount ?? invCount}</b><span>Inventarizatsiyalar</span></div>
-    <div><b>{aggregates.totalUnits ?? rows.reduce((s,x)=>s+Number(x.unit_count),0)}</b><span>Jami birliklar</span></div>
+    <div>
+      <b>
+        {aggregates.totalAvailableUnits ?? rows.reduce((s,x)=>s+Number(x.available_unit_count ?? x.unit_count),0)} dona
+        {Number(aggregates.totalSoldUnits || 0) > 0 && (
+          <small style={{fontSize: 11, fontWeight: 600, color: '#16a34a', display: 'block'}}>
+            Kirim: {aggregates.totalUnits ?? rows.reduce((s,x)=>s+Number(x.unit_count),0)} · Sotilgan: {aggregates.totalSoldUnits}
+          </small>
+        )}
+      </b>
+      <span>Mavjud qoldiq / Kirim</span>
+    </div>
     <div><b><DualPrice value={aggregates.totalCost || totalCostAll} rate={rate}/></b><span>Barcha tovarlar tan narxi</span></div>
     <div><b><DualPrice value={aggregates.totalMinPrice || totalMinAll} rate={rate}/></b><span>Barcha tovarlar min. sotish</span></div>
   </div>
@@ -892,14 +993,33 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
         })}
       </select>
     </div>
-    <div className="batch-filter-pill" style={{display:'flex',alignItems:'center',gap:6,background:'#fff',padding:'5px 12px',borderRadius:12,border:'1px solid var(--line,#e2e8f0)',fontSize:13}}>
-      <ArrowUpDown size={15} style={{color:'var(--muted)'}}/>
-      <span style={{fontSize:12,color:'var(--muted)',fontWeight:600}}>Saralash:</span>
-      <select className="select" style={{border:'none',padding:'3px 6px',fontSize:13,background:'transparent',cursor:'pointer',fontWeight:700,color:'var(--navy,#0f172a)'}} value={sortBy} onChange={e=>setSortBy(e.target.value)}>
+    <div className="batch-filter-pill" style={{display:'flex',alignItems:'center',gap:6,background:'#fff',padding:'5px 12px',borderRadius:12,border:qtyFilter!=='all'?'1.5px solid #0284c7':'1px solid var(--line,#e2e8f0)',fontSize:13}}>
+      <Boxes size={15} style={{color:qtyFilter!=='all'?'#0284c7':'var(--muted)'}}/>
+      <span style={{fontSize:12,color:qtyFilter!=='all'?'#0f172a':'var(--muted)',fontWeight:600}}>Miqdori:</span>
+      <select
+        className="select"
+        style={{border:'none',padding:'3px 6px',fontSize:13,background:'transparent',cursor:'pointer',fontWeight:700,color:qtyFilter!=='all'?'#0284c7':'var(--navy,#0f172a)'}}
+        value={qtyFilter}
+        onChange={e=>setQtyFilter(e.target.value)}
+      >
+        <option value="all">Barcha miqdorlar ({rows.length})</option>
+        <option value="zero">Qoldig‘i 0 dona (tugagan) ({zeroQtyCount})</option>
+        <option value="has_stock">Qoldig‘i bor (1+ dona) ({hasQtyCount})</option>
+        <option value="1-5">1 – 5 dona qoldiq ({units1to5Count})</option>
+        <option value="6-20">6 – 20 dona qoldiq ({units6to20Count})</option>
+        <option value="21+">21+ dona qoldiq ({units21PlusCount})</option>
+      </select>
+    </div>
+    <div className="batch-filter-pill" style={{display:'flex',alignItems:'center',gap:6,background:'#fff',padding:'5px 12px',borderRadius:12,border:sortBy.startsWith('units_')?'1.5px solid #0284c7':'1px solid var(--line,#e2e8f0)',fontSize:13}}>
+      <ArrowUpDown size={15} style={{color:sortBy.startsWith('units_')?'#0284c7':'var(--muted)'}}/>
+      <span style={{fontSize:12,color:sortBy.startsWith('units_')?'#0f172a':'var(--muted)',fontWeight:600}}>Saralash:</span>
+      <select className="select" style={{border:'none',padding:'3px 6px',fontSize:13,background:'transparent',cursor:'pointer',fontWeight:700,color:sortBy.startsWith('units_')?'#0284c7':'var(--navy,#0f172a)'}} value={sortBy} onChange={e=>setSortBy(e.target.value)}>
         <option value="newest">Eng yangi (oxirgi yaratilgan)</option>
         <option value="oldest">Eng avvalgi</option>
-        <option value="units_desc">Birliklar (ko‘pdan ozga)</option>
+        <option value="units_desc">Eng ko‘p tovar (ko‘pdan ozga)</option>
+        <option value="units_asc">Eng kam tovar (0 dona avval, ozdan ko‘pga)</option>
         <option value="cost_desc">Tan narxi (yuqoridan pastga)</option>
+        <option value="cost_asc">Tan narxi (pastdan yuqoriga)</option>
         <option value="receipt_no">Hujjat raqami bo‘yicha</option>
       </select>
     </div>
@@ -1130,7 +1250,21 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
       </div>
       <div className="batch-meta">
         <span><Clock3/>{new Date(x.received_at).toLocaleDateString('uz-UZ')}</span>
-        <span><Boxes/>{Number(x.unit_count)} dona</span>
+        <span title={`Kirim soni: ${Number(x.unit_count)} dona · Mavjud qoldiq: ${Number(x.available_unit_count ?? x.unit_count)} dona · Sotilgan: ${Number(x.sold_unit_count || 0)} dona`}>
+          <Boxes/>
+          {Number(x.sold_unit_count || 0) > 0 ? (
+            <>
+              <b>{Number(x.available_unit_count ?? 0)}</b> / {Number(x.unit_count)} dona
+              {Number(x.available_unit_count) === 0 ? (
+                <span style={{marginLeft: 4, color: '#dc2626', fontWeight: 800}}>(Tugagan)</span>
+              ) : (
+                <span style={{marginLeft: 4, color: '#16a34a', fontSize: 11, fontWeight: 600}}>({Number(x.sold_unit_count)} sotilgan)</span>
+              )}
+            </>
+          ) : (
+            <>{Number(x.unit_count)} dona</>
+          )}
+        </span>
         <span><QrCode/>{x.line_count} tur QR</span>
         <span title={`Joylashuvi: ${x.location_name || '—'}`}><Warehouse size={13}/>{x.location_name || '—'}</span>
       </div>
@@ -1174,9 +1308,33 @@ export function InventoryBatches({branchId,onCreate,onCreateBatch,onCreateInvent
                     {it.qr_code}
                   </code>
                 )}
-                <span style={{fontSize: 11, fontWeight: 700, color: '#0369a1', background: '#e0f2fe', padding: '1px 6px', borderRadius: 4, flexShrink: 0}}>
-                  {it.quantity} dona
-                </span>
+                <div style={{display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0}}>
+                  {Number(it.sold_count || 0) > 0 ? (
+                    <>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 700,
+                          color: Number(it.available_count) === 0 ? '#b91c1c' : '#15803d',
+                          background: Number(it.available_count) === 0 ? '#fee2e2' : '#dcfce7',
+                          border: Number(it.available_count) === 0 ? '1px solid #fecaca' : '1px solid #bbf7d0',
+                          padding: '1px 6px',
+                          borderRadius: 4
+                        }}
+                        title={`Kirim: ${it.quantity} dona · Qoldiq: ${it.available_count} dona · Sotilgan: ${it.sold_count} dona`}
+                      >
+                        {Number(it.available_count) === 0 ? '0 dona (Tugagan)' : `${it.available_count} / ${it.quantity} dona`}
+                      </span>
+                      <span style={{fontSize: 9.5, color: '#64748b', fontWeight: 600}}>
+                        Kirim: {it.quantity} · Sotilgan: {it.sold_count}
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{fontSize: 11, fontWeight: 700, color: '#0369a1', background: '#e0f2fe', padding: '1px 6px', borderRadius: 4}}>
+                      {it.quantity} dona
+                    </span>
+                  )}
+                </div>
               </div>
             ))}
             {x.items.length > 4 && (
@@ -1422,15 +1580,30 @@ function BatchCalendar({month,setMonth,batchDates,selectedDate,onDateClick}){
 }
 export function InventoryStock({branchId,onScan,onRegister,toast}){
   const rate=useExchangeRate();
-  const[rows,setRows]=useState([]),[totalRows,setTotalRows]=useState(0),[aggregates,setAggregates]=useState({totalOnHand:0,totalValue:0,totalCost:0}),[refs,setRefs]=useState({locations:[],categories:[],brands:[]}),[colors,setColors]=useState([]),[form,setForm]=useState({query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:''}),[applied,setApplied]=useState({query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:''}),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50),[loading,setLoading]=useState(true),[error,setError]=useState(''),[selectedProduct,setSelectedProduct]=useState(null),[editingProduct,setEditingProduct]=useState(null),[selected,setSelected]=useState([]);
+  const[rows,setRows]=useState([]),[totalRows,setTotalRows]=useState(0),[aggregates,setAggregates]=useState({totalOnHand:0,totalValue:0,totalCost:0}),[refs,setRefs]=useState({locations:[],categories:[],brands:[]}),[colors,setColors]=useState([]),[form,setForm]=useState({query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:'',hasImage:'',sortBy:''}),[applied,setApplied]=useState({query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:'',hasImage:'',sortBy:''}),[page,setPage]=useState(1),[pageSize,setPageSize]=useState(50),[loading,setLoading]=useState(true),[error,setError]=useState(''),[selectedProduct,setSelectedProduct]=useState(null),[editingProduct,setEditingProduct]=useState(null),[selected,setSelected]=useState([]);
   const[importModal,setImportModal]=useState(false);
+  const[exportingExcel,setExportingExcel]=useState(false);
+  const[stockCorrectionOpen,setStockCorrectionOpen]=useState(false);
+  const catMap=useMemo(()=>{const m=new Map();(refs.categories||[]).forEach(c=>m.set(c.id,c));return m},[refs.categories]);
   useEffect(()=>{if(branchId){getInventoryReferences(branchId).then(r=>setRefs(prev=>({...prev,...r}))).catch(e=>setError(err(e)));getBrowserClient().from('categories').select('id,name,parent_id').eq('is_active',true).then(({data})=>setRefs(prev=>({...prev,categories:data||[]}))).catch(()=>{});getBrowserClient().from('product_variants').select('product_id,color_name,color_hex').eq('is_active',true).then(({data})=>setColors(data||[])).catch(()=>{})}},[branchId]);
   const load=async()=>{
     if(!branchId)return;
     setLoading(true);
     setError('');
     try{
-      const r=await listInventoryBalances({branchId,locationId:applied.location||null,query:applied.query||null,categoryId:applied.category||null,minPrice:applied.minPrice||null,maxPrice:applied.maxPrice||null,availability:applied.availability||null,page,pageSize});
+      const r=await listInventoryBalances({
+        branchId,
+        locationId:applied.location||null,
+        query:applied.query||null,
+        categoryId:applied.category||null,
+        minPrice:applied.minPrice||null,
+        maxPrice:applied.maxPrice||null,
+        availability:applied.availability||null,
+        hasImage:applied.hasImage||null,
+        sortBy:applied.sortBy||null,
+        page,
+        pageSize
+      });
       let items=r.items||[];
       if(applied.color){
         const productIdsWithColor=new Set(colors.filter(v=>v.color_name===applied.color).map(v=>v.product_id));
@@ -1451,7 +1624,12 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
   };
   useEffect(()=>{load()},[branchId,applied,page,pageSize]);
   const apply=e=>{e?.preventDefault();setPage(1);setApplied({...form})};
-  const reset=()=>{setForm({query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:''});setApplied({query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:''});setPage(1)};
+  const reset=()=>{
+    const clean={query:'',location:'',category:'',color:'',minPrice:'',maxPrice:'',availability:'',hasImage:'',sortBy:''};
+    setForm(clean);
+    setApplied(clean);
+    setPage(1);
+  };
   const distinctColors=useMemo(()=>{const seen=new Map();colors.forEach(v=>{if(!seen.has(v.color_name))seen.set(v.color_name,v.color_hex)});return[...seen.entries()].map(([color_name,color_hex])=>({color_name,color_hex})).sort((a,b)=>a.color_name.localeCompare(b.color_name))},[colors]);
   const toggle=id=>setSelected(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id]);
   const allSelected=rows.length>0&&rows.every(r=>selected.includes(r.product_id));
@@ -1467,6 +1645,8 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
         minPrice: applied.minPrice || null,
         maxPrice: applied.maxPrice || null,
         availability: applied.availability || null,
+        hasImage: applied.hasImage || null,
+        sortBy: applied.sortBy || null,
         page: 1,
         pageSize: 5000
       });
@@ -1539,7 +1719,414 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
   };
   const deleteProduct=async item=>{if(!confirm(item.product_name+" mahsulotini o'chirasizmi?"))return;try{const{error:e2}=await getBrowserClient().rpc('delete_product_cascade',{p_product_id:item.product_id});if(e2)throw e2;setRows(prev=>prev.filter(r=>r.product_id!==item.product_id))}catch(e){setError(err(e))}};
   const parents=(refs.categories||[]).filter(c=>!c.parent_id);
-  return <><div className="m-page-head between"><div><h2>Tovarlar</h2><p>Filial do'kon va ombor qoldig'i</p></div><div style={{display:'flex',gap:8,alignItems:'center'}}><button type="button" className="btn btn-outline" onClick={()=>setImportModal(true)}><FileSpreadsheet size={16}/>Exceldan import qilish</button><button className="btn btn-primary" onClick={onRegister}><Plus/>Tovar qo'shish</button><button className="btn" onClick={onScan}><QrCode/>QR</button></div></div>
+
+  const handleExportStockExcel = async (selectedOnly = false) => {
+    if (selectedOnly && (!selected.length)) {
+      toast?.('Eksport qilish uchun tovarlar tanlanmagan');
+      return;
+    }
+    setExportingExcel(true);
+    try {
+      let allItems = [];
+      let currentPage = 1;
+      let hasMore = true;
+      while (hasMore) {
+        const r = await listInventoryBalances({
+          branchId,
+          locationId: applied.location || null,
+          query: applied.query || null,
+          categoryId: applied.category || null,
+          minPrice: applied.minPrice || null,
+          maxPrice: applied.maxPrice || null,
+          availability: applied.availability || null,
+          hasImage: applied.hasImage || null,
+          sortBy: applied.sortBy || null,
+          page: currentPage,
+          pageSize: 5000
+        });
+        const items = r?.items || [];
+        allItems = allItems.concat(items);
+        if (items.length < 5000 || allItems.length >= (r?.total || 0)) {
+          hasMore = false;
+        } else {
+          currentPage++;
+        }
+      }
+
+      if (applied.color) {
+        const productIdsWithColor = new Set(colors.filter(v => v.color_name === applied.color).map(v => v.product_id));
+        allItems = allItems.filter(i => productIdsWithColor.has(i.product_id));
+      }
+
+      if (selectedOnly) {
+        const selSet = new Set(selected);
+        allItems = allItems.filter(i => selSet.has(i.product_id));
+      }
+
+      if (!allItems.length) {
+        toast?.('Eksport qilish uchun tovarlar topilmadi');
+        return;
+      }
+
+      const ExcelJS = (await import('exceljs')).default || (await import('exceljs'));
+      const wb = new ExcelJS.Workbook();
+      wb.creator = 'Texnobazar';
+      wb.created = new Date();
+
+      const ws = wb.addWorksheet('Tovarlar qoldig‘i', {
+        views: [{ state: 'frozen', ySplit: 1 }]
+      });
+
+      ws.columns = [
+        { header: '№', key: 'idx', width: 7 },
+        { header: 'Kategoriya', key: 'category_name', width: 28 },
+        { header: 'Asosiy kategoriya', key: 'parent_category_name', width: 24 },
+        { header: 'Mahsulot nomi', key: 'product_name', width: 42 },
+        { header: 'SKU (Artikul)', key: 'sku', width: 18 },
+        { header: 'Shtrix-kod', key: 'barcode', width: 18 },
+        { header: 'Filial', key: 'branch_name', width: 20 },
+        { header: 'Joylashuv', key: 'location_name', width: 22 },
+        { header: 'Joylashuv turi', key: 'location_type', width: 16 },
+        { header: 'Dasturdagi qoldiq (dona)', key: 'on_hand', width: 24 },
+        { header: 'Mavjud qoldiq (dona)', key: 'available', width: 20 },
+        { header: 'Band qilingan (dona)', key: 'reserved', width: 20 },
+        { header: 'Do‘konda sanalgan soni (Reft/Haqiqiy)', key: 'physical_count', width: 32 },
+        { header: 'Farq (Nomuvofiqlik)', key: 'discrepancy', width: 22 },
+        { header: 'Sotish narxi (UZS)', key: 'retail_price_uzs', width: 20 },
+        { header: 'Sotish narxi (USD)', key: 'retail_price_usd', width: 18 },
+        { header: 'Tannarxi (UZS)', key: 'cost_price_uzs', width: 20 },
+        { header: 'Tannarxi (USD)', key: 'cost_price_usd', width: 18 },
+        { header: 'Tafovut (UZS)', key: 'diff_price_uzs', width: 20 },
+        { header: 'Tafovut (USD)', key: 'diff_price_usd', width: 18 },
+        { header: 'Ulgurji narxi (UZS)', key: 'wholesale_price_uzs', width: 20 },
+        { header: 'Minimal narx (UZS)', key: 'minimum_sale_price_uzs', width: 20 },
+        { header: 'Holati', key: 'status', width: 16 }
+      ];
+
+      const headerRow = ws.getRow(1);
+      headerRow.height = 34;
+      headerRow.eachCell((cell, colNumber) => {
+        if (colNumber === 13) {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF0284C7' }
+          };
+        } else if (colNumber === 14) {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFD97706' }
+          };
+        } else if (colNumber === 2 || colNumber === 3) {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF1E293B' }
+          };
+        } else {
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FF0F172A' }
+          };
+        }
+
+        cell.font = {
+          name: 'Calibri',
+          size: 11,
+          bold: true,
+          color: { argb: 'FFFFFFFF' }
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF334155' } },
+          bottom: { style: 'medium', color: { argb: 'FF334155' } },
+          left: { style: 'thin', color: { argb: 'FF334155' } },
+          right: { style: 'thin', color: { argb: 'FF334155' } }
+        };
+      });
+
+      let rowIdx = 1;
+      let totalOnHandSum = 0;
+      let totalAvailableSum = 0;
+      let totalReservedSum = 0;
+      let totalValueUzsSum = 0;
+      let totalCostUzsSum = 0;
+
+      allItems.forEach(item => {
+        rowIdx++;
+        const onHand = Number(item.on_hand) || 0;
+        const available = Number(item.available) || 0;
+        const reserved = Number(item.reserved) || 0;
+
+        const currentRate = Number(rate) || 12800;
+        let retailUzs = Number(item.retail_price) || 0;
+        let retailUsd = Number(item.retail_price_usd) || 0;
+        if (retailUsd > 0 && retailUzs <= 0 && currentRate > 0) {
+          retailUzs = Math.round(retailUsd * currentRate);
+        } else if (retailUzs > 0 && retailUsd <= 0 && currentRate > 0) {
+          retailUsd = Number((retailUzs / currentRate).toFixed(2));
+        }
+
+        let costUzs = Number(item.cost_price) || 0;
+        let costUsd = Number(item.cost_price_usd) || 0;
+        if (costUsd > 0 && costUzs <= 0 && currentRate > 0) {
+          costUzs = Math.round(costUsd * currentRate);
+        } else if (costUzs > 0 && costUsd <= 0 && currentRate > 0) {
+          costUsd = Number((costUzs / currentRate).toFixed(2));
+        }
+
+        let wholesaleUzs = Number(item.wholesale_price) || 0;
+        let minPriceUzs = Number(item.minimum_sale_price) || 0;
+
+        totalOnHandSum += onHand;
+        totalAvailableSum += available;
+        totalReservedSum += reserved;
+        totalValueUzsSum += onHand * retailUzs;
+        totalCostUzsSum += onHand * costUzs;
+
+        let catName = item.category_name || '';
+        let parentCatName = '';
+        const catObj = catMap.get(item.category_id);
+        if (catObj) {
+          if (!catName) catName = catObj.name;
+          if (catObj.parent_id) {
+            const parent = catMap.get(catObj.parent_id);
+            if (parent) parentCatName = parent.name;
+          }
+        }
+        if (!catName) catName = 'Kategoriyasiz';
+        if (!parentCatName) parentCatName = catName;
+
+        const locTypeStr = item.location_type === 'warehouse' ? 'Ombor' : 'Do‘kon';
+        const statusStr = available > 0 ? 'Mavjud' : 'Tugagan (0)';
+
+        const addedRow = ws.addRow({
+          idx: rowIdx - 1,
+          category_name: catName,
+          parent_category_name: parentCatName,
+          product_name: item.product_name || 'Nomsiz tovar',
+          sku: item.sku || '—',
+          barcode: item.barcode || '—',
+          branch_name: item.branch_name || '—',
+          location_name: item.location_name || '—',
+          location_type: locTypeStr,
+          on_hand: onHand,
+          available: available,
+          reserved: reserved,
+          physical_count: '',
+          discrepancy: { formula: `IF(ISBLANK(M${rowIdx}),"",M${rowIdx}-J${rowIdx})`, result: '' },
+          retail_price_uzs: retailUzs,
+          retail_price_usd: retailUsd,
+          cost_price_uzs: costUzs,
+          cost_price_usd: costUsd,
+          diff_price_uzs: { formula: `O${rowIdx}-Q${rowIdx}`, result: Number(retailUzs - costUzs) },
+          diff_price_usd: { formula: `P${rowIdx}-R${rowIdx}`, result: Number((retailUsd - costUsd).toFixed(2)) },
+          wholesale_price_uzs: wholesaleUzs,
+          minimum_sale_price_uzs: minPriceUzs,
+          status: statusStr
+        });
+
+        const diffUzs = retailUzs - costUzs;
+        const diffUsd = Number((retailUsd - costUsd).toFixed(2));
+
+        addedRow.height = 22;
+        const isEven = (rowIdx - 1) % 2 === 0;
+
+        addedRow.eachCell((cell, colNumber) => {
+          cell.font = { name: 'Calibri', size: 10 };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            bottom: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            left: { style: 'thin', color: { argb: 'FFE2E8F0' } },
+            right: { style: 'thin', color: { argb: 'FFE2E8F0' } }
+          };
+
+          if (isEven) {
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFF8FAFC' }
+            };
+          }
+
+          if (colNumber === 1) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (colNumber === 2 || colNumber === 3) {
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+          } else if (colNumber === 4) {
+            cell.alignment = { horizontal: 'left', vertical: 'middle' };
+          } else if (colNumber === 5 || colNumber === 6) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = { name: 'Consolas', size: 9, color: { argb: 'FF334155' } };
+          } else if (colNumber === 7 || colNumber === 8 || colNumber === 9) {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+          } else if (colNumber === 10) {
+            cell.numFmt = '#,##0';
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10, bold: true, color: { argb: 'FF0F172A' } };
+          } else if (colNumber === 11 || colNumber === 12) {
+            cell.numFmt = '#,##0';
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          } else if (colNumber === 13) {
+            cell.numFmt = '#,##0';
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFF0F9FF' }
+            };
+            cell.font = { name: 'Calibri', size: 10, bold: true };
+          } else if (colNumber === 14) {
+            cell.numFmt = '#,##0;[Red]-#,##0;"0"';
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FFFFFBEB' }
+            };
+            cell.font = { name: 'Calibri', size: 10, bold: true };
+          } else if (colNumber === 15 || colNumber === 17) {
+            // Sotish narxi (UZS), Tannarxi (UZS)
+            cell.numFmt = '#,##0';
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          } else if (colNumber === 16 || colNumber === 18) {
+            // Sotish narxi (USD), Tannarxi (USD)
+            cell.numFmt = '$#,##0.00';
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.font = { name: 'Calibri', size: 10, color: { argb: 'FF0369A1' } };
+          } else if (colNumber === 19) {
+            // Tafovut (UZS)
+            cell.numFmt = '#,##0;[Red]-#,##0;"0"';
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.font = {
+              name: 'Calibri',
+              size: 10,
+              bold: true,
+              color: { argb: diffUzs >= 0 ? 'FF15803D' : 'FFDC2626' }
+            };
+          } else if (colNumber === 20) {
+            // Tafovut (USD)
+            cell.numFmt = '$#,##0.00;[Red]-$#,##0.00;"$0.00"';
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+            cell.font = {
+              name: 'Calibri',
+              size: 10,
+              bold: true,
+              color: { argb: diffUsd >= 0 ? 'FF15803D' : 'FFDC2626' }
+            };
+          } else if (colNumber === 21 || colNumber === 22) {
+            // Ulgurji narxi (UZS), Minimal narx (UZS)
+            cell.numFmt = '#,##0';
+            cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          } else if (colNumber === 23) {
+            // Holati
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            cell.font = {
+              name: 'Calibri',
+              size: 10,
+              bold: true,
+              color: { argb: available > 0 ? 'FF16A34A' : 'FFDC2626' }
+            };
+          }
+        });
+      });
+
+      const totalDiffUzs = totalValueUzsSum - totalCostUzsSum;
+      const totalDiffUsd = rate ? Number(((totalValueUzsSum - totalCostUzsSum) / rate).toFixed(2)) : 0;
+
+      const summaryRow = ws.addRow({
+        idx: 'JAMI',
+        category_name: `${allItems.length} ta tovar turi`,
+        parent_category_name: '',
+        product_name: '',
+        sku: '',
+        barcode: '',
+        branch_name: '',
+        location_name: '',
+        location_type: '',
+        on_hand: totalOnHandSum,
+        available: totalAvailableSum,
+        reserved: totalReservedSum,
+        physical_count: '',
+        discrepancy: '',
+        retail_price_uzs: totalValueUzsSum,
+        retail_price_usd: rate ? Number((totalValueUzsSum / rate).toFixed(2)) : 0,
+        cost_price_uzs: totalCostUzsSum,
+        cost_price_usd: rate ? Number((totalCostUzsSum / rate).toFixed(2)) : 0,
+        diff_price_uzs: totalDiffUzs,
+        diff_price_usd: totalDiffUsd,
+        wholesale_price_uzs: '',
+        minimum_sale_price_uzs: '',
+        status: ''
+      });
+      summaryRow.height = 26;
+      summaryRow.eachCell((cell, colNumber) => {
+        cell.font = { name: 'Calibri', size: 11, bold: true, color: { argb: 'FF0F172A' } };
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FFE2E8F0' }
+        };
+        cell.border = {
+          top: { style: 'medium', color: { argb: 'FF0F172A' } },
+          bottom: { style: 'double', color: { argb: 'FF0F172A' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+        };
+        if (colNumber === 1 || colNumber === 2) {
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        } else if (colNumber >= 10 && colNumber <= 12) {
+          cell.numFmt = '#,##0';
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        } else if (colNumber === 15 || colNumber === 17) {
+          cell.numFmt = '#,##0';
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        } else if (colNumber === 16 || colNumber === 18) {
+          cell.numFmt = '$#,##0.00';
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        } else if (colNumber === 19) {
+          cell.numFmt = '#,##0;[Red]-#,##0;"0"';
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          cell.font = {
+            name: 'Calibri',
+            size: 11,
+            bold: true,
+            color: { argb: totalDiffUzs >= 0 ? 'FF15803D' : 'FFDC2626' }
+          };
+        } else if (colNumber === 20) {
+          cell.numFmt = '$#,##0.00;[Red]-$#,##0.00;"$0.00"';
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          cell.font = {
+            name: 'Calibri',
+            size: 11,
+            bold: true,
+            color: { argb: totalDiffUsd >= 0 ? 'FF15803D' : 'FFDC2626' }
+          };
+        }
+      });
+
+      ws.autoFilter = {
+        from: { row: 1, column: 1 },
+        to: { row: rowIdx, column: ws.columns.length }
+      };
+
+      const branchTitle = (allItems[0]?.branch_name || 'Filial').replace(/[^\w\s\u0400-\u04FF-]/g, '').trim();
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const fileName = `Tovarlar_Qoldiq_${branchTitle}_${dateStr}.xlsx`;
+      await downloadExcelWorkbook(wb, fileName);
+      toast?.(`Barcha ${allItems.length} ta tovar Excelga muvaffaqiyatli eksport qilindi!`);
+    } catch (e) {
+      console.error('Excel eksport xatosi:', e);
+      toast?.('Excel eksportida xatolik yuz berdi: ' + err(e));
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
+  return <><div className="m-page-head between"><div><h2>Tovarlar</h2><p>Filial do'kon va ombor qoldig'i</p></div><div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><button type="button" className="btn btn-primary" style={{background:'#2563eb',borderColor:'#2563eb',color:'#ffffff',display:'inline-flex',alignItems:'center',gap:6,fontWeight:700,boxShadow:'0 2px 6px rgba(37,99,235,0.25)'}} onClick={()=>setStockCorrectionOpen(true)} title="Do'kon va ombordagi tovarlar sonini, nomini, tannarxi, sotish narxi va tafovutini onlayn tahrirlash (sverka / reviziya)"><SlidersHorizontal size={16}/>Tovarlar sonini to‘g‘rilash</button><button type="button" className="btn btn-outline" style={{borderColor:'#16a34a',color:'#16a34a',background:'#f0fdf4',display:'inline-flex',alignItems:'center',gap:6,fontWeight:600}} onClick={()=>handleExportStockExcel(false)} disabled={exportingExcel} title="Filialdagi tovarlar qoldig‘ini kategoriya bo‘yicha Excel (.xlsx) formatida yuklab olish"><FileSpreadsheet size={16}/>{exportingExcel?'Excel yuklanmoqda…':'Excelga eksport'}</button><button type="button" className="btn btn-outline" onClick={()=>setImportModal(true)}><Upload size={16}/>Exceldan import qilish</button><button className="btn btn-primary" onClick={onRegister}><Plus/>Tovar qo'shish</button><button className="btn" onClick={onScan}><QrCode/>QR</button></div></div>
   <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:14}}>
     <div className="card" style={{padding:14,textAlign:'center'}}><Boxes size={18}/><div><b style={{fontSize:18}}>{totalRows || 0} ta</b><br/><small style={{color:'var(--muted)'}}>Tovar turlari (jami)</small></div></div>
     <div className="card" style={{padding:14,textAlign:'center'}}><Warehouse size={18}/><div><b style={{fontSize:18}}>{aggregates.totalOnHand} dona</b><br/><small style={{color:'var(--muted)'}}>Mavjud qoldiq</small></div></div>
@@ -1555,6 +2142,8 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
       <label style={{flex:'0 1 100px'}}><small style={{display:'block',fontWeight:700,marginBottom:4,color:'#475467'}}>Min narx</small><input className="input" type="number" min="0" style={{height:38}} value={form.minPrice} onChange={e=>setForm({...form,minPrice:e.target.value})} placeholder="0"/></label>
       <label style={{flex:'0 1 100px'}}><small style={{display:'block',fontWeight:700,marginBottom:4,color:'#475467'}}>Max narx</small><input className="input" type="number" min="0" style={{height:38}} value={form.maxPrice} onChange={e=>setForm({...form,maxPrice:e.target.value})} placeholder="~"/></label>
       <label style={{flex:'1 1 120px'}}><small style={{display:'block',fontWeight:700,marginBottom:4,color:'#475467'}}>Mavjudlik</small><select className="select" style={{height:38}} value={form.availability} onChange={e=>setForm({...form,availability:e.target.value})}><option value="">Barchasi</option><option value="available">Mavjud (&gt;0)</option><option value="empty">Tugagan (0)</option></select></label>
+      <label style={{flex:'1 1 125px'}}><small style={{display:'block',fontWeight:700,marginBottom:4,color:'#475467'}}>Rasm</small><select className="select" style={{height:38}} value={form.hasImage} onChange={e=>setForm({...form,hasImage:e.target.value})}><option value="">Barchasi</option><option value="with_image">Faqat rasmli</option><option value="without_image">Faqat rasmsiz</option></select></label>
+      <label style={{flex:'1 1 145px'}}><small style={{display:'block',fontWeight:700,marginBottom:4,color:'#475467'}}>Saralash</small><select className="select" style={{height:38}} value={form.sortBy} onChange={e=>setForm({...form,sortBy:e.target.value})}><option value="">Standart (Yangi)</option><option value="image_first">Rasmlilar avval</option><option value="no_image_first">Rasmsizlar avval</option><option value="name_asc">Nomi (A-Z)</option><option value="price_desc">Narx (Qimmat)</option><option value="price_asc">Narx (Arzon)</option><option value="qty_desc">Qoldiq (Ko‘p)</option><option value="qty_asc">Qoldiq (Kam)</option></select></label>
       <button className="btn btn-primary" style={{height:38}}>Qidirish</button>
       <button type="button" className="btn" style={{height:38}} onClick={reset}>Tozalash</button>
     </form>
@@ -1586,6 +2175,16 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
             Barcha {totalRows} ta tovarni tanlash
           </button>
         )}
+        <button 
+          type="button" 
+          className="btn btn-outline" 
+          style={{padding:'6px 14px',fontSize:11,color:'#16a34a',borderColor:'#86efac',background:'#fff',display:'inline-flex',alignItems:'center',gap:4,fontWeight:600}} 
+          onClick={()=>handleExportStockExcel(true)}
+          disabled={exportingExcel}
+          title="Faqat tanlangan tovarlarni Excelga eksport qilish"
+        >
+          <FileSpreadsheet size={13}/> Tanlanganlarni Excelga eksport
+        </button>
         <button className="btn" style={{background:'#fee2e2',color:'#b91c1c',borderColor:'#fecaca',padding:'6px 14px',fontSize:11}} onClick={bulkDelete}>
           <Trash2 size={13}/> Tanlanganlarni o‘chirish
         </button>
@@ -1658,7 +2257,17 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
                       )}
                       <div>
                         <b>{item.product_name}</b><br />
-                        <small style={{ color: 'var(--muted)' }}>{item.sku}</small>
+                        <span style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                          <span>{item.sku}</span>
+                          {(item.category_name || catMap.get(item.category_id)?.name) && (
+                            <>
+                              <span>•</span>
+                              <span style={{ color: '#0369a1', background: '#f0f9ff', border: '1px solid #bae6fd', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
+                                {item.category_name || catMap.get(item.category_id)?.name}
+                              </span>
+                            </>
+                          )}
+                        </span>
                       </div>
                     </div>
                   </td>
@@ -1682,6 +2291,23 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
                       usdValue={item.cost_price_usd != null ? Number(item.cost_price_usd) : undefined}
                       rate={rate}
                     />
+                    {(item.cost_price_updated_at || item.updated_at) && (
+                      <span
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3,
+                          fontSize: 10,
+                          color: '#64748b',
+                          marginTop: 3,
+                          whiteSpace: 'nowrap'
+                        }}
+                        title={`Tannarx oxirgi o‘zgargan vaqti: ${new Date(item.cost_price_updated_at || item.updated_at).toLocaleString('uz-UZ')}`}
+                      >
+                        <Clock3 size={10} color="#94a3b8" />
+                        {new Date(item.cost_price_updated_at || item.updated_at).toLocaleDateString('uz-UZ')} {new Date(item.cost_price_updated_at || item.updated_at).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
                   </td>
                   <td>
                     <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
@@ -1715,6 +2341,18 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
   {editingProduct&&<ProductEditor open={Boolean(editingProduct)} close={()=>setEditingProduct(null)} product={editingProduct} refs={refs} toast={toast} saved={load} RichTextEditor={RichTextEditor}/>}
   {selectedProduct&&<ProductDetailModal product={selectedProduct} close={()=>setSelectedProduct(null)} branchId={branchId} rate={rate} onEdit={setEditingProduct}/>}
   <ProductExcelImportModal open={importModal} onClose={()=>setImportModal(false)} onImported={load} branchId={branchId}/>
+  <StockCorrectionModal
+    open={stockCorrectionOpen}
+    onClose={()=>setStockCorrectionOpen(false)}
+    branchId={branchId}
+    locations={refs.locations}
+    categories={refs.categories}
+    rate={rate}
+    toast={toast}
+    onUpdated={()=>{
+      load();
+    }}
+  />
   </>;
 }
 function ProductDetailModal({product,close,branchId,rate,onEdit}){
@@ -1781,7 +2419,7 @@ function ProductDetailModal({product,close,branchId,rate,onEdit}){
   const onDeleteMedia=async(mediaId)=>{if(!confirm('Bu rasmni o‘chirasizmi?'))return;try{const{deleteProductMedia}=await import('@texnobazar/data');await deleteProductMedia(mediaId);await loadDetail();if(toast)toast('Rasm o‘chirildi')}catch(e){alert(e.message)}};
   const uploadImage=async(e)=>{const files=[...e.target.files];if(!files.length)return;setUploading(true);try{const{uploadProductMedia}=await import('@texnobazar/data');for(const file of files)await uploadProductMedia(product.product_id,file,detail?.name||'');await loadDetail();if(toast)toast('Rasm yuklandi')}catch(er){alert(er.message)}finally{setUploading(false);e.target.value=''}};
   if(loading)return <Modal open onClose={close} title="Yuklanmoqda..."><div className="ops-state">Yuklanmoqda…</div></Modal>;if(!detail)return null;
-  return <Modal open onClose={close} wide title={detail.name+' ('+units.length+' dona filialda)'}><div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,flexWrap:'wrap'}}><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))',gap:8,flex:1}}><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>SKU</small><b>{detail.sku}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Kategoriya</small><b>{detail.categories?.name||'-'}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Brend</small><b>{detail.brands?.name||'-'}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Sotish narxi</small><b><DualPrice value={Number(detail.retail_price)} usdValue={detail.retail_price_usd != null ? Number(detail.retail_price_usd) : undefined} rate={rate}/></b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Tannarx</small><b><DualPrice value={Number(detail.cost_price)} usdValue={detail.cost_price_usd != null ? Number(detail.cost_price_usd) : undefined} rate={rate}/></b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Filialda jami</small><b>{units.length} dona</b></span></div><button type="button" className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6,height:38}} onClick={()=>{close();onEdit?.(product);}}><Pencil size={14}/> Tovarni to‘liq tahrirlash</button></div>
+  return <Modal open onClose={close} wide title={detail.name+' ('+units.length+' dona filialda)'}><div style={{display:'flex',flexDirection:'column',gap:14}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12,flexWrap:'wrap'}}><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(130px, 1fr))',gap:8,flex:1}}><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>SKU</small><b>{detail.sku}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Kategoriya</small><b>{detail.categories?.name||'-'}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Brend</small><b>{detail.brands?.name||'-'}</b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Sotish narxi</small><b><DualPrice value={Number(detail.retail_price)} usdValue={detail.retail_price_usd != null ? Number(detail.retail_price_usd) : undefined} rate={rate}/></b></span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Tannarx</small><b><DualPrice value={Number(detail.cost_price)} usdValue={detail.cost_price_usd != null ? Number(detail.cost_price_usd) : undefined} rate={rate}/></b>{(detail.cost_price_updated_at || detail.updated_at) && <small style={{display:'inline-flex',alignItems:'center',gap:3,fontSize:10,color:'#64748b',marginTop:3}} title={`Tannarx oxirgi o‘zgargan vaqti: ${new Date(detail.cost_price_updated_at || detail.updated_at).toLocaleString('uz-UZ')}`}><Clock3 size={10} color="#94a3b8"/> {new Date(detail.cost_price_updated_at || detail.updated_at).toLocaleDateString('uz-UZ')} {new Date(detail.cost_price_updated_at || detail.updated_at).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}</small>}</span><span style={{background:'#f8fafc',padding:10,borderRadius:9}}><small style={{display:'block',color:'var(--muted)'}}>Filialda jami</small><b>{units.length} dona</b></span></div><button type="button" className="btn btn-outline" style={{display:'inline-flex',alignItems:'center',gap:6,height:38}} onClick={()=>{close();onEdit?.(product);}}><Pencil size={14}/> Tovarni to‘liq tahrirlash</button></div>
   <h4 style={{margin:0}}>Joylashuv bo’yicha</h4>
   <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
   <button className={filterLocation===''?'btn btn-primary':'btn'} style={{fontSize:11}} onClick={()=>setFilterLocation('')}>Barcha joy <b>{units.length}</b></button>
@@ -3006,7 +3644,7 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
 
   const removeReceipt=async(password=null)=>{
     const cleanPassword = typeof password === 'string' ? password.trim() : null;
-    if(!cleanPassword&&!confirm("Bu partiyani o'chirasizmi? Sotilmagan birliklar ham o'chiriladi!"))return;
+    if(!confirm("Ushbu partiyani o‘chirasizmi?\n\n• Sotilgan tovarlar, ularning savdo cheklari va hisobotlari saqlanadi.\n• Omborda qolgan sotilmagan qoldiqlar chiqariladi."))return;
     setDeleting(true);setError('');
     try{
       await deleteStockReceipt(receipt.id,cleanPassword);
@@ -3019,20 +3657,8 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
         setPasswordModal(false);
         close();
         onUpdated?.();
-      }else if(message.includes('sotilganlari bor')||e?.code==='P0001'||message.includes('Parol')||message.includes('parol')){
-        if(cleanPassword){
-          setPasswordError(message||'Noto\'g\'ri parol kiritildi!');
-        }else{
-          setPasswordInput('');
-          setPasswordError('');
-          setPasswordModal(true);
-        }
       }else{
-        if(passwordModal){
-          setPasswordError(message);
-        }else{
-          setError(message);
-        }
+        setError(message);
       }
     }finally{
       setDeleting(false);
@@ -3046,6 +3672,18 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
           <span><small>Ta’minotchi</small><b>{receipt.supplier_name}</b></span>
           <span><small>Qabul joyi</small><b>{receipt.location_name} {receipt.location_type==='warehouse'?'(Omborda)':receipt.location_type==='store'?'(Do‘konda)':''}</b></span>
           <span><small>Invoice</small><b>{receipt.invoice_number||'—'}</b></span>
+          <span>
+            <small>Tovarlar soni</small>
+            <b>
+              Kirim: {Number(receipt.unit_count ?? receipt.lines?.reduce((s, l) => s + Number(l.quantity || 0), 0))} dona
+              {(Number(receipt.sold_unit_count || 0) > 0 || receipt.lines?.some(l => Number(l.sold_count || 0) > 0)) && (
+                <span style={{display:'block',fontSize:11,color:Number(receipt.available_unit_count ?? 0) === 0 ? '#dc2626' : '#16a34a',fontWeight:700}}>
+                  Qoldiq: {Number(receipt.available_unit_count ?? receipt.lines?.reduce((s, l) => s + Number(l.available_count ?? l.quantity), 0))} dona
+                  {' '}({Number(receipt.sold_unit_count ?? receipt.lines?.reduce((s, l) => s + Number(l.sold_count || 0), 0))} ta sotilgan)
+                </span>
+              )}
+            </b>
+          </span>
           <span style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap'}}>
             <div>
               <small>Valyuta</small>
@@ -3241,15 +3879,49 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
           <div key={x.id}>
             <div className="receipt-line" style={{cursor:'pointer'}} onClick={()=>expandLine(x)}>
               <div><b>{x.product_name}</b>{x.variant_color&&<span className="receipt-line-color">{x.variant_color}</span>}<span>{x.sku}</span></div>
-              <strong>{Number(x.quantity)} dona</strong>
-              <small><DualPrice value={Number(x.unit_cost||0)} usdValue={x.unit_cost_usd != null ? Number(x.unit_cost_usd) : undefined} rate={rate}/> · {Number(x.quantity)} dona</small>
+              <div style={{textAlign:'right'}}>
+                <strong style={{display:'block'}}>
+                  {Number(x.available_count ?? x.quantity)} / {Number(x.quantity)} dona
+                </strong>
+                {Number(x.sold_count || 0) > 0 ? (
+                  <span style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: Number(x.available_count) === 0 ? '#dc2626' : '#15803d',
+                    background: Number(x.available_count) === 0 ? '#fee2e2' : '#dcfce7',
+                    padding: '1px 6px',
+                    borderRadius: 4,
+                    display: 'inline-block',
+                    marginTop: 2
+                  }}>
+                    {Number(x.available_count) === 0 ? 'Tugagan (0 qoldiq)' : `${Number(x.sold_count)} ta sotilgan`}
+                  </span>
+                ) : (
+                  <span style={{fontSize: 11, color: '#0369a1', fontWeight: 600}}>Hammasi mavjud</span>
+                )}
+              </div>
+              <small><DualPrice value={Number(x.unit_cost||0)} usdValue={x.unit_cost_usd != null ? Number(x.unit_cost_usd) : undefined} rate={rate}/> · Kirim: {Number(x.quantity)} dona</small>
             </div>
             {expandedLine===x.id&&<div style={{padding:12,border:'1px solid var(--line)',borderRadius:10,marginTop:6,marginBottom:8}}>
               {loadingLine?<p style={{color:'var(--muted)'}}>Yuklanmoqda…</p>:(
                 <>
-                  {lineProduct&&<div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:6,marginBottom:10,fontSize:11}}>
+                  {lineProduct&&<div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit, minmax(110px, 1fr))',gap:6,marginBottom:10,fontSize:11}}>
                     <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Sana</small><b>{receipt.received_at?new Date(receipt.received_at).toLocaleDateString('uz-UZ'):'—'}</b></span>
-                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Soni</small><b>{Number(x.quantity)} dona</b></span>
+                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Kirim soni</small><b>{Number(x.quantity)} dona</b></span>
+                    <span style={{
+                      background: Number(x.available_count ?? x.quantity) === 0 ? '#fef2f2' : '#f0fdf4',
+                      border: Number(x.available_count ?? x.quantity) === 0 ? '1px solid #fecaca' : '1px solid #bbf7d0',
+                      padding:8,borderRadius:8
+                    }}>
+                      <small style={{display:'block',color: Number(x.available_count ?? x.quantity) === 0 ? '#dc2626' : '#15803d', fontWeight: 600}}>Mavjud qoldiq</small>
+                      <b style={{color: Number(x.available_count ?? x.quantity) === 0 ? '#dc2626' : '#15803d', fontSize: 13}}>
+                        {Number(x.available_count ?? x.quantity)} dona {Number(x.available_count ?? x.quantity) === 0 ? '(Tugagan)' : ''}
+                      </b>
+                    </span>
+                    <span style={{background:'#f8fafc',padding:8,borderRadius:8}}>
+                      <small style={{display:'block',color:'var(--muted)'}}>Sotilgan</small>
+                      <b style={{color: Number(x.sold_count || 0) > 0 ? '#b45309' : '#64748b'}}>{Number(x.sold_count || 0)} dona</b>
+                    </span>
                     <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Tannarx</small><b><DualPrice value={Number(x.unit_cost||0)} usdValue={x.unit_cost_usd != null ? Number(x.unit_cost_usd) : undefined} rate={rate}/></b></span>
                     <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Sotish narxi</small><b><DualPrice value={Number(lineProduct.retail_price||0)} usdValue={lineProduct.retail_price_usd != null ? Number(lineProduct.retail_price_usd) : undefined} rate={rate}/></b></span>
                     <span style={{background:'#f8fafc',padding:8,borderRadius:8}}><small style={{display:'block',color:'var(--muted)'}}>Ulgurji</small><b><DualPrice value={Number(lineProduct.wholesale_price||0)} usdValue={lineProduct.wholesale_price_usd != null ? Number(lineProduct.wholesale_price_usd) : undefined} rate={rate}/></b></span>
@@ -3344,7 +4016,7 @@ function ReceiptDetail({receipt,locations:propLocations=[],toast,close,onUpdated
                         }}>
                           <div>
                             <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>
-                              Partiya umumiy QR kodi ({Number(x.quantity)} dona uchun):
+                              Partiya umumiy QR kodi (Kirim: {Number(x.quantity)} dona · Qoldiq: {Number(x.available_count ?? x.quantity)} dona):
                             </span>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                               <code style={{

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Texnobazar Sotuvchi</string>
+    <string name="title_activity_main">Texnobazar Sotuvchi</string>
+    <string name="package_name">uz.texnobazar.seller</string>
+    <string name="custom_url_scheme">uz.texnobazar.seller</string>
+</resources>

@@ -44,7 +44,7 @@ export const RETURN_CONDITIONS=[
 export const findSaleReturnUnit=(branchId,code)=>rpc('find_sale_return_unit',{p_branch_id:branchId,p_code:code});
 export const listBranchSoldUnitsByDate=(branchId,date,query=null)=>rpc('list_branch_sold_units_by_date',{p_branch_id:branchId,p_date:date,p_query:query||null});
 export const executePosSameProductExchange=({branchId,returnedUnitId,replacementUnitId=null,reason=null})=>rpc('execute_pos_same_product_exchange',{p_branch_id:branchId,p_returned_unit_id:returnedUnitId,p_replacement_unit_id:replacementUnitId||null,p_reason:reason});
-export const createPosExchangeUpgrade=({branchId,returnedUnitId,newUnitId,reason=null})=>rpc('create_pos_exchange_upgrade',{p_branch_id:branchId,p_returned_unit_id:returnedUnitId,p_new_unit_id:newUnitId,p_reason:reason});
+export const createPosExchangeUpgrade=({branchId,returnedUnitId,newUnitId,reason=null,refundMethod='cash'})=>rpc('create_pos_exchange_upgrade',{p_branch_id:branchId,p_returned_unit_id:returnedUnitId,p_new_unit_id:newUnitId,p_reason:reason,p_refund_method:refundMethod||'cash'});
 export const requestPosCashRefund=({branchId,unitId,reason=null})=>rpc('request_pos_cash_refund',{p_branch_id:branchId,p_unit_id:unitId,p_reason:reason});
 export const completePosCashRefund=({returnId,resellLocationId=null})=>rpc('complete_pos_cash_refund',{p_return_id:returnId,p_resell_location_id:resellLocationId||null});
 export const executeSaleReturn=({branchId,unitId,condition,reason,refundAmount=null,resellLocationId=null,idempotencyKey=crypto.randomUUID()})=>rpc('execute_sale_return',{p_branch_id:branchId,p_unit_id:unitId,p_condition:condition,p_reason:reason,p_refund_amount:refundAmount,p_resell_location_id:resellLocationId||null,p_idempotency_key:idempotencyKey});
@@ -129,4 +129,21 @@ export async function listSalesHistory({ branchId = null, sellerId = null, from,
 }
 export const deleteSale = (saleId, restoreStock = true) => rpc('delete_sale', { p_sale_id: saleId, p_restore_stock: restoreStock });
 export const deletePosPendingSale = (id, restoreStock = true) => rpc('delete_pos_pending_sale', { p_pending_id: id, p_restore_stock: restoreStock });
+export const deletePosPendingSaleLine = (pendingId, lineId, restoreStock = true) =>
+  rpc('delete_pos_pending_sale_line', {
+    p_pending_id: pendingId,
+    p_line_id: lineId,
+    p_restore_stock: restoreStock
+  });
+
+// Filial sotuvchilar reytingi (leaderboard)
+export async function getSellerLeaderboard({ branchId = null, period = 'day', date = null } = {}) {
+  const result = await rpc('get_seller_leaderboard', {
+    p_branch_id: branchId || null,
+    p_period: period || 'day',
+    p_date: date || null,
+  });
+  return result || { items: [] };
+}
+
 

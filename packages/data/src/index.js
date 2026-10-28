@@ -22,6 +22,7 @@ export * from './backup.js';
 export * from './attendance.js';
 export * from './date.js';
 export * from './apiBase.js';
+export * from './fuzzySearch.js';
 export {
   getBackupSummary,
   exportBackupArchive,

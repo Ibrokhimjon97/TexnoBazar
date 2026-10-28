@@ -64,3 +64,86 @@ export const editBranchTransfer = (transferId, lines) => rpc('edit_branch_transf
   p_transfer_id: transferId,
   p_lines: lines,
 });
+
+export const getExternalTransferReferences = branchId => rpc('get_external_transfer_references', {
+  p_branch_id: branchId,
+});
+
+export const findExternalTransferProduct = (branchId, locationId, code) => rpc('find_external_transfer_product', {
+  p_branch_id: branchId,
+  p_location_id: locationId,
+  p_code: code,
+});
+
+export const searchExternalTransferProducts = (branchId, locationId, query, limit = 30) => rpc('search_external_transfer_products', {
+  p_branch_id: branchId,
+  p_location_id: locationId,
+  p_query: query || null,
+  p_limit: limit,
+});
+
+export const createExternalBranchTransfer = ({
+  branchId,
+  fromLocationId,
+  targetBranchName,
+  targetManagerName,
+  priceMode = 'cost',
+  notes = '',
+  items = [],
+}) => rpc('create_external_branch_transfer', {
+  p_branch_id: branchId,
+  p_from_location_id: fromLocationId,
+  p_target_branch_name: targetBranchName,
+  p_target_manager_name: targetManagerName,
+  p_price_mode: priceMode,
+  p_notes: notes || null,
+  p_items: items,
+});
+
+export const listExternalBranchTransfers = ({
+  branchId = null,
+  query = null,
+  fromDate = null,
+  toDate = null,
+  locationId = null,
+  sellerId = null,
+  priceMode = null,
+  page = 1,
+  pageSize = 30,
+} = {}) => rpc('list_external_branch_transfers', {
+  p_branch_id: branchId || null,
+  p_query: query || null,
+  p_from_date: fromDate || null,
+  p_to_date: toDate || null,
+  p_location_id: locationId || null,
+  p_seller_id: sellerId || null,
+  p_price_mode: priceMode || null,
+  p_page: page,
+  p_page_size: pageSize,
+});
+
+export const getExternalBranchTransfer = transferId => rpc('get_external_branch_transfer', {
+  p_transfer_id: transferId,
+});
+
+export const cancelExternalBranchTransfer = (transferId, reason = null) => rpc('cancel_external_branch_transfer', {
+  p_transfer_id: transferId,
+  p_reason: reason || null,
+});
+
+export const deleteExternalBranchTransfer = transferId => rpc('delete_external_branch_transfer', {
+  p_transfer_id: transferId,
+});
+
+export const updateExternalBranchTransfer = ({
+  transferId,
+  targetBranchName,
+  targetManagerName,
+  notes = null,
+}) => rpc('update_external_branch_transfer', {
+  p_transfer_id: transferId,
+  p_target_branch_name: targetBranchName,
+  p_target_manager_name: targetManagerName,
+  p_notes: notes || null,
+});
+

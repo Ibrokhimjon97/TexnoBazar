@@ -43,3 +43,78 @@ html[data-theme="dark"] body{background:#070d17}html[data-theme="dark"] .courier
 .qr-verify-error{display:flex;align-items:center;gap:6px;padding:9px;background:#fef2f2;color:#b91c1c;border-radius:9px;font-size:12px;margin-bottom:8px}
 .qr-verify-success{display:flex;align-items:center;gap:6px;padding:9px;background:#f0fdf4;color:#166534;border-radius:9px;font-size:12px;margin-bottom:8px}
 .qr-verify-loading{padding:14px;text-align:center;color:var(--muted);font-size:12px}
+
+/* --- Courier POS Delivery Workflow & Live GPS Extensions --- */
+.gps-alert-bar{display:flex;align-items:center;gap:10px;padding:12px 14px;background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:12px;margin-bottom:12px;box-shadow:0 2px 8px rgba(239,68,68,0.12)}
+.gps-alert-icon{flex-shrink:0;color:#dc2626}
+.gps-alert-text{flex:1;font-size:12px;line-height:1.35}
+.gps-alert-text b{display:block;font-size:13px;margin-bottom:2px}
+.gps-enable-btn{border:none;background:#dc2626;color:#fff;padding:7px 12px;border-radius:8px;font-size:11.5px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s}
+.gps-enable-btn:hover{background:#b91c1c}
+
+.gps-active-badge{display:inline-flex;align-items:center;gap:5px;background:#dcfce7;color:#15803d;border:1px solid #bbf7d0;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:700}
+.gps-active-dot{width:6px;height:6px;border-radius:50%;background:#16a34a;box-shadow:0 0 6px #16a34a}
+
+.courier-cod-hero{background:linear-gradient(135deg,#0f172a,#1e293b);color:#fff;border-radius:16px;padding:16px 18px;margin-bottom:14px;box-shadow:0 6px 20px rgba(15,23,42,0.15);display:flex;justify-content:space-between;align-items:center;border-left:4px solid #ea580c}
+.courier-cod-hero small{display:block;color:#94a3b8;font-size:11px;font-weight:600;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px}
+.courier-cod-hero b{display:block;font-size:22px;color:#f97316;font-weight:900}
+.courier-cod-hero-icon{width:44px;height:44px;border-radius:12px;background:rgba(249,115,22,0.15);color:#f97316;display:grid;place-items:center;flex-shrink:0}
+
+.courier-tabs{display:flex;gap:6px;background:var(--surface,#ffffff);padding:4px;border-radius:12px;border:1px solid var(--line,#e2e8f0);margin-bottom:14px;overflow-x:auto}
+.courier-tab-btn{flex:1;border:none;background:none;padding:9px 12px;font-size:12px;font-weight:700;color:var(--muted,#64748b);border-radius:9px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:6px;white-space:nowrap;transition:all .15s}
+.courier-tab-btn.active{background:var(--orange,#f97316);color:#ffffff;box-shadow:0 2px 8px rgba(249,115,22,0.3)}
+.courier-tab-count{font-size:10px;padding:1px 6px;border-radius:10px;background:rgba(0,0,0,0.1);font-weight:800}
+.courier-tab-btn.active .courier-tab-count{background:rgba(255,255,255,0.25);color:#fff}
+
+.courier-batch-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:#fff7ed;border:1.5px solid #fed7aa;border-radius:12px;margin-bottom:12px}
+.courier-batch-bar b{color:#c2410c;font-size:13px}
+.courier-batch-claim-btn{border:none;background:#ea580c;color:#fff;padding:8px 16px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;box-shadow:0 2px 8px rgba(234,88,12,0.3)}
+
+.pos-delivery-card{background:var(--surface,#ffffff);border:1px solid var(--line,#e2e8f0);border-radius:14px;padding:14px 16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.04);display:flex;flex-direction:column;gap:12px;transition:border-color .15s,box-shadow .15s}
+.pos-delivery-card:hover{box-shadow:0 4px 14px rgba(0,0,0,0.08)}
+.pos-delivery-card.selected{border-color:#f97316;background:#fffaf5}
+
+.pos-card-header{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+.pos-card-no{font-weight:900;font-size:15px;color:var(--navy,#0f172a);display:flex;align-items:center;gap:8px}
+
+.cash-highlight-banner{padding:10px 14px;border-radius:10px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.cash-highlight-banner.cod{background:linear-gradient(135deg,#fff7ed,#ffedd5);border:1.5px solid #fed7aa;color:#9a3412}
+.cash-highlight-banner.paid{background:#f0fdf4;border:1px solid #bbf7d0;color:#166534}
+.cash-highlight-label{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:0.4px;display:flex;align-items:center;gap:5px}
+.cash-highlight-amount{font-size:17px;font-weight:900}
+
+.pos-card-contacts{display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#f8fafc;padding:10px 12px;border-radius:10px;border:1px solid var(--line,#e2e8f0);font-size:12px}
+@media(max-width:480px){.pos-card-contacts{grid-template-columns:1fr}}
+.contact-block small{display:block;color:var(--muted,#64748b);font-size:10px;font-weight:700;margin-bottom:2px;text-transform:uppercase}
+.contact-block b{display:block;color:var(--navy,#0f172a);font-size:12.5px;margin-bottom:3px}
+.call-btn{display:inline-flex;align-items:center;gap:4px;padding:4px 8px;border-radius:6px;font-size:11.5px;font-weight:700;text-decoration:none;background:#e0f2fe;color:#0284c7;border:1px solid #bae6fd;transition:background .15s}
+.call-btn:hover{background:#bae6fd}
+.call-btn.seller{background:#fef3c7;color:#92400e;border-color:#fde68a}
+.call-btn.seller:hover{background:#fde68a}
+
+.pos-card-address{background:#f8fafc;padding:9px 12px;border-radius:8px;border:1px solid var(--line,#e2e8f0);font-size:12.5px;display:flex;align-items:flex-start;gap:6px;color:var(--navy,#0f172a)}
+.pos-card-address svg{color:#ef4444;flex-shrink:0;margin-top:2px}
+
+.pos-card-items-wrap{display:flex;flex-direction:column;gap:6px}
+.pos-item-row{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;background:#ffffff;border:1px solid var(--line,#e2e8f0);border-radius:8px;font-size:12px}
+.pos-item-checkbox{width:18px;height:18px;accent-color:#16a34a;cursor:pointer;flex-shrink:0}
+.storefront-link{display:inline-flex;align-items:center;gap:3px;font-size:10.5px;color:#0284c7;text-decoration:none;font-weight:600;padding:2px 6px;border-radius:4px;background:#f0f9ff;border:1px solid #e0f2fe}
+.storefront-link:hover{text-decoration:underline}
+
+.qr-verify-inline-btn{border:none;background:#f3f4f6;color:#374151;border:1px solid #e5e7eb;padding:3px 7px;border-radius:5px;font-size:10.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.qr-verify-inline-btn:hover{background:#e5e7eb}
+.qr-verify-inline-btn.verified{background:#dcfce7;color:#166534;border-color:#bbf7d0}
+
+.pos-card-actions{display:flex;justify-content:flex-end;align-items:center;gap:8px;flex-wrap:wrap;border-top:1px solid var(--line,#e2e8f0);padding-top:10px}
+.pos-action-btn{border:none;padding:9px 16px;border-radius:8px;font-size:12.5px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+.pos-action-btn.claim{background:linear-gradient(135deg,#f97316,#ea580c);color:#fff;box-shadow:0 2px 8px rgba(249,115,22,0.3)}
+.pos-action-btn.deliver{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;box-shadow:0 2px 8px rgba(22,163,74,0.3)}
+.pos-action-btn.unclaim{background:#fff1f2;color:#e11d48;border:1px solid #fecdd3}
+
+/* Courier Interactive Leaflet Map */
+.courier-map-container{height:calc(100vh - 200px);min-height:420px;border-radius:16px;overflow:hidden;border:1px solid var(--line,#e2e8f0);position:relative}
+.my-gps-pulse-marker{width:22px;height:22px;border-radius:50%;background:#0284c7;border:3px solid #fff;box-shadow:0 0 10px rgba(2,132,199,0.7);position:relative}
+.my-gps-pulse-marker::after{content:'';position:absolute;inset:-6px;border-radius:50%;border:2px solid #0284c7;animation:gps-ping 1.6s cubic-bezier(0,0,.2,1) infinite}
+@keyframes gps-ping{0%{transform:scale(0.8);opacity:1}100%{transform:scale(2);opacity:0}}
+
+.delivery-dest-marker{background:#1e293b;color:#fff;border:2px solid #fff;padding:2px 6px;border-radius:12px;font-size:10px;font-weight:800;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.3);display:inline-flex;align-items:center;gap:4px}

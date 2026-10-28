@@ -63,13 +63,19 @@ export const createPosDelivery = ({
   p_fulfillment_source: fulfillmentSource
 });
 
-export const listPosDeliveries = ({ branchId, status = null, query = null, page = 1, pageSize = 50 } = {}) =>
+export const listPosDeliveries = ({ branchId, status = null, query = null, date = null, page = 1, pageSize = 50 } = {}) =>
   rpc('list_pos_deliveries', {
     p_branch_id: branchId,
     p_status: status || null,
     p_query: query || null,
     p_limit: pageSize,
-    p_offset: (page - 1) * pageSize
+    p_offset: (page - 1) * pageSize,
+    p_date: date || null
+  });
+
+export const markPosDeliveriesPrinted = (deliveryIds) =>
+  rpc('mark_pos_deliveries_printed', {
+    p_delivery_ids: Array.isArray(deliveryIds) ? deliveryIds : [deliveryIds]
   });
 
 export const managerAcceptDeliveryCash = deliveryId =>
@@ -83,3 +89,43 @@ export const managerCancelDelivery = ({ deliveryId, reason }) =>
 
 export const posDeliverySwapUnit = ({ deliveryId, oldQr, newQr }) =>
   rpc('pos_delivery_swap_unit', { p_delivery_id: deliveryId, p_old_qr: oldQr, p_new_qr: newQr });
+
+// Courier POS Delivery self-selection & management
+export const listCourierPosDeliveries = ({ tab = 'available' } = {}) =>
+  rpc('courier_list_pos_deliveries', { p_tab: tab });
+
+export const courierClaimPosDeliveries = deliveryIds =>
+  rpc('courier_claim_pos_deliveries', { p_delivery_ids: deliveryIds });
+
+export const courierUnclaimPosDelivery = deliveryId =>
+  rpc('courier_unclaim_pos_delivery', { p_delivery_id: deliveryId });
+
+export const courierCompletePosDelivery = ({ deliveryId, notes = null }) =>
+  rpc('courier_complete_pos_delivery', { p_delivery_id: deliveryId, p_notes: notes });
+
+export const courierVerifyProductUnitQr = ({ deliveryId, scannedCode }) =>
+  rpc('courier_verify_product_unit_qr', { p_delivery_id: deliveryId, p_scanned_code: scannedCode });
+
+// Courier Live GPS Tracking & Manager Live Tracking
+export const recordCourierGpsLocation = ({ latitude, longitude, accuracy = null, speed = null, heading = null, posDeliveryId = null } = {}) =>
+  rpc('record_courier_gps_location', {
+    p_latitude: latitude,
+    p_longitude: longitude,
+    p_accuracy_m: accuracy,
+    p_speed: speed,
+    p_heading: heading,
+    p_pos_delivery_id: posDeliveryId
+  });
+
+export const getActiveCouriersLiveLocations = (branchId = null) =>
+  rpc('get_active_couriers_live_locations', { p_branch_id: branchId || null });
+
+export const getCourierDailyRoute = ({ courierId, date = null } = {}) =>
+  rpc('get_courier_daily_route', {
+    p_courier_id: courierId,
+    p_date: date || new Date().toISOString().split('T')[0]
+  });
+
+export const cleanupOldCourierTracking = (days = 2) =>
+  rpc('cleanup_old_courier_tracking', { p_days: days });
+

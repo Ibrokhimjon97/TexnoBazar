@@ -63,7 +63,16 @@ function employeeApiDevMiddleware() {
         };
         const handler = handlers[pathname];
         if (!handler) return next();
-        await handler(req, res);
+        try {
+          await handler(req, res);
+        } catch (err) {
+          console.error(`[Superadmin Dev API] Error handling ${pathname}:`, err);
+          if (!res.headersSent) {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.end(JSON.stringify({ error: err?.message || 'Server error', code: 'INTERNAL_ERROR' }));
+          }
+        }
       });
     },
   };
@@ -71,6 +80,9 @@ function employeeApiDevMiddleware() {
 
 export default defineConfig({
   envDir: rootEnvDir,
+  server: {
+    host: true,
+  },
   resolve: {
     alias: {
       '@texnobazar/data': fileURLToPath(new URL('../../packages/data/src/index.js', import.meta.url)),

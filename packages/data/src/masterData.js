@@ -57,6 +57,11 @@ export async function deleteMasterRecord(table, id) {
     if (error) throw error;
     return;
   }
+  if (table === 'locations') {
+    const { error } = await getBrowserClient().rpc('delete_location', { p_location_id: id });
+    if (error) throw error;
+    return;
+  }
   const { error } = await getBrowserClient().from(table).delete().eq('id', id);
   if (error) throw error;
 }

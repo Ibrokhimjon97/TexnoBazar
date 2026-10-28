@@ -1,1 +1,6 @@
-/*    /index.html   200
+/api/media/upload        /.netlify/functions/media-upload    200
+/api/media/presign       /.netlify/functions/media-presign   200
+/api/media/complete      /.netlify/functions/media-complete  200
+/api/avatar/upload       /.netlify/functions/avatar-upload   200
+/api/*                   /.netlify/functions/api/:splat      200
+/*                       /index.html                         200

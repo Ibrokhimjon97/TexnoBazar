@@ -31,6 +31,7 @@ async function main() {
   const sql = fs.readFileSync(file, 'utf8');
   console.log(`Applying migration: ${file}`);
   await client.connect();
+  await client.query('RESET ROLE;');
   await client.query(sql);
   console.log(`Migration applied successfully!`);
   await client.end();

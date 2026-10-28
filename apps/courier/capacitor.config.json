@@ -1,0 +1,15 @@
+{
+  "appId": "uz.texnobazar.courier",
+  "appName": "Texnobazar Kuryer",
+  "webDir": "dist",
+  "server": {
+    "url": "https://texnobazar-courier.netlify.app",
+    "cleartext": true,
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  }
+}

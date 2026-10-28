@@ -28,18 +28,30 @@ function allowedOrigins(env = process.env) {
     : [...DEV_ORIGINS, ...PROD_ORIGINS];
 }
 
+export function isOriginAllowed(origin, env = process.env) {
+  if (!origin) return false;
+  const clean = origin.replace(/\/+$/, '');
+  const list = allowedOrigins(env);
+  if (list.includes(clean)) return true;
+  // Localhost / 127.0.0.1 on any port
+  if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(clean)) return true;
+  // Private local network IPs
+  if (/^https?:\/\/(192\.168\.\d+\.\d+|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+)(:\d+)?$/.test(clean)) return true;
+  return false;
+}
+
 /**
  * Applies CORS headers when the request origin is allow-listed.
  * Returns true if the request was a preflight and has already been answered.
  */
 export function applyCors(req, res, env = process.env) {
   const origin = Array.isArray(req.headers?.origin) ? req.headers.origin[0] : req.headers?.origin;
-  if (origin && allowedOrigins(env).includes(origin.replace(/\/+$/, ''))) {
+  if (origin && isOriginAllowed(origin, env)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Max-Age', '86400');
   }
   if (req.method === 'OPTIONS') {

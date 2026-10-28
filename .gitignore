@@ -15,3 +15,5 @@ supabase/.temp
 # Local Netlify folder
 .netlify
 scratch/
+apks/
+archives/

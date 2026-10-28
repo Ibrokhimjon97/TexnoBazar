@@ -321,6 +321,16 @@ export class MhtBluetoothClient {
     this.status = 'disconnected';
     this.deviceName = null;
     this.listeners = new Set();
+    this._cancelled = false;
+  }
+
+  cancelPrint() {
+    this._cancelled = true;
+    this.emit({ type: 'print_cancelled' });
+  }
+
+  isCancelled() {
+    return Boolean(this._cancelled);
   }
 
   subscribe(listener) {
@@ -514,6 +524,8 @@ export class MhtBluetoothClient {
 
   /**
    * Print a list of labels on MHT-L80G
+   * @param {Array} labels - Array of label objects
+   * @param {Object} options - { copies: 1, onProgress: (current, total, label) => {}, signal: AbortSignal }
    */
   async printLabels(labels, options = {}) {
     if (!this.isConnected()) {
@@ -524,6 +536,7 @@ export class MhtBluetoothClient {
       throw new Error("Chop etish uchun yorliqlar topilmadi.");
     }
 
+    this._cancelled = false;
     const copies = Math.max(1, Math.min(1000, Number(options.copies || 1)));
     const totalCount = labels.length * copies;
     let completed = 0;
@@ -531,6 +544,11 @@ export class MhtBluetoothClient {
     this.emit({ type: 'print_start', total: totalCount });
 
     for (let i = 0; i < labels.length; i++) {
+      if (this._cancelled || options.signal?.aborted) {
+        this.emit({ type: 'print_cancelled', completed, total: totalCount });
+        return { success: false, cancelled: true, printedCount: completed };
+      }
+
       const item = labels[i];
 
       const canvas = await renderMhtLabelCanvas({
@@ -546,6 +564,11 @@ export class MhtBluetoothClient {
       });
 
       for (let c = 0; c < copies; c++) {
+        if (this._cancelled || options.signal?.aborted) {
+          this.emit({ type: 'print_cancelled', completed, total: totalCount });
+          return { success: false, cancelled: true, printedCount: completed };
+        }
+
         completed++;
         if (options.onProgress) {
           options.onProgress(completed, totalCount, item);
@@ -554,11 +577,24 @@ export class MhtBluetoothClient {
 
         await this.printCanvas(canvas, 1);
 
-        // Small delay between labels for thermal head gap sensing
+        // Small interruptible delay between labels for thermal head gap sensing
         if (completed < totalCount) {
-          await new Promise(resolve => setTimeout(resolve, 400));
+          const delayMs = 400;
+          const start = Date.now();
+          while (Date.now() - start < delayMs) {
+            if (this._cancelled || options.signal?.aborted) {
+              this.emit({ type: 'print_cancelled', completed, total: totalCount });
+              return { success: false, cancelled: true, printedCount: completed };
+            }
+            await new Promise(r => setTimeout(r, 40));
+          }
         }
       }
+    }
+
+    if (this._cancelled || options.signal?.aborted) {
+      this.emit({ type: 'print_cancelled', completed, total: totalCount });
+      return { success: false, cancelled: true, printedCount: completed };
     }
 
     this.emit({ type: 'print_complete', total: totalCount });

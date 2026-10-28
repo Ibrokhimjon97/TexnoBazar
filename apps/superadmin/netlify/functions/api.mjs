@@ -61,14 +61,25 @@ async function readLimitedBody(request, maxBytes = DEFAULT_MAX_BODY_BYTES) {
   return Buffer.concat(chunks);
 }
 
-export async function handler(event, context) {
-  const origin = event.headers?.origin || event.headers?.Origin || '*';
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': origin,
+function buildCorsHeaders(origin) {
+  const headers = {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
     'Access-Control-Max-Age': '86400',
   };
+  if (origin && origin !== '*') {
+    headers['Access-Control-Allow-Origin'] = origin;
+    headers['Access-Control-Allow-Credentials'] = 'true';
+    headers['Vary'] = 'Origin';
+  } else {
+    headers['Access-Control-Allow-Origin'] = '*';
+  }
+  return headers;
+}
+
+export async function handler(event, context) {
+  const origin = event.headers?.origin || event.headers?.Origin || '';
+  const corsHeaders = buildCorsHeaders(origin);
 
   if (event.httpMethod === 'OPTIONS') {
     return {
@@ -130,6 +141,16 @@ export async function handler(event, context) {
   const res = {
     get statusCode() { return responseStatusCode; },
     set statusCode(code) { responseStatusCode = code; },
+    getHeader(name) {
+      const lower = name.toLowerCase();
+      for (const [k, v] of Object.entries(responseHeaders)) {
+        if (k.toLowerCase() === lower) return v;
+      }
+      return undefined;
+    },
+    hasHeader(name) {
+      return this.getHeader(name) !== undefined;
+    },
     setHeader(name, value) {
       responseHeaders[name] = Array.isArray(value) ? value.join(', ') : String(value);
     },
@@ -160,13 +181,8 @@ export default async function apiAdapter(request, context) {
     return handler(request, context);
   }
 
-  const origin = request.headers.get('origin') || '*';
-  const corsHeaders = {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Requested-With',
-    'Access-Control-Max-Age': '86400',
-  };
+  const origin = request.headers.get('origin') || '';
+  const corsHeaders = buildCorsHeaders(origin);
 
   if (request.method === 'OPTIONS') {
     return new Response(null, {
@@ -176,7 +192,14 @@ export default async function apiAdapter(request, context) {
   }
 
   const url = new URL(request.url);
-  const pathname = url.pathname.length > 1 ? url.pathname.replace(/\/+$/, '') : url.pathname;
+  let pathname = url.pathname || '';
+  if (pathname.startsWith('/.netlify/functions/api')) {
+    pathname = pathname.slice('/.netlify/functions/api'.length) || '/';
+    if (!pathname.startsWith('/api')) {
+      pathname = '/api' + (pathname.startsWith('/') ? pathname : '/' + pathname);
+    }
+  }
+  pathname = pathname.length > 1 ? pathname.replace(/\/+$/, '') : pathname;
   const routeHandler = routes.get(pathname);
   if (!routeHandler) {
     return new Response(JSON.stringify({ error: 'API route topilmadi.', code: 'NOT_FOUND' }), {
@@ -212,6 +235,12 @@ export default async function apiAdapter(request, context) {
   };
   const res = {
     statusCode: 200,
+    getHeader(name) {
+      return responseHeaders.get(name);
+    },
+    hasHeader(name) {
+      return responseHeaders.has(name);
+    },
     setHeader(name, value) {
       responseHeaders.delete(name);
       for (const item of Array.isArray(value) ? value : [value]) responseHeaders.append(name, String(item));

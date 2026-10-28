@@ -9,18 +9,71 @@ async function rpc(name, args = {}) {
 
 // The AI endpoints live on the superadmin deployment because that is where the
 // server-side provider keys are available. Other apps point at it via env.
-const AI_API_BASE = (import.meta.env?.VITE_AI_API_BASE || '').replace(/\/+$/, '');
+function getAiApiBase() {
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    const hostname = window.location.hostname;
+    const port = window.location.port;
+
+    // 1. If running inside the admin app itself (local port 5174 or production admin domain), use relative path
+    if (port === '5174' || hostname.includes('admin') || hostname.includes('superadmin')) {
+      return '';
+    }
+
+    const isWindowLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+    const configured = (import.meta.env?.VITE_AI_API_BASE || import.meta.env?.VITE_API_BASE || '').trim().replace(/\/+$/, '');
+
+    if (configured) {
+      try {
+        const parsed = new URL(configured, window.location.href);
+        const isConfigLocal = parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1';
+
+        // Never leak localhost into production web app
+        if (isConfigLocal && !isWindowLocal) {
+          return 'https://texnobazar-admin.netlify.app';
+        }
+
+        if (parsed.origin === origin) return '';
+
+        // Local loopback alignment
+        if (hostname === '127.0.0.1' && parsed.hostname === 'localhost') {
+          return `http://127.0.0.1:${parsed.port || '5174'}`;
+        }
+        if (hostname === 'localhost' && parsed.hostname === '127.0.0.1') {
+          return `http://localhost:${parsed.port || '5174'}`;
+        }
+        return configured;
+      } catch {}
+    }
+
+    // Production default for other apps (manager, seller, etc.) calling superadmin
+    if (!isWindowLocal) {
+      return 'https://texnobazar-admin.netlify.app';
+    }
+    return 'http://localhost:5174';
+  }
+  return (import.meta.env?.VITE_AI_API_BASE || 'https://texnobazar-admin.netlify.app').replace(/\/+$/, '');
+}
 
 async function postApi(path, body) {
   const token = await getAccessToken();
-  if (!token) throw new Error('Sessiya topilmadi.');
-  const response = await fetch(`${AI_API_BASE}${path}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify(body),
-  });
+  if (!token) throw new Error('Sessiya topilmadi. Qaytadan tizimga kiring.');
+  const base = getAiApiBase();
+  const targetUrl = `${base}${path}`;
+  let response;
+  try {
+    response = await fetch(targetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body),
+    });
+  } catch (netErr) {
+    throw new Error(`AI serveriga ulanishda xatolik (${targetUrl}): ${netErr?.message || 'Tarmoq xatosi'}`);
+  }
   const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || 'AI so‘rovi bajarilmadi.');
+  if (!response.ok) {
+    throw new Error(result.error || `AI so‘rovi bajarilmadi (HTTP ${response.status}).`);
+  }
   return result;
 }
 

@@ -549,6 +549,16 @@ export class DetongerBluetoothClient {
     this.deviceName = null;
     this.battery = null;
     this.listeners = new Set();
+    this._cancelled = false;
+  }
+
+  cancelPrint() {
+    this._cancelled = true;
+    this.emit({ type: 'print_cancelled' });
+  }
+
+  isCancelled() {
+    return Boolean(this._cancelled);
   }
 
   subscribe(listener) {
@@ -674,7 +684,7 @@ export class DetongerBluetoothClient {
   /**
    * Print a list of labels with progress tracking
    * @param {Array} labels - Array of label objects
-   * @param {Object} options - { copies: 1, onProgress: (current, total, label) => {} }
+   * @param {Object} options - { copies: 1, onProgress: (current, total, label) => {}, signal: AbortSignal }
    */
   async printLabels(labels, options = {}) {
     if (!this.printer || !this.isConnected()) {
@@ -685,6 +695,7 @@ export class DetongerBluetoothClient {
       throw new Error("Chop etish uchun yorliqlar topilmadi.");
     }
 
+    this._cancelled = false;
     const copies = Math.max(1, Math.min(1000, Number(options.copies || 1)));
     const totalCount = labels.length * copies;
     let completed = 0;
@@ -692,6 +703,11 @@ export class DetongerBluetoothClient {
     this.emit({ type: 'print_start', total: totalCount });
 
     for (let i = 0; i < labels.length; i++) {
+      if (this._cancelled || options.signal?.aborted) {
+        this.emit({ type: 'print_cancelled', completed, total: totalCount });
+        return { success: false, cancelled: true, printedCount: completed };
+      }
+
       const item = labels[i];
 
       const labelSize = options.labelSize || item.labelSize || '40x20';
@@ -714,6 +730,11 @@ export class DetongerBluetoothClient {
       });
 
       for (let c = 0; c < copies; c++) {
+        if (this._cancelled || options.signal?.aborted) {
+          this.emit({ type: 'print_cancelled', completed, total: totalCount });
+          return { success: false, cancelled: true, printedCount: completed };
+        }
+
         completed++;
         if (options.onProgress) {
           options.onProgress(completed, totalCount, item);
@@ -722,11 +743,24 @@ export class DetongerBluetoothClient {
 
         await this.printCanvas(canvas);
 
-        // Small delay between labels for thermal head gap sensing & cooling
+        // Small interruptible delay between labels for thermal head gap sensing & cooling
         if (completed < totalCount) {
-          await new Promise(resolve => setTimeout(resolve, 350));
+          const delayMs = 350;
+          const start = Date.now();
+          while (Date.now() - start < delayMs) {
+            if (this._cancelled || options.signal?.aborted) {
+              this.emit({ type: 'print_cancelled', completed, total: totalCount });
+              return { success: false, cancelled: true, printedCount: completed };
+            }
+            await new Promise(r => setTimeout(r, 35));
+          }
         }
       }
+    }
+
+    if (this._cancelled || options.signal?.aborted) {
+      this.emit({ type: 'print_cancelled', completed, total: totalCount });
+      return { success: false, cancelled: true, printedCount: completed };
     }
 
     this.emit({ type: 'print_complete', total: totalCount });

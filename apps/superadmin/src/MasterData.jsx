@@ -21,7 +21,7 @@ const emptyForms={
 };
 const typeLabels={store:'Dokon',warehouse:'Ombor',transit:'Tranzit',writeoff:'Hisobdan chiqarish'};
 const dataTypeLabels={text:'Matn',number:'Raqam',boolean:'Ha/yoq',date:'Sana',select:'Tanlov',multiselect:'Kop tanlov'};
-function normalizeCode(value){return value.trim().toUpperCase().replace(/\s+/g,'-')}
+function normalizeCode(value){return value.trim().toUpperCase().replace(/['`ʻʼ"]/g,'').replace(/[^A-Z0-9_-]+/g,'-').replace(/^-|-$/g,'')}
 function normalizeSlug(value){return value.trim().toLowerCase().replace(/[''ʻʼ']/g,'').replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'')}
 function errorText(error){const message=String(error?.message||'');if(message.includes('duplicate key'))return 'Bu kod yoki slug avval royxatga olingan.';if(message.includes('violates foreign key'))return 'Bu yozuv boshqa malumorlarga boglangan.';if(message.includes('rol'))return message;return message||'Amalni bajarib bolmadi.'}
 function toForm(table,row){const form={...emptyForms[table],...row};if(table==='branches'||table==='suppliers')form.address=row?.address?.text||((row?.address&&Object.keys(row.address).length)?JSON.stringify(row.address):'');if(table==='attribute_definitions')form.options=Array.isArray(row?.options)?row.options.join(', '):'';return form}

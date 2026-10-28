@@ -16,7 +16,22 @@ export default function OnlineOrderWorkspace({branchId,toast,focusOrderId,clearF
   useEffect(()=>{const t=setTimeout(()=>load(),query?250:0);return()=>clearTimeout(t);},[branchId,status,query]);
   useEffect(()=>{if(!branchId)return;return subscribeOrders(()=>load(detail?.id,true),e=>setError(message(e)),branchId);},[branchId,status,query,detail?.id]);
   // Unassigned new orders have no branch_id and cannot match a branch-filtered realtime channel.
-  useEffect(()=>{if(!branchId)return;const timer=setInterval(()=>load(detail?.id,true),20000);return()=>clearInterval(timer);},[branchId,status,query,detail?.id]);
+  useEffect(()=>{
+    if(!branchId)return;
+    const tick=()=>{
+      if(typeof document==='undefined'||document.visibilityState==='visible'){
+        load(detail?.id,true);
+      }
+    };
+    const timer=setInterval(tick,25000);
+    window.addEventListener('focus',tick);
+    document.addEventListener('visibilitychange',tick);
+    return()=>{
+      clearInterval(timer);
+      window.removeEventListener('focus',tick);
+      document.removeEventListener('visibilitychange',tick);
+    };
+  },[branchId,status,query,detail?.id]);
   useEffect(()=>{
     if(!focusOrderId||!branchId)return;
     setStatus('');setQuery('');

@@ -1,5 +1,4 @@
 [build]
-base = "apps/superadmin"
 command = "npm run build --workspace @texnobazar/superadmin"
 publish = "dist"
 functions = "netlify/functions"
@@ -32,7 +31,7 @@ status = 200
 
 [[redirects]]
 from = "/api/*"
-to = "/.netlify/functions/api"
+to = "/.netlify/functions/api/:splat"
 status = 200
 
 [[redirects]]

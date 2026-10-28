@@ -100,9 +100,18 @@ export function sendJson(res, status, body) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  const existingCors = (typeof res.getHeader === 'function')
+    ? (res.getHeader('Access-Control-Allow-Origin') || res.getHeader('access-control-allow-origin'))
+    : null;
+  if (!existingCors) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  if (!res.getHeader?.('Access-Control-Allow-Methods') && !res.getHeader?.('access-control-allow-methods')) {
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  }
+  if (!res.getHeader?.('Access-Control-Allow-Headers') && !res.getHeader?.('access-control-allow-headers')) {
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  }
   res.end(JSON.stringify(body));
 }
 

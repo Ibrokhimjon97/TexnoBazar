@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   ArrowLeftRight,
@@ -51,6 +51,22 @@ const minReturnDate = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+const extractQr = (value) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  try {
+    const url = new URL(raw, 'https://texnobazar.uz');
+    const match = url.pathname.match(/\/qr\/([^/?#]+)/i);
+    if (match) return decodeURIComponent(match[1]).trim();
+    const cParam = url.searchParams.get('c') || url.searchParams.get('qr');
+    if (cParam) return decodeURIComponent(cParam).trim();
+    return raw;
+  } catch {
+    const stripped = raw.replace(/^https?:\/\/[^/]+/i, '').replace(/^\/qr\//i, '').split('?')[0].split('#')[0];
+    return stripped.trim() || raw;
+  }
+};
+
 export default function ReturnsWorkspace({ branchId, toast, goPage }) {
   const rate = useExchangeRate();
   const [tab, setTab] = useState('qr'); // 'qr' or 'calendar'
@@ -58,6 +74,7 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
   const [busy, setBusy] = useState(false);
   const [lookupError, setLookupError] = useState('');
   const [found, setFound] = useState(null);
+  const verifiedCardRef = useRef(null);
 
   // Calendar search state
   const [calendarDate, setCalendarDate] = useState(todayDate());
@@ -71,6 +88,9 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
 
   // Option 1 state
   const [sameReplacementQr, setSameReplacementQr] = useState('');
+  const [opt1ReplacementUnit, setOpt1ReplacementUnit] = useState(null);
+  const [opt1LookupBusy, setOpt1LookupBusy] = useState(false);
+  const [opt1LookupError, setOpt1LookupError] = useState('');
   const [option1Busy, setOption1Busy] = useState(false);
 
   // Option 2 state
@@ -78,6 +98,7 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
   const [opt2NewUnit, setOpt2NewUnit] = useState(null);
   const [opt2LookupBusy, setOpt2LookupBusy] = useState(false);
   const [opt2LookupError, setOpt2LookupError] = useState('');
+  const [opt2RefundMethod, setOpt2RefundMethod] = useState('cash'); // 'cash' | 'card'
   const [option2Busy, setOption2Busy] = useState(false);
 
   // Option 3 state
@@ -91,16 +112,19 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
     setFound(null);
     setLookupError('');
     setSameReplacementQr('');
+    setOpt1ReplacementUnit(null);
+    setOpt1LookupError('');
     setOpt2NewQr('');
     setOpt2NewUnit(null);
     setOpt2LookupError('');
+    setOpt2RefundMethod('cash');
     setOpt3Reason('Mijoz xaridini qaytarib pulini olishni so‘radi');
     setActiveOption(1);
   };
 
-  // Lookup by QR / Serial
+  // Lookup by QR / Serial / Unit ID
   const lookupQr = async (valueToUse) => {
-    const val = (valueToUse !== undefined ? valueToUse : code).trim();
+    const val = extractQr(valueToUse !== undefined ? valueToUse : code);
     if (!val) return;
     setBusy(true);
     setLookupError('');
@@ -108,7 +132,14 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
     try {
       const res = await findSaleReturnUnit(branchId, val);
       setFound(res);
-      setCode(val);
+      if (res?.unit?.qr_code) {
+        setCode(res.unit.qr_code);
+      } else {
+        setCode(val);
+      }
+      setTimeout(() => {
+        verifiedCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      }, 100);
     } catch (e) {
       setLookupError(msg(e));
     } finally {
@@ -143,15 +174,48 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
     loadSoldUnits();
   };
 
-  const selectSoldUnit = (item) => {
-    if (!item?.qr_code) return;
-    setCode(item.qr_code);
-    lookupQr(item.qr_code);
+  const selectSoldUnit = (item, e) => {
+    e?.stopPropagation?.();
+    const target = item?.unit_id || item?.qr_code;
+    if (!target) return;
+    const cleanTarget = extractQr(target);
+    const displayQr = item?.qr_code ? extractQr(item.qr_code) : cleanTarget;
+    setCode(displayQr);
+    lookupQr(cleanTarget);
+  };
+
+  // Option 1: Lookup same item replacement
+  const lookupOpt1Replacement = async (val) => {
+    const codeToSearch = extractQr(val !== undefined ? val : sameReplacementQr);
+    if (!codeToSearch) {
+      setOpt1ReplacementUnit(null);
+      setOpt1LookupError('');
+      return;
+    }
+    setOpt1LookupBusy(true);
+    setOpt1LookupError('');
+    setOpt1ReplacementUnit(null);
+    try {
+      const ctx = await getPosUnitContext(branchId, codeToSearch);
+      if (!ctx || !ctx.unit) throw new Error('Yangi tovar birligi topilmadi');
+      if (ctx.unit.product_id !== found?.product?.id) {
+        throw new Error(`Xato tovar! 1-opsiyada faqat aynan "${found?.product?.name}" tovaridan yangi dona berilishi shart.`);
+      }
+      if (ctx.unit.status !== 'available') {
+        throw new Error(`O‘rniga beriladigan birlik sotuvga tayyor emas (holati: ${ctx.unit.status_label || ctx.unit.status})`);
+      }
+      setOpt1ReplacementUnit(ctx);
+      setSameReplacementQr(codeToSearch);
+    } catch (e) {
+      setOpt1LookupError(msg(e));
+    } finally {
+      setOpt1LookupBusy(false);
+    }
   };
 
   // Option 2: Lookup new replacement item
   const lookupOpt2NewItem = async (val) => {
-    const codeToSearch = (val !== undefined ? val : opt2NewQr).trim();
+    const codeToSearch = extractQr(val !== undefined ? val : opt2NewQr);
     if (!codeToSearch) return;
     setOpt2LookupBusy(true);
     setOpt2LookupError('');
@@ -165,6 +229,7 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
         throw new Error(`Yangi tanlangan tovar erkin sotuvda emas (holati: ${ctx.unit.status_label || ctx.unit.status})`);
       }
       setOpt2NewUnit(ctx);
+      setOpt2NewQr(codeToSearch);
     } catch (e) {
       setOpt2LookupError(msg(e));
     } finally {
@@ -178,8 +243,9 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
     setOption1Busy(true);
     try {
       let replacementId = null;
-      if (sameReplacementQr.trim()) {
-        const repCtx = await getPosUnitContext(branchId, sameReplacementQr.trim());
+      const cleanRepQr = extractQr(sameReplacementQr);
+      if (cleanRepQr) {
+        const repCtx = await getPosUnitContext(branchId, cleanRepQr);
         if (repCtx?.unit?.product_id !== found.product?.id) {
           throw new Error('1-opsiyada faqat aynan shu tovardan yangi dona berilishi shart!');
         }
@@ -213,16 +279,12 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
     }
   };
 
-  // Submit Option 2 (Different / Upgrade Product Exchange)
+  // Submit Option 2 (Different / Upgrade / Cheaper Product Exchange)
   const handleOption2Submit = async () => {
     if (!found?.unit?.id || !opt2NewUnit?.unit?.id) return;
     const returnedPrice = Number(found.sale_line?.line_total || 0);
     const newPrice = Number(opt2NewUnit.product?.retail_price || 0);
-
-    if (newPrice < returnedPrice) {
-      toast?.('Almashtiriladigan tovar narxi qaytarilayotgan tovar narxidan kam bo‘lishi mumkin emas!');
-      return;
-    }
+    const diff = newPrice - returnedPrice;
 
     setOption2Busy(true);
     try {
@@ -230,23 +292,42 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
         branchId,
         returnedUnitId: found.unit.id,
         newUnitId: opt2NewUnit.unit.id,
-        reason: `2-opsiya: ${opt2NewUnit.product?.name} ga almashtirildi`
+        reason: `2-opsiya: ${opt2NewUnit.product?.name} ga almashtirildi (${diff < 0 ? 'arzonroq tovar, farq qaytarildi' : diff > 0 ? 'qimmatroq tovar' : 'teng narx'})`,
+        refundMethod: opt2RefundMethod
       });
 
-      if (res.difference > 0) {
+      if (diff < 0) {
+        // Cheaper exchange: remaining difference refunded to customer and recorded as expense in kassa
+        const refundAmt = Math.abs(diff);
+        setSuccessResult({
+          title: '2-Opsiya: Tovar arzonrog‘iga muvaffaqiyatli almashtirildi',
+          message: `Tovar almashtirildi. Mijozga kassadan ${formatDualMoney(refundAmt, rate)} qaytarildi va bugungi kassa chiqimlariga (${opt2RefundMethod === 'card' ? 'plastik karta' : 'naqd pul'} harajati) yozildi.`,
+          details: [
+            ['Qaytarilgan tovar', `${found.product?.name} (${formatDualMoney(returnedPrice, rate)})`],
+            ['Yangi tanlangan tovar', `${opt2NewUnit.product?.name} (${formatDualMoney(newPrice, rate)})`],
+            ['Mijozga qaytarilgan summa', formatDualMoney(refundAmt, rate)],
+            ['Qaytarish shakli', opt2RefundMethod === 'card' ? '💳 Plastik karta' : '💵 Naqd pul'],
+            ['Kassa hisobi', 'Bugun uchun chiqim sifatida harajatlar ro‘yxatiga qo‘shildi']
+          ]
+        });
+        toast?.('Tovar almashtirildi va kassa chiqimi yozildi!');
+      } else if (diff > 0) {
+        // Upgrade exchange: surcharge forwarded to cash desk
         setSuccessResult({
           title: '2-Opsiya: Kassa so‘rovi yaratildi',
-          message: res.message,
+          message: res.message || 'Mijoz qo‘shimcha to‘lov qilishi uchun kassa cheki yaratildi.',
           pendingNo: res.pending_no,
           details: [
             ['Qaytarilgan tovar', `${found.product?.name} (${formatDualMoney(returnedPrice, rate)})`],
             ['Yangi tanlangan tovar', `${opt2NewUnit.product?.name} (${formatDualMoney(newPrice, rate)})`],
-            ['To‘lanadigan farq', formatDualMoney(res.difference, rate)],
-            ['Kassa so‘rovi', res.pending_no],
+            ['To‘lanadigan farq', formatDualMoney(res.difference || diff, rate)],
+            ['Kassa so‘rovi', res.pending_no || '—'],
             ['Mijoz', 'Chek kassaga yo‘naltirildi, mijoz kassaga to‘lov qiladi']
           ]
         });
+        toast?.('Kassaga yo‘naltirildi!');
       } else {
+        // Equal price exchange
         setSuccessResult({
           title: '2-Opsiya: Tovar teng narxda almashtirildi',
           message: 'Tovar teng qiymatli tovar bilan muvaffaqiyatli almashtirildi (farq: 0 so‘m). Qoldiq avtomatik yangilandi.',
@@ -257,8 +338,8 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
             ['Kassa holati', 'To‘lov talab etilmaydi']
           ]
         });
+        toast?.('2-opsiya bo‘yicha almashtirish qayd qilindi!');
       }
-      toast?.('2-opsiya bo‘yicha almashtirish qayd qilindi!');
     } catch (e) {
       toast?.(msg(e));
     } finally {
@@ -298,7 +379,6 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
   const returnedPrice = Number(found?.sale_line?.line_total || 0);
   const opt2NewPrice = Number(opt2NewUnit?.product?.retail_price || 0);
   const opt2Diff = opt2NewPrice - returnedPrice;
-  const isOpt2Invalid = opt2NewUnit && opt2NewPrice < returnedPrice;
 
   return (
     <div className="pos-returns-view">
@@ -397,6 +477,12 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
               </div>
               <button type="submit" className="btn btn-outline">Qidirish</button>
             </form>
+            {lookupError && (
+              <div className="returns-error-banner" style={{ marginTop: '0.75rem' }}>
+                <AlertTriangle size={16} />
+                <span>{lookupError}</span>
+              </div>
+            )}
           </div>
 
           <div className="calendar-results-list">
@@ -415,7 +501,7 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
                   <div
                     key={item.sale_line_id || item.unit_id}
                     className={`sold-unit-item ${found?.unit?.id === item.unit_id ? 'active' : ''} ${!item.is_returnable ? 'disabled' : ''}`}
-                    onClick={() => item.is_returnable && selectSoldUnit(item)}
+                    onClick={(e) => item.is_returnable && selectSoldUnit(item, e)}
                   >
                     <div className="sold-unit-thumb">
                       {item.image ? <img src={item.image} alt="" /> : <Package size={22} />}
@@ -430,7 +516,7 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
                     <div className="sold-unit-price-action">
                       <strong><DualPrice value={Number(item.line_total)} rate={rate} /></strong>
                       {item.is_returnable ? (
-                        <button type="button" className="btn btn-primary btn-sm" onClick={() => selectSoldUnit(item)}>
+                        <button type="button" className="btn btn-primary btn-sm" onClick={(e) => selectSoldUnit(item, e)}>
                           Tanlash
                         </button>
                       ) : (
@@ -447,7 +533,7 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
 
       {/* Verified Unit Details Card */}
       {found && (
-        <div className={`card returns-verified-card ${found.eligible ? 'eligible' : 'ineligible'}`}>
+        <div ref={verifiedCardRef} className={`card returns-verified-card ${found.eligible ? 'eligible' : 'ineligible'}`}>
           <div className="verified-status-row">
             {found.eligible ? (
               <div className="status-badge ok">
@@ -512,7 +598,7 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
                   <span className="opt-number">2</span>
                   <div className="opt-meta">
                     <b>Boshqa / analog tovarga almashtirish</b>
-                    <small>Narxi teng yoki qimmatroq tovar tanlanadi</small>
+                    <small>Narxi teng, qimmatroq yoki arzonroq tovar tanlanadi</small>
                   </div>
                 </button>
 
@@ -542,18 +628,48 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
                   </div>
 
                   <div className="option-form-group">
-                    <label>O‘rniga beriladigan yangi birlik QR kodi (agar zaxiradan berilsa):</label>
-                    <div className="returns-input-wrap">
-                      <QrCode size={16} className="icon-muted" />
-                      <input
-                        className="input"
-                        value={sameReplacementQr}
-                        onChange={e => setSameReplacementQr(e.target.value)}
-                        placeholder="Yangi berilayotgan dona QR kodi (ixtiyoriy)"
-                      />
-                      <QrScanButton onScan={val => setSameReplacementQr(val)} />
-                    </div>
-                    <small className="help-text">Agar hoziroq do‘kon zaxirasidan yangi dona berilsa, QR kodini kiriting. Tizim ikkala birlikni avtomatik sinxronlashtiradi.</small>
+                    <label>O‘rniga beriladigan yangi birlik QR kodi (aynan shu tovardan):</label>
+                    <form className="returns-scan-row" onSubmit={(e) => { e.preventDefault(); lookupOpt1Replacement(); }}>
+                      <div className="returns-input-wrap">
+                        <QrCode size={16} className="icon-muted" />
+                        <input
+                          className="input"
+                          value={sameReplacementQr}
+                          onChange={e => {
+                            setSameReplacementQr(e.target.value);
+                            setOpt1ReplacementUnit(null);
+                            setOpt1LookupError('');
+                          }}
+                          placeholder="Yangi berilayotgan dona QR kodi (TNB1-...)"
+                          autoFocus
+                        />
+                      </div>
+                      <QrScanButton onScan={val => {
+                        const clean = extractQr(val);
+                        setSameReplacementQr(clean);
+                        lookupOpt1Replacement(clean);
+                      }} />
+                      <button
+                        type="submit"
+                        className="btn btn-outline"
+                        disabled={opt1LookupBusy || !sameReplacementQr.trim()}
+                      >
+                        {opt1LookupBusy ? 'Tekshirilmoqda…' : 'Tekshirish'}
+                      </button>
+                    </form>
+                    {opt1LookupError && <div className="returns-error-banner"><AlertTriangle size={16} /><span>{opt1LookupError}</span></div>}
+                    {opt1ReplacementUnit && (
+                      <div style={{ marginTop: 8, padding: '10px 12px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 10 }}>
+                        <CheckCircle2 size={20} color="#16a34a" style={{ flexShrink: 0 }} />
+                        <div style={{ fontSize: 12 }}>
+                          <b style={{ color: '#166534' }}>Yangi tovar birligi tasdiqlandi:</b> {opt1ReplacementUnit.product_name}
+                          <div style={{ color: '#15803d', fontSize: 11, marginTop: 2 }}>
+                            QR: <code>{opt1ReplacementUnit.unit?.qr_code}</code> · Joylashuvi: <b>{opt1ReplacementUnit.unit?.location_type === 'store' ? 'Do‘konda' : 'Omborda'}</b> ({opt1ReplacementUnit.unit?.status_label || 'Sotuvga tayyor'})
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <small className="help-text">Do‘kon yoki ombor zaxirasidan yangi dona berilsa, QR kodini kiriting yoki skanerlang. Tizim ikkala birlikni avtomatik sinxronlashtiradi.</small>
                   </div>
 
                   <button
@@ -574,8 +690,8 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
                     <ArrowLeftRight size={20} />
                     <div>
                       <b>2-Opsiya qoidasi:</b>
-                      <p>Mijoz xohlagan boshqa tovar turi skaner qilinadi. Mijoz qaytargan tovariga avval to‘lagan pul bilan teng yoki undan ko‘proq qiymatli tovar olishi kerak!
-                      <b>Arzonroq tovar olib qolgan pulni naqd so‘rashga haqli emas.</b> Agar yangi tovar qimmat bo‘lsa, dastur avtomatik farqni kassa chekiga yozadi va kassaga yo‘naltiradi.</p>
+                      <p>Mijoz xohlagan boshqa tovar turi skaner qilinadi. Yangi tovar qimmatroq bo‘lsa, farq kassaga to‘lanadi.
+                      <b>Agar yangi tovar arzonroq bo‘lsa, qolgan pul mijozga naqd yoki plastik orqali qaytariladi va kassa harajatiga (bugungi chiqim) yoziladi.</b></p>
                     </div>
                   </div>
 
@@ -592,7 +708,11 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
                           autoFocus
                         />
                       </div>
-                      <QrScanButton onScan={val => { setOpt2NewQr(val); lookupOpt2NewItem(val); }} />
+                      <QrScanButton onScan={val => {
+                        const clean = extractQr(val);
+                        setOpt2NewQr(clean);
+                        lookupOpt2NewItem(clean);
+                      }} />
                       <button
                         type="submit"
                         className="btn btn-outline"
@@ -622,40 +742,133 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
                         </div>
                       </div>
 
-                      {isOpt2Invalid ? (
-                        <div className="returns-error-banner big">
-                          <AlertTriangle size={20} />
-                          <div>
-                            <b>Qat’iy qoida buzildi!</b>
-                            <p>Yangi tovar narxi ({formatDualMoney(opt2NewPrice, rate)}) qaytarilayotgan tovar narxidan ({formatDualMoney(returnedPrice, rate)}) past! Mijoz arzonroq tovar olib, do‘kondan qolgan pulni naqd so‘rashga haqli emas. Iltimos, kamida {formatDualMoney(returnedPrice, rate)} qiymatli tovar tanlang.</p>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="opt2-diff-summary">
-                          {opt2Diff === 0 ? (
-                            <div className="diff-result ok">
-                              <CheckCircle2 size={18} />
-                              <span><b>Narxlar teng (0 so‘m farq):</b> To‘lov talab etilmaydi, tovarlar to‘g‘ridan-to‘g‘ri almashtiriladi.</span>
-                            </div>
-                          ) : (
-                            <div className="diff-result upgrade">
-                              <div>
-                                <small>Kassaga to‘lanadigan farq summasi:</small>
-                                <b>+{formatDualMoney(opt2Diff, rate)}</b>
+                      <div className="opt2-diff-summary">
+                        {opt2Diff < 0 ? (
+                          <div className="diff-result refund-box" style={{
+                            background: '#f0fdf4',
+                            border: '1.5px solid #86efac',
+                            borderRadius: '12px',
+                            padding: '16px',
+                            marginTop: '12px'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '12px', marginBottom: '12px' }}>
+                              <div style={{
+                                background: '#22c55e',
+                                color: '#fff',
+                                borderRadius: '50%',
+                                width: '32px',
+                                height: '32px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0
+                              }}>
+                                <RotateCcw size={18} />
                               </div>
-                              <p>Dastur avtomatik mijoz hisobiga {formatDualMoney(opt2Diff, rate)} yozadi va chek kassaga yo‘naltiriladi.</p>
+                              <div>
+                                <small style={{ color: '#15803d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                  Mijozga kassadan qaytariladigan farq summasi:
+                                </small>
+                                <div style={{ fontSize: '22px', fontWeight: 800, color: '#166534', marginTop: '2px' }}>
+                                  {formatDualMoney(Math.abs(opt2Diff), rate)}
+                                </div>
+                                <p style={{ margin: '6px 0 0', fontSize: '12.5px', color: '#166534', lineHeight: 1.4 }}>
+                                  Yangi tovar arzonroq bo‘lgani sababli, qolgan <b>{formatDualMoney(Math.abs(opt2Diff), rate)}</b> mablag‘ mijozga qaytariladi va <b>kassada bugungi kun uchun chiqim (harajat)</b> sifatida yoziladi.
+                                </p>
+                              </div>
                             </div>
-                          )}
-                        </div>
-                      )}
+
+                            {/* Payment method selector for refund */}
+                            <div style={{
+                              background: '#ffffff',
+                              border: '1px solid #bbf7d0',
+                              borderRadius: '10px',
+                              padding: '12px',
+                              marginTop: '10px'
+                            }}>
+                              <label style={{ display: 'block', fontSize: '12px', fontWeight: 700, color: '#166534', marginBottom: '8px' }}>
+                                Qaytariladigan pul shaklini tanlang (Kassa chiqim turi):
+                              </label>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setOpt2RefundMethod('cash')}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px',
+                                    padding: '10px 12px',
+                                    borderRadius: '8px',
+                                    border: `2px solid ${opt2RefundMethod === 'cash' ? '#16a34a' : '#e2e8f0'}`,
+                                    background: opt2RefundMethod === 'cash' ? '#f0fdf4' : '#ffffff',
+                                    color: opt2RefundMethod === 'cash' ? '#166534' : '#475569',
+                                    fontWeight: 700,
+                                    fontSize: '13px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                >
+                                  <span>💵 Naqd pul</span>
+                                  {opt2RefundMethod === 'cash' && <Check size={16} color="#16a34a" />}
+                                </button>
+
+                                <button
+                                  type="button"
+                                  onClick={() => setOpt2RefundMethod('card')}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    gap: '8px',
+                                    padding: '10px 12px',
+                                    borderRadius: '8px',
+                                    border: `2px solid ${opt2RefundMethod === 'card' ? '#2563eb' : '#e2e8f0'}`,
+                                    background: opt2RefundMethod === 'card' ? '#eff6ff' : '#ffffff',
+                                    color: opt2RefundMethod === 'card' ? '#1e40af' : '#475569',
+                                    fontWeight: 700,
+                                    fontSize: '13px',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                >
+                                  <span>💳 Plastik karta</span>
+                                  {opt2RefundMethod === 'card' && <Check size={16} color="#2563eb" />}
+                                </button>
+                              </div>
+                              <small style={{ display: 'block', marginTop: '6px', fontSize: '11px', color: '#64748b' }}>
+                                Tanlangan to‘lov turi bo‘yicha bugungi kassa harajatlari (chiqim) hisobotiga avtomatik qo‘shiladi.
+                              </small>
+                            </div>
+                          </div>
+                        ) : opt2Diff === 0 ? (
+                          <div className="diff-result ok">
+                            <CheckCircle2 size={18} />
+                            <span><b>Narxlar teng (0 so‘m farq):</b> To‘lov talab etilmaydi, tovarlar to‘g‘ridan-to‘g‘ri almashtiriladi.</span>
+                          </div>
+                        ) : (
+                          <div className="diff-result upgrade">
+                            <div>
+                              <small>Kassaga to‘lanadigan farq summasi:</small>
+                              <b>+{formatDualMoney(opt2Diff, rate)}</b>
+                            </div>
+                            <p>Dastur avtomatik mijoz hisobiga {formatDualMoney(opt2Diff, rate)} yozadi va chek kassaga yo‘naltiriladi.</p>
+                          </div>
+                        )}
+                      </div>
 
                       <button
                         type="button"
                         className="btn btn-primary btn-block btn-lg"
-                        disabled={option2Busy || isOpt2Invalid}
+                        disabled={option2Busy}
+                        style={opt2Diff < 0 ? { background: '#16a34a', borderColor: '#16a34a', marginTop: 14 } : { marginTop: 14 }}
                         onClick={handleOption2Submit}
                       >
-                        {option2Busy ? 'Yo‘naltirilmoqda…' : opt2Diff > 0 ? `Kassaga yo‘naltirish (+${formatDualMoney(opt2Diff, rate)})` : 'Almashtirishni yakunlash (0 so‘m)'}
+                        {option2Busy ? 'Bajarilmoqda…' : opt2Diff < 0
+                          ? `Tovarni almashtirish va kassadan ${formatDualMoney(Math.abs(opt2Diff), rate)} qaytarish (${opt2RefundMethod === 'card' ? 'Plastik' : 'Naqd'})`
+                          : opt2Diff > 0
+                          ? `Kassaga yo‘naltirish (+${formatDualMoney(opt2Diff, rate)})`
+                          : 'Almashtirishni yakunlash (0 so‘m)'}
                       </button>
                     </div>
                   )}

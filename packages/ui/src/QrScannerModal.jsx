@@ -256,17 +256,15 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
     };
 
     const cleanupScanner = async (scanner) => {
-      if (!scanner) {
-        stopTracks();
-        return;
-      }
+      stopTracks();
+      if (!scanner) return;
       try {
         const state = scanner.getState?.();
         if (state === 2 || state === 3) {
-          await scanner.stop();
+          await scanner.stop().catch(() => {});
         }
       } catch (err) {
-        console.warn('Scanner stop warn:', err);
+        // ignore scanner stop error
       }
       try {
         scanner.clear();
@@ -371,8 +369,13 @@ export function QrScannerModal({ open, onClose, onScan, title = 'QR kodni skaner
           if (Date.now() - startedAt < 350) return;
 
           scannedRef.current = true;
-          cleanupScanner(html5QrCode);
-          onScan?.(decodedText);
+          stopTracks();
+          cleanupScanner(html5QrCode).catch(() => {});
+          try {
+            onScan?.(decodedText);
+          } catch (scanErr) {
+            console.error('QR onScan handler error:', scanErr);
+          }
           onClose?.();
         };
 
@@ -695,7 +698,11 @@ export function QrScanButton({ onScan, onOpen, className = '', title = 'QR skane
 
   const handleScan = (value) => {
     setOpen(false);
-    onScan?.(value);
+    try {
+      onScan?.(value);
+    } catch (err) {
+      console.error('QrScanButton onScan error:', err);
+    }
   };
 
   return (

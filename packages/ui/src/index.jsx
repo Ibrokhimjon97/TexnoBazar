@@ -11,6 +11,7 @@ export * from './ProductDeliveryStickersModal.jsx';
 export * from './detongerBluetooth.js';
 export * from './mhtBluetooth.js';
 export * from './DetongerPrintModal.jsx';
+export * from './backgroundKeepAlive.js';
 export * from './Skeleton.jsx';
 import React,{useEffect} from 'react';
 export * from './auth.jsx';

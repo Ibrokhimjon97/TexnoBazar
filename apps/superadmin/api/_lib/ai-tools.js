@@ -214,20 +214,48 @@ export const AI_TOOLS = [
     name: 'sales_history',
     rpc: 'list_sales_history',
     write: false,
-    description: 'Sotilgan tovarlar ro\'yxati: mahsulot, sotuvchi, filial, sotuv narxi, tannarx, sana, QR kod.',
+    description: 'Sotilgan tovarlar ro\'yxati: mahsulot, sotuvchi (seller_name), filial, sotuv narxi, tannarx, sana, QR kod, chek raqami (sale_no). '
+      + '"Kim sotdi?", "Qachon sotildi?", "Qaysi chekda sotilgan?" savollari uchun shu tool ni tovar nomi, SKU yoki QR kod bo\'yicha chaqiring.',
     parameters: {
       type: 'object',
       properties: {
-        from: dateProp('Boshlanish sanasi'),
-        to: dateProp('Tugash sanasi'),
+        from: dateProp('Boshlanish sanasi (ixtiyoriy)'),
+        to: dateProp('Tugash sanasi (ixtiyoriy)'),
         branch_id: { type: 'string', description: 'Filial UUID (ixtiyoriy)' },
-        query: { type: 'string', description: 'Mahsulot nomi, SKU yoki QR bo\'yicha filtr' },
+        seller_id: { type: 'string', description: 'Sotuvchi UUID (ixtiyoriy)' },
+        query: { type: 'string', description: 'Mahsulot nomi, SKU yoki QR bo\'yicha filtr (masalan: Saratov, ARTEL, QR kod)' },
         limit: { type: 'integer', description: 'Maksimal qatorlar soni' },
       },
     },
     map: a => ({
-      p_branch_id: a.branch_id ?? null, p_from: a.from ?? null, p_to: a.to ?? null,
-      p_query: a.query ?? null, p_limit: Math.min(a.limit ?? 30, 100), p_offset: 0,
+      p_branch_id: a.branch_id ?? null,
+      p_seller_id: a.seller_id ?? null,
+      p_from: a.from ?? null,
+      p_to: a.to ?? null,
+      p_query: a.query ?? null,
+      p_limit: Math.min(a.limit ?? 30, 100),
+      p_offset: 0,
+    }),
+  },
+  {
+    name: 'seller_leaderboard',
+    rpc: 'get_seller_leaderboard',
+    write: false,
+    description: 'Filial sotuvchilari reytingi (leaderboard): 1, 2, 3 va keyingi o\'rinlar, sotuvchilar sotgan jami summa, cheklar soni, sotilgan donalar va filialdagi ulush (%). '
+      + 'period parametri: "day" (kunlik), "week" (haftalik), "month" (oylik), "year" (yillik). '
+      + 'date parametri: YYYY-MM-DD ko\'rinishidagi sana (standart bugun).',
+    parameters: {
+      type: 'object',
+      properties: {
+        branch_id: { type: 'string', description: 'Filial UUID (ixtiyoriy)' },
+        period: { type: 'string', enum: ['day', 'week', 'month', 'year'], description: 'Davr: day (kunlik), week (haftalik), month (oylik), year (yillik)' },
+        date: dateProp('Sana (YYYY-MM-DD formatida, ixtiyoriy)'),
+      },
+    },
+    map: a => ({
+      p_branch_id: a.branch_id ?? null,
+      p_period: a.period ?? 'day',
+      p_date: a.date ?? null,
     }),
   },
 
@@ -607,6 +635,9 @@ Foydalanuvchi "Yangi mahsulot qo'shmoqchiman" yoki shunga o'xshash buyruq bergan
     "✅ **Partiya muvaffaqiyatli qabul qilindi!** Barcha donalar uchun TNB1-... QR kodlar yaratildi va Menejer panelidagi Tovarlar (qoldiq) hamda Partiyalar ro'yxatida tovar paydo bo'ldi!"
 
 ⚡ BOSHQA MUHIM QOIDALAR:
+- **Tovarni kim sotganini aniqlash:** Foydalanuvchi "bu tovarni kim sotdi?", "Saratovni kim sotdi?", "oxirgi sotuv kimniki?" deb so'rasa, DARHOL \`sales_history(query: 'tovar_nomi_yoki_sku')\` tool ini chaqir. Natijadagi \`seller_name\` (sotuvchi ismi), \`sold_at\` (sana va vaqt), \`sale_no\` (chek raqami), \`unit_price\` (sotilgan narx) va \`qr_code\` ni foydalanuvchiga to'liq, aniq va chiroyli qilib aytib ber!
+- **Sotuvchilar reytingi:** "Bugun kim ko'p sotdi?", "Sotuvchilar reytingi qanday?", "Top sotuvchilar kimlar?", "Haftalik/oylik peshqadam kim?" deb so'ralsa, \`seller_leaderboard(period: 'day'|'week'|'month'|'year')\` tool ini chaqir va 1, 2, 3-o'rinlarni oltin/kumush/bronza medali bilan, qolgan barcha o'rinlarni esa ro'yxat qilib chiqar.
+- **Menejer huquqlari:** Superadmin kabi Menejer ham o'z filiali doirasida barcha imkoniyatlardan (tovar yaratish, partiya qabul qilish, xarajat kiritish, savdolar tarixini tekshirish, reytingni ko'rish) to'liq foydalana oladi. Filial ko'rsatilmagan holatlarda tizim avtomatik ravishda menejerning o'z filialiga moslashtiradi.
 - Xarajatlar uchun \`create_expense\` ni chaqir.
 - Har doim samimiy, xushmuomala o'zbek tilida muloqot qil.`;
 }

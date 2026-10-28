@@ -8,7 +8,57 @@ export const deleteStockReceipt=(id,password=null)=>rpc('delete_stock_receipt',{
 export const listReceiptQrLabels=(receiptId,page=1,pageSize=100)=>rpc('list_receipt_qr_labels',{p_receipt_id:receiptId,p_limit:pageSize,p_offset:(page-1)*pageSize});
 export const createStockReceipt=(header,lines,idempotencyKey=crypto.randomUUID())=>rpc('receive_stock',{p_header:header,p_lines:lines,p_idempotency_key:idempotencyKey});
 export function listStockReceipts({branchId=null,locationId=null,query=null,date=null,page=1,pageSize=500}={}){return rpc('list_stock_receipts',{p_branch_id:branchId,p_location_id:locationId||null,p_query:query||null,p_limit:pageSize,p_offset:(page-1)*pageSize,p_date:date||null})}
-export function listInventoryBalances({branchId=null,locationId=null,query=null,categoryId=null,minPrice=null,maxPrice=null,availability=null,page=1,pageSize=50}={}){return rpc('list_inventory_balances',{p_branch_id:branchId||null,p_location_id:locationId||null,p_query:query||null,p_category_id:categoryId||null,p_min_price:minPrice?Number(minPrice):null,p_max_price:maxPrice?Number(maxPrice):null,p_availability:availability||null,p_limit:pageSize,p_offset:(page-1)*pageSize})}
+export function listInventoryBalances({
+  branchId = null,
+  locationId = null,
+  query = null,
+  categoryId = null,
+  minPrice = null,
+  maxPrice = null,
+  availability = null,
+  hasImage = null,
+  sortBy = null,
+  page = 1,
+  pageSize = 50
+} = {}) {
+  return rpc('list_inventory_balances', {
+    p_branch_id: branchId || null,
+    p_location_id: locationId || null,
+    p_query: query || null,
+    p_category_id: categoryId || null,
+    p_min_price: minPrice ? Number(minPrice) : null,
+    p_max_price: maxPrice ? Number(maxPrice) : null,
+    p_availability: availability || null,
+    p_has_image: hasImage || null,
+    p_sort_by: sortBy || null,
+    p_limit: pageSize,
+    p_offset: (page - 1) * pageSize
+  });
+}
+
+export const getLowStockProducts = ({
+  branchId = null,
+  threshold = 5,
+  locationId = null,
+  limit = 100
+} = {}) => rpc('get_low_stock_products', {
+  p_branch_id: branchId || null,
+  p_threshold: Number(threshold) || 5,
+  p_location_id: locationId || null,
+  p_limit: limit
+});
+
+export const getProductSalesAnalytics = ({
+  branchId = null,
+  from = null,
+  to = null,
+  limit = 50
+} = {}) => rpc('get_product_sales_analytics', {
+  p_branch_id: branchId || null,
+  p_from: from || null,
+  p_to: to || null,
+  p_limit: limit
+});
 export const getInventoryUnitPassport=code=>rpc('get_inventory_unit_passport',{p_code:code});
 export const placeInventoryUnits=(targetLocationId,codes,requestId=crypto.randomUUID())=>rpc('place_inventory_units',{p_target_location_id:targetLocationId,p_codes:codes,p_request_id:requestId});
 // Manager-only: sotilgan birlikni balansga qaytaradi va sotuv summasini hisobdan chiqaradi.
@@ -41,3 +91,27 @@ export const bulkUpdateMinimumSalePrices = ({
     p_percent: Number(percent) || 0,
     p_receipt_ids: Array.isArray(receiptIds) && receiptIds.length > 0 ? receiptIds : null,
   });
+
+export const resolveProductByCode = (branchId, code) =>
+  rpc('resolve_product_by_code', { p_branch_id: branchId || null, p_code: code });
+
+export const linkCodeToProduct = (code, productId, notes = null) =>
+  rpc('link_code_to_product', { p_code: code, p_product_id: productId, p_notes: notes });
+
+export const applyStockReconciliation = ({ branchId, locationId = null, items = [], notes = null }) =>
+  rpc('apply_stock_reconciliation', {
+    p_branch_id: branchId,
+    p_location_id: locationId || null,
+    p_items: items,
+    p_notes: notes
+  });
+
+export const listStockReconciliations = ({ branchId, page = 1, pageSize = 50 } = {}) =>
+  rpc('list_stock_reconciliations', {
+    p_branch_id: branchId,
+    p_limit: pageSize,
+    p_offset: (page - 1) * pageSize
+  });
+
+export const syncAllBatchPricesToLatest = () => rpc('sync_all_batch_prices_to_latest', {});
+

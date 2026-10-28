@@ -34,10 +34,11 @@ import {
   listInventoryBalances,
   loadProductReviews
 } from '@texnobazar/data';
+import CustomerTabsBar from './CustomerTabsBar';
 
 const STOREFRONT_URL = (import.meta.env?.VITE_STOREFRONT_URL || 'https://texnobazar-storefront.netlify.app').replace(/\/$/, '');
 
-export default function ProductCatalogWorkspace({ branchId, onAddToCart, toast }) {
+export default function ProductCatalogWorkspace({ branchId, onAddToCart, toast, customerTabsProps }) {
   const rate = useExchangeRate();
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -46,6 +47,8 @@ export default function ProductCatalogWorkspace({ branchId, onAddToCart, toast }
   const [categories, setCategories] = useState([]);
   const [rows, setRows] = useState([]);
   const [total, setTotal] = useState(0);
+  const [hasFuzzyOnly, setHasFuzzyOnly] = useState(false);
+  const [suggestedName, setSuggestedName] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
   const [loading, setLoading] = useState(true);
@@ -97,6 +100,8 @@ export default function ProductCatalogWorkspace({ branchId, onAddToCart, toast }
       });
       setRows(res?.items || []);
       setTotal(Number(res?.total || 0));
+      setHasFuzzyOnly(Boolean(res?.has_fuzzy_only));
+      setSuggestedName(res?.suggested_name || '');
     } catch (e) {
       setError(String(e?.message || 'Tovarlarni yuklab bo‘lmadi.'));
     } finally {
@@ -134,6 +139,25 @@ export default function ProductCatalogWorkspace({ branchId, onAddToCart, toast }
             </button>
           </div>
         </div>
+
+        {/* Multi-Customer Tabs Bar */}
+        {customerTabsProps && (
+          <div style={{ marginTop: 10, marginBottom: 8 }}>
+            <CustomerTabsBar
+              tabs={customerTabsProps.tabs}
+              activeTabId={customerTabsProps.activeTabId}
+              onSelectTab={customerTabsProps.onSelectTab}
+              onAddTab={customerTabsProps.onAddTab}
+              onCloseTab={customerTabsProps.onCloseTab}
+              compact
+            />
+            <div className="pos-active-customer-indicator" style={{ marginBottom: 4 }}>
+              <span>Hozirgi savdo tabi:</span>
+              <b>👤 {customerTabsProps.activeTab?.customer?.full_name?.trim() || customerTabsProps.activeTab?.label || 'Mijoz'}</b>
+              <span className="count-pill">{customerTabsProps.activeTab?.cart?.length || 0} ta tovar</span>
+            </div>
+          </div>
+        )}
 
         {/* Search input */}
         <div className="seller-catalog-search">
@@ -189,34 +213,113 @@ export default function ProductCatalogWorkspace({ branchId, onAddToCart, toast }
       ) : rows.length === 0 ? (
         <Empty
           title="Tovar topilmadi"
-          text="Qidiruv so‘rovi yoki kategoriyani o‘zgartirib ko‘ring."
+          text={debounced ? `«${debounced}» bo‘yicha hech qanday tovar yoki yaqin o‘xshashlik topilmadi.` : 'Qidiruv so‘rovi yoki kategoriyani o‘zgartirib ko‘ring.'}
         />
       ) : (
-        <div className="seller-products-grid">
-          {rows.map(item => {
-            const hasStock = Number(item.available || 0) > 0;
-            return (
-              <div
-                key={`${item.product_id}-${item.location_id}`}
-                className="seller-product-card card"
-                onClick={() => setSelectedProduct(item)}
-              >
-                <div className="product-card-thumb">
-                  {item.image ? (
-                    <img src={item.image} alt={item.product_name} loading="lazy" />
-                  ) : (
-                    <div className="product-thumb-placeholder">
-                      <Boxes size={32} />
-                    </div>
-                  )}
-                  <span className={`stock-badge ${hasStock ? 'in-stock' : 'out-of-stock'}`}>
-                    {hasStock ? `${Number(item.available)} dona mavjud` : 'Qolmagan'}
-                  </span>
+        <>
+          {debounced && hasFuzzyOnly && (
+            <div
+              style={{
+                background: 'linear-gradient(135deg, #fffbeb, #fef3c7)',
+                border: '1.5px solid #fde68a',
+                borderRadius: 12,
+                padding: '12px 16px',
+                marginBottom: 16,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 12,
+                flexWrap: 'wrap'
+              }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 22 }}>💡</span>
+                <div>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, color: '#92400e' }}>
+                    «{debounced}» bo‘yicha to‘liq mos tovar topilmadi
+                  </div>
+                  <div style={{ fontSize: 12, color: '#78350f', marginTop: 2 }}>
+                    Tizim qidiruvingizga eng yaqin tovarlarni aniqladi. Balki quyidagilarni izlayotgandirsiz:
+                  </div>
                 </div>
+              </div>
+              {suggestedName && (
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() => setQuery(suggestedName)}
+                  style={{
+                    borderRadius: 20,
+                    fontSize: 12,
+                    fontWeight: 700,
+                    background: '#ffffff',
+                    border: '1px solid #d97706',
+                    color: '#b45309',
+                    cursor: 'pointer',
+                    padding: '5px 14px'
+                  }}
+                  title="Ushbu tovar nomi bilan aniq qidirish"
+                >
+                  🔍 {suggestedName}
+                </button>
+              )}
+            </div>
+          )}
 
-                <div className="product-card-body">
-                  <div className="product-card-sku">SKU: {item.sku || '—'}</div>
-                  <h4 className="product-card-name">{item.product_name}</h4>
+          <div className="seller-products-grid">
+            {rows.map(item => {
+              const hasStock = Number(item.available || 0) > 0;
+              return (
+                <div
+                  key={`${item.product_id}-${item.location_id}`}
+                  className="seller-product-card card"
+                  onClick={() => setSelectedProduct(item)}
+                >
+                  <div className="product-card-thumb">
+                    {item.image ? (
+                      <img src={item.image} alt={item.product_name} loading="lazy" />
+                    ) : (
+                      <div className="product-thumb-placeholder">
+                        <Boxes size={32} />
+                      </div>
+                    )}
+                    <span className={`stock-badge ${hasStock ? 'in-stock' : 'out-of-stock'}`}>
+                      {hasStock ? `${Number(item.available)} dona mavjud` : 'Qolmagan'}
+                    </span>
+                    {item.is_fuzzy && (
+                      <span
+                        style={{
+                          position: 'absolute',
+                          top: 8,
+                          left: 8,
+                          background: 'linear-gradient(135deg, #f59e0b, #d97706)',
+                          color: '#fff',
+                          fontSize: 10,
+                          fontWeight: 700,
+                          padding: '3px 8px',
+                          borderRadius: 6,
+                          boxShadow: '0 2px 6px rgba(217, 119, 6, 0.3)',
+                          zIndex: 2,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 3
+                        }}
+                      >
+                        ✨ Yaqin moslik
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="product-card-body">
+                    <div className="product-card-sku">
+                      SKU: {item.sku || '—'}
+                      {item.is_fuzzy && item.match_similarity != null && (
+                        <span style={{ marginLeft: 6, color: '#d97706', fontSize: 10.5, fontWeight: 700 }}>
+                          ({Math.round(item.match_similarity * 100)}% o‘xshash)
+                        </span>
+                      )}
+                    </div>
+                    <h4 className="product-card-name">{item.product_name}</h4>
 
                   <div className="product-card-prices">
                     <span className="price-label">Sotish narxi:</span>
@@ -249,6 +352,7 @@ export default function ProductCatalogWorkspace({ branchId, onAddToCart, toast }
             );
           })}
         </div>
+        </>
       )}
 
       {/* Pagination */}

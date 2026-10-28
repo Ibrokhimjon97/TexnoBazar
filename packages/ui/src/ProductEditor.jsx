@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Boxes, CheckCircle2, Package, Pencil, Plus, Trash2, Upload, X } from 'lucide-react';
+import { AlertTriangle, Boxes, CheckCircle2, Clock, Package, Pencil, Plus, Trash2, Upload, X } from 'lucide-react';
 import { Modal } from './index.jsx';
 import { DualPriceInput, useExchangeRate } from './DualPriceInput.jsx';
 import { ColorVariantEditor } from './ColorVariantEditor.jsx';
@@ -297,7 +297,8 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
       slug: prod.slug || '',
       video_url: prod.video_url || '',
       description: prod.description || '',
-      currency: prod.currency || ((prod.cost_price_usd && Number(prod.cost_price_usd) > 0) || (prod.retail_price_usd && Number(prod.retail_price_usd) > 0) ? 'USD' : 'UZS')
+      currency: prod.currency || ((prod.cost_price_usd && Number(prod.cost_price_usd) > 0) || (prod.retail_price_usd && Number(prod.retail_price_usd) > 0) ? 'USD' : 'UZS'),
+      cost_price_updated_at: prod.cost_price_updated_at || prod.updated_at || null
     });
     const mediaList = prod.media || [];
     setExistingMedia(mediaList);
@@ -650,7 +651,15 @@ export function ProductEditor({ open, close, product, refs, saved, toast, RichTe
             </div>
           </div>
 
-          <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v => setForm(f => ({ ...f, cost_price: v }))} valueUsd={form.cost_price_usd} onChangeUsd={v => setForm(f => ({ ...f, cost_price_usd: v }))} rate={rate} currency={form.currency} onCurrencyChange={c => setForm(f => ({ ...f, currency: c }))} />
+          <div>
+            <DualPriceInput label="Tannarx" valueUzs={form.cost_price} onChangeUzs={v => setForm(f => ({ ...f, cost_price: v }))} valueUsd={form.cost_price_usd} onChangeUsd={v => setForm(f => ({ ...f, cost_price_usd: v }))} rate={rate} currency={form.currency} onCurrencyChange={c => setForm(f => ({ ...f, currency: c }))} />
+            {form.cost_price_updated_at && (
+              <div style={{ marginTop: 4, fontSize: 11, color: '#64748b', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Clock size={12} color="#94a3b8" />
+                <span>Oxirgi o‘zgargan vaqti: <b>{new Date(form.cost_price_updated_at).toLocaleString('uz-UZ')}</b></span>
+              </div>
+            )}
+          </div>
           <DualPriceInput label="Sotish narxi" valueUzs={form.retail_price} onChangeUzs={v => setForm(f => ({ ...f, retail_price: v }))} valueUsd={form.retail_price_usd} onChangeUsd={v => setForm(f => ({ ...f, retail_price_usd: v }))} rate={rate} currency={form.currency} onCurrencyChange={c => setForm(f => ({ ...f, currency: c }))} />
           <DualPriceInput label="Ulgurji narx" valueUzs={form.wholesale_price} onChangeUzs={v => setForm(f => ({ ...f, wholesale_price: v }))} valueUsd={form.wholesale_price_usd} onChangeUsd={v => setForm(f => ({ ...f, wholesale_price_usd: v }))} rate={rate} currency={form.currency} onCurrencyChange={c => setForm(f => ({ ...f, currency: c }))} />
           <DualPriceInput label="Minimal sotuv narxi" valueUzs={form.minimum_sale_price} onChangeUzs={v => setForm(f => ({ ...f, minimum_sale_price: v }))} valueUsd={form.minimum_sale_price_usd} onChangeUsd={v => setForm(f => ({ ...f, minimum_sale_price_usd: v }))} rate={rate} currency={form.currency} onCurrencyChange={c => setForm(f => ({ ...f, currency: c }))} />

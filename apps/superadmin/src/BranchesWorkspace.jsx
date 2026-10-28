@@ -71,13 +71,91 @@ function BranchDetail({branch,locations,back,toast,reload}){
   <EmployeeQuickModal open={empModal} close={()=>setEmpModal(false)} branchId={branch.id} branchName={branch.name} branches={branches} toast={toast}/></>;
 }
 
+function generateBranchCode(name) {
+  if (!name) return 'BR-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+  const map = {
+    'ў': 'o', 'Ў': 'O', 'ғ': 'g', 'Ғ': 'G', 'ш': 'sh', 'Ш': 'SH',
+    'ч': 'ch', 'Ч': 'CH', 'ю': 'yu', 'Ю': 'YU', 'я': 'ya', 'Я': 'YA',
+    'ж': 'j', 'Ж': 'J', 'х': 'x', 'Х': 'X', 'қ': 'q', 'Қ': 'Q',
+    'ҳ': 'h', 'Ҳ': 'H', 'а': 'a', 'А': 'A', 'б': 'b', 'Б': 'B',
+    'в': 'v', 'В': 'V', 'г': 'g', 'Г': 'G', 'д': 'd', 'Д': 'D',
+    'е': 'e', 'Е': 'E', 'ё': 'yo', 'Ё': 'YO', 'з': 'z', 'З': 'Z',
+    'и': 'i', 'И': 'I', 'й': 'y', 'Й': 'Y', 'к': 'k', 'К': 'K',
+    'л': 'l', 'Л': 'L', 'м': 'm', 'М': 'M', 'н': 'n', 'Н': 'N',
+    'о': 'o', 'О': 'O', 'п': 'p', 'П': 'P', 'р': 'r', 'Р': 'R',
+    'с': 's', 'С': 'S', 'т': 't', 'Т': 'T', 'у': 'u', 'У': 'U',
+    'ф': 'f', 'Ф': 'F', 'ц': 'ts', 'Ц': 'TS'
+  };
+  let clean = name.replace(/[ўЎғҒшШчЧюЮяЯжЖхХқҚҳҲа-яА-ЯёЁ]/g, c => map[c] || '');
+  clean = clean.replace(/['`ʻʼ"]/g, '');
+  clean = clean.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (!clean || clean.length < 2) {
+    clean = 'BR-' + Math.random().toString(36).substring(2, 7).toUpperCase();
+  }
+  return clean.slice(0, 32);
+}
+
 /* --- Branch Create/Edit Modal --- */
 function BranchModal({open,close,branch,toast,reload}){
-  const empty={name:'',phone:'',address:'',is_active:true};
+  const empty={name:'',code:'',phone:'',address:'',is_active:true};
   const[form,setForm]=useState(empty),[busy,setBusy]=useState(false),[error,setError]=useState('');
-  useEffect(()=>{if(open){setForm(branch?{name:branch.name||'',phone:branch.phone||'',address:branch.address?.text||'',is_active:branch.is_active!==false}:{...empty});setError('')}},[open,branch]);
-  const submit=async e=>{e.preventDefault();setBusy(true);setError('');try{const payload={name:form.name.trim(),phone:form.phone.trim()||null,address:form.address.trim()?{text:form.address.trim()}:{},is_active:form.is_active};if(!payload.name)throw new Error('Filial nomi kiritilmagan');if(branch){await updateMasterRecord('branches',branch.id,payload)}else{const code=payload.name.trim().toUpperCase().replace(/\s+/g,'-').slice(0,20);await createMasterRecord('branches',{...payload,code,timezone:'Asia/Tashkent',currency:'UZS'})}close();toast(branch?'Filial yangilandi':'Filial yaratildi');await reload()}catch(err){setError(err.message)}finally{setBusy(false)}};
-  return <Modal open={open} onClose={close} title={branch?'Filialni tahrirlash':'Yangi filial'}><form className="employee-form-grid" onSubmit={submit}>{error&&<div className="employee-error wide">{error}</div>}<label className="wide"><span className="label">Filial nomi</span><input className="input" value={form.name} onChange={e=>setForm({...form,name:e.target.value})} required minLength="2"/></label><label><span className="label">Telefon</span><input className="input" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} required/></label><label><span className="label">Manzil</span><input className="input" value={form.address} onChange={e=>setForm({...form,address:e.target.value})} placeholder="Toshkent shahri..."/></label><label className="master-check"><input type="checkbox" checked={form.is_active} onChange={e=>setForm({...form,is_active:e.target.checked})}/><span>Faol</span></label><button className="btn btn-primary wide" disabled={busy}>{busy?'Saqlanmoqda…':'Saqlash'}</button></form></Modal>;
+  useEffect(()=>{if(open){setForm(branch?{name:branch.name||'',code:branch.code||'',phone:branch.phone||'',address:branch.address?.text||'',is_active:branch.is_active!==false}:{...empty});setError('')}},[open,branch]);
+  const submit=async e=>{
+    e.preventDefault();setBusy(true);setError('');
+    try{
+      const payload={
+        name:form.name.trim(),
+        phone:form.phone.trim()||null,
+        address:form.address.trim()?{text:form.address.trim()}:{},
+        is_active:form.is_active
+      };
+      if(!payload.name)throw new Error('Filial nomi kiritilmagan');
+      if(branch){
+        const updatePayload = { ...payload };
+        if(form.code?.trim()) updatePayload.code = generateBranchCode(form.code);
+        await updateMasterRecord('branches',branch.id,updatePayload);
+      } else {
+        const code = form.code?.trim() ? generateBranchCode(form.code) : generateBranchCode(payload.name);
+        await createMasterRecord('branches',{...payload,code,timezone:'Asia/Tashkent',currency:'UZS'});
+      }
+      close();
+      toast(branch?'Filial yangilandi':'Filial yaratildi');
+      await reload();
+    }catch(err){
+      setError(err.message);
+    }finally{
+      setBusy(false);
+    }
+  };
+  return <Modal open={open} onClose={close} title={branch?'Filialni tahrirlash':'Yangi filial'}>
+    <form className="employee-form-grid" onSubmit={submit}>
+      {error&&<div className="employee-error wide">{error}</div>}
+      <label className="wide">
+        <span className="label">Filial nomi *</span>
+        <input className="input" value={form.name} onChange={e=>{
+          const nextName = e.target.value;
+          setForm(f=>({...f, name:nextName, code: f.code && branch ? f.code : (!f.code || f.code === generateBranchCode(f.name) ? generateBranchCode(nextName) : f.code)}));
+        }} required minLength="2" placeholder="Masalan: Chilonzor filiali"/>
+      </label>
+      <label>
+        <span className="label">Filial kodi (ixtiyoriy)</span>
+        <input className="input" value={form.code} onChange={e=>setForm({...form,code:e.target.value.toUpperCase()})} placeholder="Avtomatik (masalan: CHILONZOR)"/>
+      </label>
+      <label>
+        <span className="label">Telefon</span>
+        <input className="input" value={form.phone} onChange={e=>setForm({...form,phone:e.target.value})} placeholder="+998 90 123 45 67"/>
+      </label>
+      <label className="wide">
+        <span className="label">Manzil</span>
+        <input className="input" value={form.address} onChange={e=>setForm({...form,address:e.target.value})} placeholder="Toshkent shahri, Chilonzor tumani..."/>
+      </label>
+      <label className="master-check">
+        <input type="checkbox" checked={form.is_active} onChange={e=>setForm({...form,is_active:e.target.checked})}/>
+        <span>Faol</span>
+      </label>
+      <button className="btn btn-primary wide" disabled={busy}>{busy?'Saqlanmoqda…':'Saqlash'}</button>
+    </form>
+  </Modal>;
 }
 
 /* --- Location Create/Edit Modal --- */

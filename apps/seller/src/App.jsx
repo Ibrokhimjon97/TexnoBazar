@@ -21,7 +21,22 @@ function NotificationCenter({profileId,onOpenItem}){
 
   useEffect(()=>{load();},[load]);
   useEffect(()=>{if(!profileId)return;return subscribeNotifications(load,e=>setError(String(e?.message||e)),profileId);},[profileId,load]);
-  useEffect(()=>{if(!profileId)return;const timer=setInterval(load,20000);return()=>clearInterval(timer);},[profileId,load]);
+  useEffect(()=>{
+    if(!profileId)return;
+    const tick=()=>{
+      if(typeof document === 'undefined' || document.visibilityState === 'visible'){
+        load();
+      }
+    };
+    const timer=setInterval(tick, 30000);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+    return()=>{
+      clearInterval(timer);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  },[profileId,load]);
 
   // Tashqariga bosilganda yopish
   useEffect(()=>{
@@ -171,6 +186,49 @@ function NotificationCenter({profileId,onOpenItem}){
   );
 }
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error('Seller App Error Boundary caught:', error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 24, margin: '32px auto', maxWidth: 480, background: '#fff', borderRadius: 12, border: '1px solid #fed7aa', boxShadow: '0 4px 16px rgba(0,0,0,0.06)', textAlign: 'center' }}>
+          <div style={{ fontSize: 40, marginBottom: 12 }}>⚠️</div>
+          <h3 style={{ margin: '0 0 8px', color: '#9a3412', fontSize: 18 }}>Kutilmagan xatolik yuz berdi</h3>
+          <p style={{ fontSize: 13, color: '#64748b', marginBottom: 20, lineHeight: 1.5 }}>
+            {this.state.error?.message || 'Amal bajarilishida xatolik yuz berdi.'}
+          </p>
+          <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => this.setState({ hasError: false, error: null })}
+            >
+              Qaytadan urinish
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => window.location.reload()}
+            >
+              Sahifani yangilash (F5)
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App(){
   const{profile,roles}=useAuth();
   const[toast,setToast]=useState('');
@@ -211,7 +269,9 @@ export default function App(){
   };
   return <div className="seller-shell"><div className="seller">
     <header><div><span>Xush kelibsiz,</span><b>{profile?.full_name||profile?.email}</b><small>{branch?.name||'Filial tanlanmoqda…'}</small></div>{sellerBranches.length>1&&<select className="select" value={branchId} onChange={event=>selectBranch(event.target.value)} aria-label="Seller filiali">{sellerBranches.map(item=><option key={item.id} value={item.id}>{item.name}</option>)}</select>}<ThemeToggle/><NotificationCenter profileId={profile?.id} onOpenItem={onNotificationNavigate}/><AccountMenu compact/></header>
-    {branch?<PosWorkspace key={branch.id} branchId={branch.id} profile={profile} toast={setToast} focusPendingSaleId={focusPendingSaleId} clearFocus={()=>setFocusPendingSaleId(null)}/>:<main className="pos-real-state"><p>Filial tanlanmoqda…</p></main>}
+    <ErrorBoundary>
+      {branch?<PosWorkspace key={branch.id} branchId={branch.id} profile={profile} toast={setToast} focusPendingSaleId={focusPendingSaleId} clearFocus={()=>setFocusPendingSaleId(null)}/>:<main className="pos-real-state"><p>Filial tanlanmoqda…</p></main>}
+    </ErrorBoundary>
     <Toast message={toast} onClose={()=>setToast('')}/>
   </div></div>;
 }

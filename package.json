@@ -8,7 +8,8 @@
   ],
   "dependencies": {
     "@supabase/supabase-js": "2.112.3",
-    "detonger-web-bt": "^1.0.2"
+    "detonger-web-bt": "^1.0.2",
+    "leaflet": "^1.9.4"
   },
   "scripts": {
     "dev": "concurrently -n storefront,superadmin,manager,seller,courier -c blue,magenta,cyan,yellow,green \"npm:dev:storefront\" \"npm:dev:superadmin\" \"npm:dev:manager\" \"npm:dev:seller\" \"npm:dev:courier\"",

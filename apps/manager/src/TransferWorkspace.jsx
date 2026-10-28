@@ -1,10 +1,11 @@
 import React,{useEffect,useMemo,useState}from'react';
-import{AlertTriangle,ArrowDownLeft,ArrowUpRight,Boxes,CalendarDays,ChevronRight,MapPin,Plus,QrCode,RotateCcw,Search,Tag,Trash2,WalletCards}from'lucide-react';
+import{AlertTriangle,ArrowDownLeft,ArrowUpRight,Boxes,CalendarDays,ChevronRight,MapPin,Plus,QrCode,RotateCcw,Search,Tag,Trash2,Truck,WalletCards}from'lucide-react';
 import{DualPrice,Empty,Modal,QrScanButton,Status,useExchangeRate}from'@texnobazar/ui';
 import{
   approveBranchTransfer,createBranchTransfer,findTransferUnit,getBranchTransfer,getTransferReferences,
   listBranchTransfers,receiveBranchTransfer,recordBranchTransferPayment,editBranchTransfer,searchTransferUnits,shipBranchTransfer,
 }from'@texnobazar/data';
+import ExternalTransfersJournal from './ExternalTransfersJournal';
 
 const message=e=>String(e?.message||'Amalni bajarib bo‘lmadi.');
 const labels={draft:'Qoralama',requested:'So‘ralgan',approved:'Tasdiqlangan',in_transit:'Yo‘lda',received:'Qabul qilingan',cancelled:'Bekor qilingan'};
@@ -28,6 +29,7 @@ function State({loading,error,retry,children}){
 
 export default function TransferWorkspace({branchId,toast,focusTransferId,clearFocus}){
   const rate=useExchangeRate();
+  const[mainTab,setMainTab]=useState('external');
   const[refs,setRefs]=useState({source_locations:[],destination_branches:[]});
   const[rows,setRows]=useState([]);
   const[direction,setDirection]=useState('all');
@@ -60,6 +62,7 @@ export default function TransferWorkspace({branchId,toast,focusTransferId,clearF
   };
   useEffect(()=>{
     if(!focusTransferId)return;
+    setMainTab('internal');
     openDetail(focusTransferId).then(()=>clearFocus?.()).catch(()=>clearFocus?.());
     // Only re-run when the focus target itself changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -99,11 +102,49 @@ export default function TransferWorkspace({branchId,toast,focusTransferId,clearF
   };
 
   return <section className="tw-workspace">
-    <div className="m-page-head between"><div><h2>Filiallararo transferlar</h2><p>Qabul tasdig‘i, ulgurji qarz va to‘lovlar tarixi</p></div><button className="btn btn-primary" onClick={()=>setCreateOpen(true)} disabled={!branchId}><Plus/>Yangi transfer</button></div>
-    <div className="tw-toolbar"><div className="tw-tabs">{[['all','Barchasi'],['outgoing','Chiquvchi'],['incoming','Kiruvchi']].map(([key,text])=><button key={key} className={direction===key?'active':''} onClick={()=>setDirection(key)}>{text}</button>)}</div><label className="tw-search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Transfer, QR, SKU yoki mahsulot"/></label></div>
-    <State loading={loading} error={error} retry={load}>{rows.length===0?<Empty title="Transferlar topilmadi" text="Filtrni o‘zgartiring yoki yangi transfer yarating."/>:<div className="tw-list">{rows.map(row=><TransferCard key={row.id} row={row} branchId={branchId} open={()=>openDetail(row.id)} rate={rate}/>)}</div>}</State>
-    <TransferCreate open={createOpen} close={()=>setCreateOpen(false)} branchId={branchId} refs={refs} toast={toast} completed={async transfer=>{setCreateOpen(false);setDetail(transfer);await load()}} rate={rate}/>
-    <TransferDetail transfer={detail} close={()=>setDetail(null)} busy={detailBusy} action={lifecycle} savePayment={savePayment} branchId={branchId} editTransfer={editTransfer} refs={refs} rate={rate}/>
+    <div className="m-page-head between">
+      <div>
+        <h2>Transferlar jurnali</h2>
+        <p>Filiallarga tovar tarqatish tarixi va filiallararo hisob-kitoblar</p>
+      </div>
+      {mainTab==='internal'&&(
+        <button className="btn btn-primary" onClick={()=>setCreateOpen(true)} disabled={!branchId}><Plus/>Yangi transfer</button>
+      )}
+    </div>
+
+    <div className="tw-workspace-top-tabs">
+      <button
+        type="button"
+        className={`tw-nav-tab-btn ${mainTab==='external'?'active':''}`}
+        onClick={()=>setMainTab('external')}
+      >
+        <Truck size={17}/>
+        <span>Filiallarga tarqatish tarixi (Jurnal)</span>
+      </button>
+      <button
+        type="button"
+        className={`tw-nav-tab-btn ${mainTab==='internal'?'active':''}`}
+        onClick={()=>setMainTab('internal')}
+      >
+        <ArrowUpRight size={17}/>
+        <span>Ichki filiallararo transferlar</span>
+      </button>
+    </div>
+
+    {mainTab==='external'?(
+      <ExternalTransfersJournal
+        branchId={branchId}
+        toast={toast}
+        rate={rate}
+      />
+    ):(
+      <>
+        <div className="tw-toolbar"><div className="tw-tabs">{[['all','Barchasi'],['outgoing','Chiquvchi'],['incoming','Kiruvchi']].map(([key,text])=><button key={key} className={direction===key?'active':''} onClick={()=>setDirection(key)}>{text}</button>)}</div><label className="tw-search"><Search/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Transfer, QR, SKU yoki mahsulot"/></label></div>
+        <State loading={loading} error={error} retry={load}>{rows.length===0?<Empty title="Transferlar topilmadi" text="Filtrni o‘zgartiring yoki yangi transfer yarating."/>:<div className="tw-list">{rows.map(row=><TransferCard key={row.id} row={row} branchId={branchId} open={()=>openDetail(row.id)} rate={rate}/>)}</div>}</State>
+        <TransferCreate open={createOpen} close={()=>setCreateOpen(false)} branchId={branchId} refs={refs} toast={toast} completed={async transfer=>{setCreateOpen(false);setDetail(transfer);await load()}} rate={rate}/>
+        <TransferDetail transfer={detail} close={()=>setDetail(null)} busy={detailBusy} action={lifecycle} savePayment={savePayment} branchId={branchId} editTransfer={editTransfer} refs={refs} rate={rate}/>
+      </>
+    )}
   </section>;
 }
 

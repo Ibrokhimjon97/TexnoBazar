@@ -54,6 +54,7 @@ export default function CreateProductModal({open,close,branchId,created}){
         wholesale_price_usd:form.wholesale_price_usd===''?null:(form.wholesale_price_usd!=null&&!isNaN(Number(form.wholesale_price_usd))?Number(form.wholesale_price_usd):(rate&&Number(form.wholesale_price)?Number((Number(form.wholesale_price)/rate).toFixed(2)):null)),
         promotion_price:Number(form.promotion_price)||null,
         minimum_sale_price:Number(form.minimum_sale_price)||0,
+        minimum_sale_price_usd:form.minimum_sale_price_usd!==''&&form.minimum_sale_price_usd!=null&&!isNaN(Number(form.minimum_sale_price_usd))?Number(form.minimum_sale_price_usd):(rate&&Number(form.minimum_sale_price)?Number((Number(form.minimum_sale_price)/rate).toFixed(2)):null),
         currency: form.currency || (form.cost_price_usd && Number(form.cost_price_usd) > 0 ? 'USD' : (form.retail_price_usd && Number(form.retail_price_usd) > 0 ? 'USD' : 'UZS')),
         compare_at_price:Number(form.compare_at_price)||null,
         description:form.description||null,

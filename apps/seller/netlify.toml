@@ -1,5 +1,4 @@
 [build]
-  base = "apps/seller"
   command = "npm run build --workspace @texnobazar/seller"
   publish = "dist"
 

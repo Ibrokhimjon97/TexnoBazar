@@ -75,7 +75,7 @@ export default function ExchangeRateWorkspace({toast}){
       <DollarSign size={28}/>
       <div>
         <small>Joriy kurs ({latest.rate_date})</small>
-        <b>1 USD = {formatMoney(Number(latest.rate))} so'm</b>
+        <b>1 USD = {formatMoney(Number(latest.rate))}</b>
       </div>
     </div>}
 

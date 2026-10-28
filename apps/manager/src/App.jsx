@@ -1,29 +1,15 @@
-import React,{useCallback,useEffect,useRef,useState}from'react';
-import{AlertTriangle,Archive,ArrowLeftRight,Bell,CalendarCheck,Check,Sparkles,Boxes,ClipboardCheck,DollarSign,FileX2,Home,Landmark,Menu,PackagePlus,QrCode,RotateCcw,ShoppingBag,Truck,WalletCards,Warehouse,Wrench,X}from'lucide-react';
+import React,{useCallback,useEffect,useMemo,useRef,useState}from'react';
+import{AlertTriangle,Archive,ArrowLeftRight,Bell,Calendar,CalendarCheck,Check,Sparkles,Boxes,ClipboardCheck,DollarSign,FileX2,Home,Landmark,Menu,PackagePlus,QrCode,RotateCcw,ShoppingBag,Truck,WalletCards,Warehouse,Wrench,X,Trophy,TrendingUp,ScanSearch}from'lucide-react';
 import{AccountMenu,AiChat,Status,ThemeToggle,Toast,formatMoney,useAuth}from'@texnobazar/ui';
-import{formatUzDate,getManagementDashboard,listCourierPerformance,listNotifications,listPosPendingSales,markNotificationsRead,subscribeNotifications}from'@texnobazar/data';
-
-// Qisqa signal: kassaga yangi so‘rov kelganda menejer eshitadi (fayl talab qilmaydi).
-function playAlert(){
-  try{
-    const Ctx=window.AudioContext||window.webkitAudioContext;
-    if(!Ctx)return;
-    const ctx=new Ctx();
-    const gain=ctx.createGain();gain.gain.value=0.0001;gain.connect(ctx.destination);
-    const beep=(startAt,frequency)=>{const osc=ctx.createOscillator();osc.type='sine';osc.frequency.value=frequency;osc.connect(gain);osc.start(startAt);osc.stop(startAt+0.16)};
-    const now=ctx.currentTime;
-    gain.gain.setValueAtTime(0.0001,now);
-    gain.gain.exponentialRampToValueAtTime(0.22,now+0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001,now+0.42);
-    beep(now,880);beep(now+0.2,1180);
-    setTimeout(()=>ctx.close().catch(()=>{}),900);
-  }catch{/* audio bloklangan bo‘lsa jim qolamiz */}
-}
+import{formatUzDate,getManagementDashboard,listCourierPerformance,listNotifications,listPosPendingSales,markNotificationsRead,subscribeNotifications,subscribePosPendingSales}from'@texnobazar/data';
+import{LowStockModal,ProductSalesAnalyticsModal}from'./ManagerDashboardModals';
+import{playCashierAlert,playNotificationAlert}from'./audioAlert.js';
 import{InventoryBatches,InventoryScanner,InventoryStock,ReceiptModal}from'./InventoryWorkspace';
 import TransferWorkspace from'./TransferWorkspace';
 import DebtWorkspace from'./DebtWorkspace';
 import CashWorkspace from'./CashWorkspace';
 import InventoryCountWorkspace from'./InventoryCountWorkspace';
+import StockReconciliationWorkspace from'./StockReconciliationWorkspace';
 import InventoryRegisterModal from'./InventoryRegisterModal';
 import WriteoffWorkspace from'./WriteoffWorkspace';
 import ReturnsWorkspace from'./ReturnsWorkspace';
@@ -35,12 +21,14 @@ import SalesHistoryWorkspace from'./SalesHistoryWorkspace';
 import ManagerBackupWorkspace from'./ManagerBackupWorkspace';
 import AttendanceWorkspace from'./AttendanceWorkspace';
 import DeliveryWorkspace from'./DeliveryWorkspace';
+import RatingWorkspace from'./RatingWorkspace';
 
 const nav=[
   ['Asosiy',Home,'home'],['Partiyalar',PackagePlus,'batches'],['Tovarlar',Warehouse,'stock'],
+  ['Reviziya (Solishtirish)',ScanSearch,'audit'],
   ['Zahira / Tiklash',Archive,'backup'],
   ['Transfer',ArrowLeftRight,'transfer'],['Hisobdan chiqarish',FileX2,'writeoff'],
-  ['Qaytarish',RotateCcw,'returns'],['Ta’mirlash',Wrench,'repairs'],['Kassa',WalletCards,'cash'],['Dostavka',Truck,'delivery'],['Davomat',CalendarCheck,'attendance'],['Online / Kuryer',Truck,'orders'],['Sotuvlar tarixi',ClipboardCheck,'sales-history'],['AI yordamchi',Sparkles,'ai-chat'],
+  ['Qaytarish',RotateCcw,'returns'],['Ta’mirlash',Wrench,'repairs'],['Kassa',WalletCards,'cash'],['Reyting',Trophy,'rating'],['Dostavka',Truck,'delivery'],['Davomat',CalendarCheck,'attendance'],['Online / Kuryer',Truck,'orders'],['Sotuvlar tarixi',ClipboardCheck,'sales-history'],['AI yordamchi',Sparkles,'ai-chat'],
   ['Moliya',Landmark,'finance'],['Valyuta',DollarSign,'exchange'],['Qarzdorlik',ShoppingBag,'debt'],
 ];
 export default function App(){
@@ -62,7 +50,7 @@ export default function App(){
     if(data.type&&String(data.type).startsWith('attendance')){go('attendance');return}
     if(data.order_id){setFocusOrderId(data.order_id);go('orders')}
   };
-  const common={branchId:branch?.id,toast:setToast};
+  const common={branchId:branch?.id,branchName:branch?.name||'TEXNOBAZAR',toast:setToast};
   // Kassadagi tasdiqlanmagan so‘rovlar soni: nav badge va signal uchun.
   const[pendingCount,setPendingCount]=useState(0);
   const pendingSeen=useRef(null);
@@ -72,12 +60,31 @@ export default function App(){
       const result=await listPosPendingSales({branchId:branch.id,status:'pending',pageSize:1});
       const count=Number(result?.summary?.pending_count??result?.total??0);
       setPendingCount(count);
-      if(pendingSeen.current!==null&&count>pendingSeen.current){playAlert();setToast('Kassaga yangi savdo so‘rovi keldi');}
+      if(pendingSeen.current!==null&&count>pendingSeen.current){playCashierAlert();setToast('Kassaga yangi savdo so‘rovi keldi');}
       pendingSeen.current=count;
     }catch{/* filial yoki ruxsat mavjud bo‘lmasa jim qolamiz */}
   },[branch?.id]);
-  useEffect(()=>{pendingSeen.current=null;setPendingCount(0);loadPending();},[loadPending]);
-  useEffect(()=>{if(!branch?.id)return;const timer=setInterval(loadPending,15000);return()=>clearInterval(timer)},[branch?.id,loadPending]);
+  useEffect(()=>{
+    if(!branch?.id)return;
+    const tick = () => {
+      if(typeof document === 'undefined' || document.visibilityState === 'visible'){
+        loadPending();
+      }
+    };
+    const timer = setInterval(tick, 20000);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  },[branch?.id,loadPending]);
+  useEffect(()=>{
+    if(!branch?.id)return;
+    const unsub=subscribePosPendingSales(()=>{loadPending();},null,branch.id);
+    return()=>unsub?.();
+  },[branch?.id,loadPending]);
   const[batchMode,setBatchMode]=useState('batch');
   const[autoOpenReceiptId,setAutoOpenReceiptId]=useState(null);
   const[refreshBatchesTrigger,setRefreshBatchesTrigger]=useState(0);
@@ -113,6 +120,8 @@ export default function App(){
             />
           ):page==='stock'?(
             <InventoryStock branchId={branch?.id} onScan={()=>setScan(true)} onRegister={()=>setRegister(true)} toast={setToast}/>
+          ):page==='audit'?(
+            <StockReconciliationWorkspace {...common}/>
           ):page==='backup'?(
             <ManagerBackupWorkspace {...common}/>
           ):page==='transfer'?(
@@ -125,6 +134,8 @@ export default function App(){
             <RepairWorkspace {...common}/>
           ):page==='cash'?(
             <CashWorkspace {...common} focusPendingSaleId={focusPendingSaleId} clearFocus={()=>setFocusPendingSaleId(null)}/>
+          ):page==='rating'?(
+            <RatingWorkspace {...common}/>
           ):page==='delivery'?(
             <DeliveryWorkspace {...common}/>
           ):page==='attendance'?(
@@ -172,14 +183,409 @@ export default function App(){
 }
 
 function Overview({branchId,go,scan,batch,name}){
-  const[data,setData]=useState(null),[loading,setLoading]=useState(true),[error,setError]=useState('');
-  const load=async()=>{if(!branchId){setLoading(false);return;}setLoading(true);setError('');try{const now=new Date(),month=new Date(now.getFullYear(),now.getMonth(),1),day=dateKey(now),monthStart=dateKey(month);const[today,currentMonth,courier]=await Promise.all([getManagementDashboard({from:day,to:day,branchId}),getManagementDashboard({from:monthStart,to:day,branchId}),listCourierPerformance({from:monthStart,to:day,branchId})]);setData({today,currentMonth,courier});}catch(e){setError(String(e?.message||'Dashboard yuklanmadi.'));}finally{setLoading(false);}};
-  useEffect(()=>{load();},[branchId]);
+  const[data,setData]=useState(null);
+  const[loading,setLoading]=useState(true);
+  const[refreshing,setRefreshing]=useState(false);
+  const[error,setError]=useState('');
+  const[period,setPeriod]=useState('today'); // Default: Bugun
+  const[customFrom,setCustomFrom]=useState(()=>dateKey(new Date()));
+  const[customTo,setCustomTo]=useState(()=>dateKey(new Date()));
+  const[showCustom,setShowCustom]=useState(false);
+  const[lowStockOpen,setLowStockOpen]=useState(false);
+  const[topProductsOpen,setTopProductsOpen]=useState(false);
+
+  const periodInfo=useMemo(()=>{
+    const now=new Date();
+    const todayStr=dateKey(now);
+    if(period==='custom'){
+      return{from:customFrom||todayStr,to:customTo||todayStr,label:'Maxsus',badge:`${customFrom} — ${customTo}`};
+    }
+    if(period==='week'){
+      const d=new Date(now.getFullYear(),now.getMonth(),now.getDate()-6);
+      return{from:dateKey(d),to:todayStr,label:'1 hafta',badge:'1 haftalik'};
+    }
+    if(period==='month'){
+      const d=new Date(now.getFullYear(),now.getMonth(),now.getDate()-29);
+      return{from:dateKey(d),to:todayStr,label:'1 oy',badge:'1 oylik'};
+    }
+    if(period==='6months'){
+      const d=new Date(now.getFullYear(),now.getMonth()-6,now.getDate());
+      return{from:dateKey(d),to:todayStr,label:'6 oy',badge:'6 oylik'};
+    }
+    if(period==='year'){
+      const d=new Date(now.getFullYear()-1,now.getMonth(),now.getDate());
+      return{from:dateKey(d),to:todayStr,label:'1 yil',badge:'1 yillik'};
+    }
+    if(period==='all'){
+      return{from:'2024-01-01',to:todayStr,label:'Barchasi',badge:'Barcha davr'};
+    }
+    // Default: 'today'
+    return{from:todayStr,to:todayStr,label:'Bugun',badge:'Bugungi'};
+  },[period,customFrom,customTo]);
+
+  const load=useCallback(async()=>{
+    if(!branchId){setLoading(false);return;}
+    if(!data)setLoading(true);
+    else setRefreshing(true);
+    setError('');
+    try{
+      const{from,to}=periodInfo;
+      const[dashboard,courier]=await Promise.all([
+        getManagementDashboard({from,to,branchId}),
+        listCourierPerformance({from,to,branchId})
+      ]);
+      setData({dashboard,courier});
+    }catch(e){
+      setError(String(e?.message||'Dashboard yuklanmadi.'));
+    }finally{
+      setLoading(false);
+      setRefreshing(false);
+    }
+  },[branchId,periodInfo]);
+
+  useEffect(()=>{load();},[load]);
+
   if(!branchId)return <OverviewState error="Dashboard uchun filial tanlanmagan."/>;
-  if(loading)return <OverviewState/>;
-  if(error)return <OverviewState error={error} retry={load}/>;
-  const day=data.today,month=data.currentMonth,courier=data.courier||{},couriers=courier.couriers||[];
-  return <><div className="greeting"><span>{formatUzDate(new Date(), { weekday: 'long', day: true, month: 'long', year: true })}</span><h2>Xayrli kun, {name?.split(' ')[0]||'Menejer'}!</h2><p>Filialning serverdagi joriy ko‘rsatkichlari.</p></div><div className="m-stats"><div className="primary"><WalletCards/><span>Bugungi sof savdo<b>{formatMoney(Number(day.profit_loss?.net_sales||0))}</b><small>Refund: {formatMoney(Number(day.profit_loss?.refunds||0))}</small></span></div><div><Truck/><span>Oylik buyurtmalar<b>{Number(month.orders?.total||0)} ta</b><small>{Number(month.orders?.new||0)} ta yangi</small></span></div><div><Boxes/><span>Real qoldiq<b>{Number(month.inventory?.units||0)} dona</b><small>{Number(month.inventory?.reserved||0)} rezervda</small></span></div><div><AlertTriangle/><span>To‘lanadigan qarz<b>{formatMoney(Number(month.payables||0))}</b><small>Olinadigan: {formatMoney(Number(month.receivables||0))}</small></span></div></div><h3 className="block-title">Tezkor amallar</h3><div className="quick-actions"><button onClick={scan}><span><QrCode/></span><b>QR skanerlash</b><small>Birlik pasporti</small></button><button onClick={batch}><span><PackagePlus/></span><b>Partiya yaratish</b><small>Yangi real kirim</small></button><button onClick={()=>go('transfer')}><span><ArrowLeftRight/></span><b>Transfer</b><small>Filialga yuborish</small></button></div><div className="overview-real card"><h3>Joriy oy P&amp;L</h3><div><span><small>Sof savdo</small><b>{formatMoney(Number(month.profit_loss?.net_sales||0))}</b></span><span><small>Yalpi foyda</small><b>{formatMoney(Number(month.profit_loss?.gross_profit||0))}</b></span><span><small>Operatsion xarajat</small><b>{formatMoney(Number(month.profit_loss?.operating_expenses||0))}</b></span><span><small>Sof foyda</small><b>{formatMoney(Number(month.profit_loss?.net_profit||0))}</b></span></div></div><section className="overview-real card courier-performance"><div className="between"><div><h3>Kuryerlar — joriy oy</h3><small>Filial bo‘yicha serverda qabul qilingan sifatli GPS segmentlari</small></div><b>{formatDistance(courier.summary?.distance_m)} jami</b></div><div className="table-wrap"><table className="table"><thead><tr><th>Kuryer</th><th>Masofa</th><th>Yetkazildi</th><th>Faol</th><th>Natija</th></tr></thead><tbody>{couriers.map(row=><tr key={`${row.branch_id}-${row.courier_id}`}><td><b>{row.full_name}</b></td><td>{formatDistance(row.distance_m)}</td><td>{Number(row.delivered||0)} ta</td><td>{Number(row.active||0)} ta</td><td>{Number(row.delivery_rate||0).toLocaleString('uz-UZ')}%</td></tr>)}</tbody></table></div>{!couriers.length&&<p className="admin-inline-empty">Filialda faol kuryer topilmadi.</p>}</section></>;
+  if(loading&&!data)return <OverviewState/>;
+  if(error&&!data)return <OverviewState error={error} retry={load}/>;
+
+  const dashboard=data?.dashboard||{};
+  const pl=dashboard.profit_loss||{};
+  const orders=dashboard.orders||{};
+  const inventory=dashboard.inventory||{};
+  const payables=Number(dashboard.payables||0);
+  const receivables=Number(dashboard.receivables||0);
+  const courier=data?.courier||{};
+  const couriers=courier.couriers||[];
+  const netProfit=Number(pl.net_profit||0);
+  const netSales=Number(pl.net_sales||0);
+  const grossProfit=Number(pl.gross_profit||0);
+  const isProfitPositive=netProfit>=0;
+
+  return (
+    <>
+      <div className="greeting">
+        <span>{formatUzDate(new Date(), { weekday: 'long', day: true, month: 'long', year: true })}</span>
+        <h2>Xayrli kun, {name?.split(' ')[0]||'Menejer'}!</h2>
+        <p>Filialning serverdagi joriy ko‘rsatkichlari va moliyaviy hisobotlari.</p>
+      </div>
+
+      {/* Davr filtri: Default Bugun, 1 hafta, 1 oy, 6 oy, 1 yil, Barchasi */}
+      <div className="overview-filter-container" style={{ marginBottom: 18 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+          <div className="segmented" style={{ margin: 0, padding: 3, display: 'inline-flex', flexWrap: 'wrap', gap: 4 }}>
+            <button
+              type="button"
+              className={period === 'today' ? 'active' : ''}
+              onClick={() => { setPeriod('today'); setShowCustom(false); }}
+            >
+              Bugun
+            </button>
+            <button
+              type="button"
+              className={period === 'week' ? 'active' : ''}
+              onClick={() => { setPeriod('week'); setShowCustom(false); }}
+            >
+              1 hafta
+            </button>
+            <button
+              type="button"
+              className={period === 'month' ? 'active' : ''}
+              onClick={() => { setPeriod('month'); setShowCustom(false); }}
+            >
+              1 oy
+            </button>
+            <button
+              type="button"
+              className={period === '6months' ? 'active' : ''}
+              onClick={() => { setPeriod('6months'); setShowCustom(false); }}
+            >
+              6 oy
+            </button>
+            <button
+              type="button"
+              className={period === 'year' ? 'active' : ''}
+              onClick={() => { setPeriod('year'); setShowCustom(false); }}
+            >
+              1 yil
+            </button>
+            <button
+              type="button"
+              className={period === 'all' ? 'active' : ''}
+              onClick={() => { setPeriod('all'); setShowCustom(false); }}
+            >
+              Barchasi
+            </button>
+            <button
+              type="button"
+              className={period === 'custom' || showCustom ? 'active' : ''}
+              onClick={() => { setShowCustom(!showCustom); if (!showCustom) setPeriod('custom'); }}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              <Calendar size={13} />
+              <span>Sana tanlash</span>
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {refreshing && (
+              <span style={{ fontSize: 11, color: 'var(--orange)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                <span className="spinner-sm" style={{ width: 12, height: 12, borderWidth: 2, display: 'inline-block' }} />
+                Yangilanmoqda…
+              </span>
+            )}
+            <div style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 12,
+              color: 'var(--text)',
+              background: 'var(--surface)',
+              padding: '6px 12px',
+              borderRadius: 10,
+              border: '1px solid var(--line)',
+              fontWeight: 600
+            }}>
+              <Calendar size={14} style={{ color: 'var(--orange)' }} />
+              <span>{periodInfo.from === periodInfo.to ? periodInfo.from : `${periodInfo.from} — ${periodInfo.to}`}</span>
+            </div>
+          </div>
+        </div>
+
+        {showCustom && (
+          <div style={{
+            marginTop: 10,
+            padding: '10px 14px',
+            background: 'var(--surface)',
+            border: '1px solid var(--line)',
+            borderRadius: 12,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap'
+          }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>Oraliqni tanlang:</span>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <span>Dan:</span>
+              <input
+                type="date"
+                value={customFrom}
+                max={customTo || dateKey(new Date())}
+                onChange={e => {
+                  setCustomFrom(e.target.value);
+                  setPeriod('custom');
+                }}
+                style={{ padding: '4px 8px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--text)' }}
+              />
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+              <span>Gacha:</span>
+              <input
+                type="date"
+                value={customTo}
+                min={customFrom}
+                max={dateKey(new Date())}
+                onChange={e => {
+                  setCustomTo(e.target.value);
+                  setPeriod('custom');
+                }}
+                style={{ padding: '4px 8px', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--surface)', color: 'var(--text)' }}
+              />
+            </label>
+          </div>
+        )}
+      </div>
+
+      {/* Asosiy statistikalar: Boshida {periodInfo.badge} sof foyda va sof savdo */}
+      <div className="m-stats" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
+        <div className="primary">
+          <TrendingUp size={24}/>
+          <span>
+            {periodInfo.badge} sof foyda
+            <b style={{ fontSize: '1.25rem', letterSpacing: '-0.02em', color: '#fff' }}>
+              {formatMoney(netProfit)}
+            </b>
+            <small style={{ color: 'rgba(255,255,255,0.85)' }}>
+              Sof savdo: {formatMoney(netSales)}
+            </small>
+          </span>
+        </div>
+        <div>
+          <WalletCards size={24} style={{ color: 'var(--orange, #f97316)' }}/>
+          <span>
+            {periodInfo.badge} sof savdo
+            <b>{formatMoney(netSales)}</b>
+            <small>Yalpi foyda: {formatMoney(grossProfit)}</small>
+          </span>
+        </div>
+        <div>
+          <Truck size={24} style={{ color: '#2563eb' }}/>
+          <span>
+            {periodInfo.badge} buyurtmalar
+            <b>{Number(orders.total || 0)} ta</b>
+            <small>{Number(orders.delivered || 0)} ta yetkazildi</small>
+          </span>
+        </div>
+        <div>
+          <Boxes size={24} style={{ color: '#16a34a' }}/>
+          <span>
+            Real tovar qoldig‘i
+            <b>{Number(inventory.units || 0)} dona</b>
+            <small>{Number(inventory.reserved || 0)} rezervda</small>
+          </span>
+        </div>
+        <div>
+          <AlertTriangle size={24} style={{ color: '#eab308' }}/>
+          <span>
+            Filial qarzdorligi
+            <b>{formatMoney(payables)}</b>
+            <small>Olinadigan: {formatMoney(receivables)}</small>
+          </span>
+        </div>
+      </div>
+
+      <h3 className="block-title">Tezkor amallar va Tahlil</h3>
+      <div className="quick-actions" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+        <button type="button" onClick={scan}>
+          <span><QrCode/></span>
+          <b>QR skanerlash</b>
+          <small>Birlik pasporti</small>
+        </button>
+        <button type="button" onClick={batch}>
+          <span><PackagePlus/></span>
+          <b>Partiya yaratish</b>
+          <small>Yangi real kirim</small>
+        </button>
+        <button type="button" onClick={()=>go('transfer')}>
+          <span><ArrowLeftRight/></span>
+          <b>Transfer</b>
+          <small>Filialga yuborish</small>
+        </button>
+        <button
+          type="button"
+          onClick={() => setLowStockOpen(true)}
+          style={{ border: '1px solid #fed7aa', background: 'var(--surface, #fff)' }}
+        >
+          <span style={{ background: '#ffedd5', color: '#ea580c' }}><AlertTriangle size={20} /></span>
+          <b style={{ color: '#c2410c' }}>Kam qolgan tovarlar</b>
+          <small>Qoldiq ≤ 5 dona bo‘lganlar</small>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTopProductsOpen(true)}
+          style={{ border: '1px solid #bbf7d0', background: 'var(--surface, #fff)' }}
+        >
+          <span style={{ background: '#dcfce7', color: '#16a34a' }}><TrendingUp size={20} /></span>
+          <b style={{ color: '#15803d' }}>Top 50 tovarlar tahlili</b>
+          <small>Eng ko‘p va kam sotilganlar</small>
+        </button>
+      </div>
+
+      {/* Tanlangan davr P&L va Sof Foyda Tahlili */}
+      <div className="overview-real card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+          <div>
+            <h3 style={{ margin: 0, fontSize: 17 }}>
+              {periodInfo.badge} P&amp;L va Sof foyda tahlili
+            </h3>
+            <small style={{ color: 'var(--muted)', fontSize: 11 }}>
+              {periodInfo.from === periodInfo.to
+                ? `${periodInfo.from} sanasidagi barcha operatsiyalar`
+                : `${periodInfo.from} dan ${periodInfo.to} gacha bo‘lgan barcha operatsiyalar`}
+            </small>
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--muted)', background: 'var(--surface-2, #f1f5f9)', padding: '5px 12px', borderRadius: 8, fontWeight: 600, border: '1px solid var(--line)' }}>
+            Davr: {periodInfo.label} ({periodInfo.from === periodInfo.to ? periodInfo.from : `${periodInfo.from} — ${periodInfo.to}`})
+          </span>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: 10 }}>
+          <span>
+            <small>Sof savdo (Daromad)</small>
+            <b>{formatMoney(netSales)}</b>
+          </span>
+          <span>
+            <small>Tovar tannarxi (COGS)</small>
+            <b>{formatMoney(Number(pl.cost_of_goods || 0))}</b>
+          </span>
+          <span>
+            <small>Yalpi foyda</small>
+            <b style={{ color: grossProfit >= 0 ? '#16a34a' : '#dc2626' }}>
+              {formatMoney(grossProfit)}
+            </b>
+          </span>
+          <span>
+            <small>Operatsion xarajat</small>
+            <b>{formatMoney(Number(pl.operating_expenses || 0))}</b>
+          </span>
+          <span>
+            <small>Boshqa daromad</small>
+            <b>{formatMoney(Number(pl.other_income || 0))}</b>
+          </span>
+          <span style={{
+            background: isProfitPositive ? 'rgba(22, 163, 74, 0.1)' : 'rgba(220, 38, 38, 0.1)',
+            border: `1.5px solid ${isProfitPositive ? 'rgba(22, 163, 74, 0.35)' : 'rgba(220, 38, 38, 0.35)'}`,
+            padding: '12px 14px',
+            borderRadius: 10
+          }}>
+            <small style={{ color: isProfitPositive ? '#16a34a' : '#dc2626', fontWeight: 700 }}>
+              ★ Sof foyda ({periodInfo.label})
+            </small>
+            <b style={{ color: isProfitPositive ? '#15803d' : '#b91c1c', fontSize: 18, marginTop: 4 }}>
+              {formatMoney(netProfit)}
+            </b>
+          </span>
+        </div>
+      </div>
+
+      <section className="overview-real card courier-performance">
+        <div className="between">
+          <div>
+            <h3>Kuryerlar — {periodInfo.badge}</h3>
+            <small>Filial bo‘yicha tanlangan davrdagi sifatli GPS segmentlari va yetkazishlar</small>
+          </div>
+          <b>{formatDistance(courier.summary?.distance_m)} jami masofa</b>
+        </div>
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Kuryer</th>
+                <th>Masofa</th>
+                <th>Yetkazildi</th>
+                <th>Faol</th>
+                <th>Natija</th>
+              </tr>
+            </thead>
+            <tbody>
+              {couriers.map(row=>(
+                <tr key={`${row.branch_id}-${row.courier_id}`}>
+                  <td><b>{row.full_name}</b></td>
+                  <td>{formatDistance(row.distance_m)}</td>
+                  <td>{Number(row.delivered||0)} ta</td>
+                  <td>{Number(row.active||0)} ta</td>
+                  <td>{Number(row.delivery_rate||0).toLocaleString('uz-UZ')}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!couriers.length && <p className="admin-inline-empty">Tanlangan davrda filialda kuryer harakati qayd etilmadi.</p>}
+      </section>
+
+      <LowStockModal
+        open={lowStockOpen}
+        onClose={() => setLowStockOpen(false)}
+        branchId={branchId}
+        onGoTransfer={() => go('transfer')}
+        onGoBatch={() => batch()}
+      />
+      <ProductSalesAnalyticsModal
+        open={topProductsOpen}
+        onClose={() => setTopProductsOpen(false)}
+        branchId={branchId}
+      />
+    </>
+  );
 }
 
 function NotificationCenter({profileId,onAlert,onOpenItem}){
@@ -196,15 +602,37 @@ function NotificationCenter({profileId,onAlert,onOpenItem}){
       const nextUnread=Number(result.unread_count||0);
       setItems(result.items||[]);setUnread(nextUnread);
       // Faqat yangi qo‘shilganda signal beriladi, birinchi yuklashda emas.
-      if(seen.current!==null&&nextUnread>seen.current){playAlert();onAlert?.(result.items?.[0]);}
+      if(seen.current!==null&&nextUnread>seen.current){
+        const latest=result.items?.[0];
+        if(latest?.data?.type==='pos_pending_sale'){
+          playCashierAlert();
+        }else{
+          playNotificationAlert();
+        }
+        onAlert?.(latest);
+      }
       seen.current=nextUnread;
     }catch(e){setError(String(e?.message||'Bildirishnomalar yuklanmadi.'));}
     finally{setLoading(false);}
   },[profileId,onAlert]);
 
   useEffect(()=>{load();},[load]);
-  useEffect(()=>{if(!profileId)return;return subscribeNotifications(load,e=>setError(String(e?.message||e)),profileId);},[profileId,load]);
-  useEffect(()=>{if(!profileId)return;const timer=setInterval(load,20000);return()=>clearInterval(timer)},[profileId,load]);
+  useEffect(()=>{
+    if(!profileId)return;
+    const tick=()=>{
+      if(typeof document === 'undefined' || document.visibilityState === 'visible'){
+        load();
+      }
+    };
+    const timer=setInterval(tick, 30000);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+    return()=>{
+      clearInterval(timer);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  },[profileId,load]);
 
   // Tashqariga bosilganda bildirishnoma panelini yopish
   useEffect(()=>{
