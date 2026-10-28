@@ -2126,12 +2126,36 @@ export function InventoryStock({branchId,onScan,onRegister,toast}){
     }
   };
 
-  return <><div className="m-page-head between"><div><h2>Tovarlar</h2><p>Filial do'kon va ombor qoldig'i</p></div><div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}><button type="button" className="btn btn-primary" style={{background:'#2563eb',borderColor:'#2563eb',color:'#ffffff',display:'inline-flex',alignItems:'center',gap:6,fontWeight:700,boxShadow:'0 2px 6px rgba(37,99,235,0.25)'}} onClick={()=>setStockCorrectionOpen(true)} title="Do'kon va ombordagi tovarlar sonini, nomini, tannarxi, sotish narxi va tafovutini onlayn tahrirlash (sverka / reviziya)"><SlidersHorizontal size={16}/>Tovarlar sonini to‘g‘rilash</button><button type="button" className="btn btn-outline" style={{borderColor:'#16a34a',color:'#16a34a',background:'#f0fdf4',display:'inline-flex',alignItems:'center',gap:6,fontWeight:600}} onClick={()=>handleExportStockExcel(false)} disabled={exportingExcel} title="Filialdagi tovarlar qoldig‘ini kategoriya bo‘yicha Excel (.xlsx) formatida yuklab olish"><FileSpreadsheet size={16}/>{exportingExcel?'Excel yuklanmoqda…':'Excelga eksport'}</button><button type="button" className="btn btn-outline" onClick={()=>setImportModal(true)}><Upload size={16}/>Exceldan import qilish</button><button className="btn btn-primary" onClick={onRegister}><Plus/>Tovar qo'shish</button><button className="btn" onClick={onScan}><QrCode/>QR</button></div></div>
-  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:14}}>
-    <div className="card" style={{padding:14,textAlign:'center'}}><Boxes size={18}/><div><b style={{fontSize:18}}>{totalRows || 0} ta</b><br/><small style={{color:'var(--muted)'}}>Tovar turlari (jami)</small></div></div>
-    <div className="card" style={{padding:14,textAlign:'center'}}><Warehouse size={18}/><div><b style={{fontSize:18}}>{aggregates.totalOnHand} dona</b><br/><small style={{color:'var(--muted)'}}>Mavjud qoldiq</small></div></div>
-    <div className="card" style={{padding:14,textAlign:'center'}}><Boxes size={18}/><div><b style={{fontSize:18}}><DualPrice value={aggregates.totalValue} rate={rate}/></b><br/><small style={{color:'var(--muted)'}}>Sotish narxi</small></div></div>
-    <div className="card" style={{padding:14,textAlign:'center'}}><Warehouse size={18}/><div><b style={{fontSize:18}}><DualPrice value={aggregates.totalCost} rate={rate}/></b><br/><small style={{color:'var(--muted)'}}>Tannarxi</small></div></div>
+  return <><div className="m-page-head between"><div><h2>Tovarlar</h2><p>Filial do'kon va ombor qoldig'i</p></div><div className="inventory-actions-bar"><button type="button" className="btn btn-primary btn-correction" style={{background:'#2563eb',borderColor:'#2563eb',color:'#ffffff',display:'inline-flex',alignItems:'center',gap:6,fontWeight:700,boxShadow:'0 2px 6px rgba(37,99,235,0.25)'}} onClick={()=>setStockCorrectionOpen(true)} title="Do'kon va ombordagi tovarlar sonini, nomini, tannarxi, sotish narxi va tafovutini onlayn tahrirlash (sverka / reviziya)"><SlidersHorizontal size={16}/>Tovarlar sonini to‘g‘rilash</button><button type="button" className="btn btn-outline btn-export" style={{borderColor:'#16a34a',color:'#16a34a',background:'#f0fdf4',display:'inline-flex',alignItems:'center',gap:6,fontWeight:600}} onClick={()=>handleExportStockExcel(false)} disabled={exportingExcel} title="Filialdagi tovarlar qoldig‘ini kategoriya bo‘yicha Excel (.xlsx) formatida yuklab olish"><FileSpreadsheet size={16}/>{exportingExcel?'Excel yuklanmoqda…':'Excelga eksport'}</button><button type="button" className="btn btn-outline btn-import" onClick={()=>setImportModal(true)}><Upload size={16}/>Exceldan import qilish</button><button className="btn btn-primary btn-add" onClick={onRegister}><Plus size={16}/>Tovar qo'shish</button><button className="btn btn-qr" onClick={onScan}><QrCode size={16}/>QR</button></div></div>
+  <div className="inventory-stats-grid">
+    <div className="card inventory-stat-card card-types">
+      <div className="stat-icon-wrap"><Boxes size={18}/></div>
+      <div className="stat-body">
+        <div className="stat-value"><b>{Number(totalRows || 0).toLocaleString('uz-UZ')} ta</b></div>
+        <div className="stat-label">Tovar turlari (jami)</div>
+      </div>
+    </div>
+    <div className="card inventory-stat-card card-qty">
+      <div className="stat-icon-wrap"><Warehouse size={18}/></div>
+      <div className="stat-body">
+        <div className="stat-value"><b>{Number(aggregates.totalOnHand || 0).toLocaleString('uz-UZ')} dona</b></div>
+        <div className="stat-label">Mavjud qoldiq</div>
+      </div>
+    </div>
+    <div className="card inventory-stat-card card-sales">
+      <div className="stat-icon-wrap"><Tag size={18}/></div>
+      <div className="stat-body">
+        <div className="stat-value"><DualPrice value={aggregates.totalValue} rate={rate} bold /></div>
+        <div className="stat-label">Sotish narxi</div>
+      </div>
+    </div>
+    <div className="card inventory-stat-card card-cost">
+      <div className="stat-icon-wrap"><ReceiptText size={18}/></div>
+      <div className="stat-body">
+        <div className="stat-value"><DualPrice value={aggregates.totalCost} rate={rate} bold /></div>
+        <div className="stat-label">Tannarxi</div>
+      </div>
+    </div>
   </div>
   <div className="card" style={{padding:14}}>
     <form style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap',alignItems:'flex-end'}} onSubmit={apply}>
