@@ -24,7 +24,9 @@ import {
   QrCode,
   DollarSign,
   AlertTriangle,
-  RotateCcw
+  RotateCcw,
+  Calendar,
+  Filter
 } from 'lucide-react';
 import { AccountMenu, Status, ThemeToggle, Toast, formatMoney, useAuth } from '@texnobazar/ui';
 import {
@@ -67,10 +69,37 @@ function calculateGpsDistanceMeters(lat1, lon1, lat2, lon2) {
   return 6371000 * c;
 }
 
+function getLocalDateString(d = new Date()) {
+  if (!d) return '';
+  const dateObj = d instanceof Date ? d : new Date(d);
+  if (isNaN(dateObj.getTime())) return '';
+  const y = dateObj.getFullYear();
+  const m = String(dateObj.getMonth() + 1).padStart(2, '0');
+  const day = String(dateObj.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function getDeliveryDateString(del) {
+  if (!del) return '';
+  if (del.created_at) {
+    const s = getLocalDateString(del.created_at);
+    if (s) return s;
+  }
+  if (typeof del.delivery_no === 'string') {
+    const match = del.delivery_no.match(/DOS-(\d{4})(\d{2})(\d{2})/);
+    if (match) {
+      return `${match[1]}-${match[2]}-${match[3]}`;
+    }
+  }
+  return '';
+}
+
 export default function App() {
   const { profile } = useAuth();
   const [navPage, setNavPage] = useState('home'); // 'home', 'map', 'stats', 'profile'
   const [currentTab, setCurrentTab] = useState('available'); // 'available', 'my_active', 'delivered'
+  const [availableDateFilter, setAvailableDateFilter] = useState('today'); // 'today', 'yesterday', 'all', 'custom'
+  const [customDate, setCustomDate] = useState(() => getLocalDateString(new Date()));
   const [deliveries, setDeliveries] = useState([]);
   const [summary, setSummary] = useState({});
   const [loading, setLoading] = useState(true);
@@ -80,6 +109,52 @@ export default function App() {
 
   // Selection for bulk claiming
   const [selectedIds, setSelectedIds] = useState(new Set());
+
+  // Date constants & filter counters
+  const todayStr = useMemo(() => getLocalDateString(new Date()), []);
+  const yesterdayStr = useMemo(() => {
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    return getLocalDateString(y);
+  }, []);
+
+  const countsByFilter = useMemo(() => {
+    let today = 0;
+    let yesterday = 0;
+    let custom = 0;
+
+    for (const del of deliveries) {
+      const dStr = getDeliveryDateString(del);
+      if (dStr === todayStr) today++;
+      if (dStr === yesterdayStr) yesterday++;
+      if (customDate && dStr === customDate) custom++;
+    }
+
+    return {
+      today,
+      yesterday,
+      custom,
+      all: deliveries.length
+    };
+  }, [deliveries, todayStr, yesterdayStr, customDate]);
+
+  // Filtered deliveries for current tab
+  const displayedDeliveries = useMemo(() => {
+    if (currentTab !== 'available') {
+      return deliveries;
+    }
+    if (availableDateFilter === 'today') {
+      return deliveries.filter(d => getDeliveryDateString(d) === todayStr);
+    }
+    if (availableDateFilter === 'yesterday') {
+      return deliveries.filter(d => getDeliveryDateString(d) === yesterdayStr);
+    }
+    if (availableDateFilter === 'custom') {
+      if (!customDate) return deliveries;
+      return deliveries.filter(d => getDeliveryDateString(d) === customDate);
+    }
+    return deliveries; // 'all'
+  }, [deliveries, currentTab, availableDateFilter, todayStr, yesterdayStr, customDate]);
 
   // Item checkboxes for delivery checklist: { [deliveryId_itemIndex]: boolean }
   const [checkedItems, setCheckedItems] = useState({});
@@ -251,10 +326,10 @@ export default function App() {
     };
   }, [loadDeliveries]);
 
-  // Clear bulk selection on tab switch
+  // Clear bulk selection on tab or date filter switch
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [currentTab]);
+  }, [currentTab, availableDateFilter, customDate]);
 
   // Claim single or bulk deliveries
   const handleClaimDeliveries = async (idsToClaim) => {
@@ -367,10 +442,12 @@ export default function App() {
   };
 
   const selectAll = () => {
-    if (selectedIds.size === deliveries.length) {
+    const currentList = currentTab === 'available' ? displayedDeliveries : deliveries;
+    const allSelected = currentList.length > 0 && currentList.every(d => selectedIds.has(d.id));
+    if (allSelected) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(deliveries.map(d => d.id)));
+      setSelectedIds(new Set(currentList.map(d => d.id)));
     }
   };
 
@@ -460,7 +537,12 @@ export default function App() {
                 >
                   <Package size={15} />
                   Mavjud buyurtmalar
-                  <span className="courier-tab-count">{summary.available_count || 0}</span>
+                  <span
+                    className="courier-tab-count"
+                    title={`Bugun: ${countsByFilter.today} ta, Jami: ${deliveries.length} ta`}
+                  >
+                    {availableDateFilter === 'today' ? countsByFilter.today : (countsByFilter[availableDateFilter] ?? deliveries.length)}
+                  </span>
                 </button>
 
                 <button
@@ -484,17 +566,120 @@ export default function App() {
                 </button>
               </div>
 
+              {/* Date Filter Bar for Available Deliveries */}
+              {currentTab === 'available' && (
+                <div className="courier-filter-wrapper">
+                  <div className="courier-filter-header">
+                    <div className="courier-filter-title">
+                      <Filter size={13} />
+                      <span>Sana bo‘yicha ko‘rish:</span>
+                    </div>
+                    {availableDateFilter !== 'all' && (
+                      <button
+                        type="button"
+                        className="courier-filter-reset-btn"
+                        onClick={() => setAvailableDateFilter('all')}
+                      >
+                        Barchasini ko‘rish ({deliveries.length})
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="courier-filter-pills">
+                    {/* Bugun (Default) */}
+                    <button
+                      type="button"
+                      className={`courier-filter-pill ${availableDateFilter === 'today' ? 'active' : ''}`}
+                      onClick={() => setAvailableDateFilter('today')}
+                    >
+                      <span className="pill-dot" />
+                      <span>Bugun</span>
+                      <span className="pill-badge">{countsByFilter.today}</span>
+                    </button>
+
+                    {/* Kecha */}
+                    <button
+                      type="button"
+                      className={`courier-filter-pill ${availableDateFilter === 'yesterday' ? 'active' : ''}`}
+                      onClick={() => setAvailableDateFilter('yesterday')}
+                    >
+                      <span>Kecha</span>
+                      <span className="pill-badge">{countsByFilter.yesterday}</span>
+                    </button>
+
+                    {/* Barchasi */}
+                    <button
+                      type="button"
+                      className={`courier-filter-pill ${availableDateFilter === 'all' ? 'active' : ''}`}
+                      onClick={() => setAvailableDateFilter('all')}
+                    >
+                      <span>Barchasi</span>
+                      <span className="pill-badge">{deliveries.length}</span>
+                    </button>
+
+                    {/* Boshqa sana (Custom date picker) */}
+                    <label className={`courier-filter-pill date-picker-pill ${availableDateFilter === 'custom' ? 'active' : ''}`}>
+                      <Calendar size={13} />
+                      <span>{availableDateFilter === 'custom' && customDate ? customDate : 'Boshqa sana'}</span>
+                      {availableDateFilter === 'custom' && (
+                        <span className="pill-badge">{countsByFilter.custom}</span>
+                      )}
+                      <input
+                        type="date"
+                        className="courier-hidden-date-input"
+                        value={customDate}
+                        max={todayStr}
+                        onChange={(e) => {
+                          if (e.target.value) {
+                            setCustomDate(e.target.value);
+                            setAvailableDateFilter('custom');
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+
+                  {/* Context Hint */}
+                  {availableDateFilter === 'today' && countsByFilter.today > 0 && (
+                    <div className="courier-filter-hint">
+                      ℹ️ <b>Bugun yaratilgan faol buyurtmalar</b> ({countsByFilter.today} ta).
+                      {deliveries.length > countsByFilter.today && (
+                        <span> Avvalgi kunlardan qolgan yana {deliveries.length - countsByFilter.today} ta olinmagan buyurtma bor.</span>
+                      )}
+                    </div>
+                  )}
+                  {availableDateFilter === 'yesterday' && (
+                    <div className="courier-filter-hint warning">
+                      📅 <b>Kechagi ({yesterdayStr}) kundan qolgan buyurtmalar</b> ({countsByFilter.yesterday} ta hali kuryerlar tomonidan olinmagan).
+                    </div>
+                  )}
+                  {availableDateFilter === 'custom' && (
+                    <div className="courier-filter-hint">
+                      📅 <b>{customDate} sanasidagi buyurtmalar</b> ({countsByFilter.custom} ta hali kuryerlar tomonidan olinmagan).
+                    </div>
+                  )}
+                  {availableDateFilter === 'all' && (
+                    <div className="courier-filter-hint">
+                      📋 <b>Barcha mavjud olinmagan buyurtmalar ko‘rsatilmoqda</b> (Jami {deliveries.length} ta).
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Bulk Selection Action Bar for Available Tab */}
-              {currentTab === 'available' && deliveries.length > 0 && (
+              {currentTab === 'available' && displayedDeliveries.length > 0 && (
                 <div className="courier-batch-bar">
                   <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 12.5, fontWeight: 700 }}>
                     <input
                       type="checkbox"
-                      checked={selectedIds.size === deliveries.length && deliveries.length > 0}
+                      checked={
+                        displayedDeliveries.length > 0 &&
+                        displayedDeliveries.every(d => selectedIds.has(d.id))
+                      }
                       onChange={selectAll}
                       style={{ width: 17, height: 17, accentColor: '#ea580c' }}
                     />
-                    Barchasini belgilash ({selectedIds.size}/{deliveries.length})
+                    Barchasini belgilash ({selectedIds.size}/{displayedDeliveries.length})
                   </label>
 
                   {selectedIds.size > 0 && (
@@ -513,19 +698,79 @@ export default function App() {
               {/* Delivery Cards List */}
               {loading ? (
                 <CourierState text="Buyurtmalar yuklanmoqda…" />
-              ) : !deliveries.length ? (
-                <CourierState
-                  text={
-                    currentTab === 'available'
-                      ? 'Hozircha olinishi mumkin bo‘lgan bo‘sh dostavkalar yo‘q.'
-                      : currentTab === 'my_active'
-                      ? 'Sizda faol dostavkalar yo‘q. "Mavjud buyurtmalar" bo‘limidan o‘zingizga mos yo‘nalishdagi buyurtmalarni tanlab oling.'
-                      : 'Hozircha yetkazilgan buyurtmalar tarixi yo‘q.'
-                  }
-                />
+              ) : !displayedDeliveries.length ? (
+                <div className="courier-empty-state-card">
+                  <div className="courier-empty-state-icon">
+                    <Package size={32} />
+                  </div>
+                  <h3>
+                    {currentTab === 'available' ? (
+                      availableDateFilter === 'today'
+                        ? 'Bugun yaratilgan olinmagan buyurtmalar yo‘q'
+                        : availableDateFilter === 'yesterday'
+                        ? 'Kechagi kunda qolgan olinmagan buyurtmalar yo‘q'
+                        : availableDateFilter === 'custom'
+                        ? `${customDate} sanasida olinmagan buyurtmalar yo‘q`
+                        : 'Hozircha olinishi mumkin bo‘lgan bo‘sh dostavkalar yo‘q'
+                    ) : currentTab === 'my_active' ? (
+                      'Sizda faol dostavkalar yo‘q'
+                    ) : (
+                      'Hozircha yetkazilgan buyurtmalar tarixi yo‘q'
+                    )}
+                  </h3>
+                  <p>
+                    {currentTab === 'available' ? (
+                      availableDateFilter === 'today' ? (
+                        deliveries.length > 0 ? (
+                          <>Avvalgi kunlardan qolgan <b>{deliveries.length} ta</b> hali olinmagan buyurtma mavjud. Ularni ko‘rish uchun quyidagi tugmalardan birini tanlashingiz mumkin:</>
+                        ) : (
+                          'Kassir yoki menejer yangi yetkazib berish buyurtmasi kiritganda u avtomatik tarzda bu yerda paydo bo‘ladi.'
+                        )
+                      ) : (
+                        'Boshqa sana yoki barcha mavjud buyurtmalarni tanlab ko‘rishingiz mumkin.'
+                      )
+                    ) : currentTab === 'my_active' ? (
+                      '"Mavjud buyurtmalar" bo‘limidan o‘zingizga mos yo‘nalishdagi buyurtmalarni tanlab oling.'
+                    ) : (
+                      'Yetkazib berilgan buyurtmalar tarixi shu yerda aks etadi.'
+                    )}
+                  </p>
+
+                  {currentTab === 'available' && deliveries.length > 0 && (
+                    <div className="courier-empty-actions">
+                      {availableDateFilter !== 'all' && (
+                        <button
+                          type="button"
+                          className="courier-empty-btn primary"
+                          onClick={() => setAvailableDateFilter('all')}
+                        >
+                          Barcha mavjud buyurtmalarni ko‘rish ({deliveries.length} ta)
+                        </button>
+                      )}
+                      {availableDateFilter !== 'yesterday' && countsByFilter.yesterday > 0 && (
+                        <button
+                          type="button"
+                          className="courier-empty-btn"
+                          onClick={() => setAvailableDateFilter('yesterday')}
+                        >
+                          Kechagi buyurtmalarni ko‘rish ({countsByFilter.yesterday} ta)
+                        </button>
+                      )}
+                      {availableDateFilter !== 'today' && (
+                        <button
+                          type="button"
+                          className="courier-empty-btn"
+                          onClick={() => setAvailableDateFilter('today')}
+                        >
+                          Bugungi kunga qaytish
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {deliveries.map(del => {
+                  {displayedDeliveries.map(del => {
                     const isCod = del.payment_type === 'cod' || Number(del.cod_amount) > 0;
                     const items = Array.isArray(del.items) ? del.items : [];
                     const isSelected = selectedIds.has(del.id);
@@ -564,10 +809,25 @@ export default function App() {
                             </Status>
                           </div>
 
-                          <span style={{ fontSize: 11, color: 'var(--muted, #64748b)' }}>
-                            <Clock3 size={12} style={{ display: 'inline', marginRight: 3 }} />
-                            {new Date(del.created_at).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
-                          </span>
+                          <div className="pos-card-timestamp">
+                            {(() => {
+                              const dStr = getDeliveryDateString(del);
+                              const isToday = dStr === todayStr;
+                              const isYesterday = dStr === yesterdayStr;
+                              if (!isToday && dStr) {
+                                return (
+                                  <span className={`pos-date-tag ${isYesterday ? 'yesterday' : 'older'}`}>
+                                    {isYesterday ? 'Kecha' : formatUzDate(del.created_at, { day: true, month: 'short', year: false })}
+                                  </span>
+                                );
+                              }
+                              return null;
+                            })()}
+                            <span style={{ fontSize: 11, color: 'var(--muted, #64748b)' }}>
+                              <Clock3 size={12} style={{ display: 'inline', marginRight: 3 }} />
+                              {new Date(del.created_at).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Prominent Cash Highlight Banner */}
