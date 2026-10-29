@@ -19,7 +19,7 @@ export function listBranchDebts({ branchId, direction = 'all', status = null, pa
 export const getBranchDebtSummary = branchId => rpc('get_branch_debt_summary', { p_branch_id: branchId || null });
 export const getBranchDebt = id => rpc('get_branch_debt', { p_debt_id: id });
 export const recordBranchDebtPayment = (
-  { debtId, amount, currency, method, reference, notes },
+  { debtId, amount, currency, method, reference, notes, payerBranchId = null },
   idempotencyKey = crypto.randomUUID(),
 ) => rpc('record_branch_debt_payment', {
   p_debt_id: debtId,
@@ -29,6 +29,7 @@ export const recordBranchDebtPayment = (
   p_reference: reference || null,
   p_notes: notes || null,
   p_idempotency_key: idempotencyKey,
+  p_payer_branch_id: payerBranchId || null,
 });
 
 export const registerBranchDebt = ({

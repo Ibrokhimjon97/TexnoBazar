@@ -955,7 +955,8 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
         currency: debt.currency,
         method: form.method,
         reference: form.reference,
-        notes: form.notes
+        notes: form.notes,
+        payerBranchId: debtor ? debt.debtor_branch_id : debt.creditor_branch_id
       });
       if (debtor) {
         toast?.('To‘lov yuborildi. Haqdor filial menejeri pulni olganini tasdiqlashi kutilmoqda.');
