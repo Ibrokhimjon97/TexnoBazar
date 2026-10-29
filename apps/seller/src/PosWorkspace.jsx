@@ -1071,6 +1071,7 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
   },[selectedComponents,rate]);
 
   const[showCost,setShowCost]=useState(false);
+  const[showMinPrice,setShowMinPrice]=useState(false);
   const baseCost=p?.unit_cost_uzs??context.unit_cost??context.cost_price;
   const baseCostUsd=p?.unit_cost_usd??context.unit_cost_usd??context.cost_price_usd;
   const effectiveCostPrice=baseCost!=null?Number(baseCost)+compsCostTotal:null;
@@ -1136,9 +1137,14 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
         <small>Ulgurji narxi</small>
         <b>{p?.wholesale_price_uzs!=null?<DualPrice value={Number(p.wholesale_price_uzs||0)} usdValue={p?.wholesale_price_usd} rate={rate}/>:'—'}</b>
       </span>
-      <span>
-        <small>Minimal narx</small>
-        <b><DualPrice value={Number(effectiveMinPrice)} usdValue={effectiveMinPriceUsd} rate={rate}/></b>
+      <span className="pos-unit-price-cost-cell" onClick={()=>setShowMinPrice(v=>!v)} title={showMinPrice?'Minimal narxni yashirish':'Minimal narxni ko‘rsatish'}>
+        <small style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
+          Minimal narx
+          {showMinPrice?<EyeOff size={12}/>:<Eye size={12}/>}
+        </small>
+        <button type="button" className="pos-masked-price" onClick={e=>{e.stopPropagation();setShowMinPrice(v=>!v)}} title={showMinPrice?'Minimal narxni yashirish':'Minimal narxni ko‘rsatish'}>
+          {showMinPrice?<b><DualPrice value={Number(effectiveMinPrice)} usdValue={effectiveMinPriceUsd} rate={rate}/></b>:<b style={{letterSpacing:'0.12em'}}>******</b>}
+        </button>
       </span>
       <span className="pos-unit-price-cost-cell" onClick={()=>setShowCost(v=>!v)} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>
         <small style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
@@ -1258,8 +1264,9 @@ function UnitContextCard({branchId,context,quantity,setQuantity,onAddToSale,onAd
 
 function Unit({unit,add,rate}){
   const[showCost,setShowCost]=useState(false);
+  const[showMinPrice,setShowMinPrice]=useState(false);
   const costUsd = unit.unit_cost_usd ?? unit.cost_price_usd;
-  return <article className="pos-real-unit">{unit.image?<img src={unit.image} alt=""/>:<span className="pos-real-image"><QrCode/></span>}<div><b>{unit.product_name}</b>{unit.is_fuzzy&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,color:'#b45309',background:'#fef3c7',border:'1px solid #fde68a',padding:'1px 6px',borderRadius:4}}>✨ Yaqin moslik</span>}<small>{unit.brand_name||'Brendsiz'} · {unit.sku}</small><small>QR: {unit.qr_code}{unit.serial_number?` · S/N: ${unit.serial_number}`:''}</small>{unit.location_type&&<Status type={unit.location_type==='store'?'green':'blue'}>{unit.location_type==='store'?'Do‘konda':'Omborda'}</Status>}<strong>{<DualPrice value={Number(unit.retail_price||0)} usdValue={unit.retail_price_usd} rate={rate}/>}</strong><em>Minimum: {<DualPrice value={Number(unit.minimum_sale_price||0)} usdValue={unit.minimum_sale_price_usd} rate={rate}/>} · Tannarx: <button type="button" className="pos-masked-price-inline" onClick={e=>{e.stopPropagation();setShowCost(v=>!v)}} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>{showCost?<DualPrice value={Number(unit.unit_cost||0)} usdValue={costUsd} rate={rate}/>:<b>******</b>}</button></em>{unit.latest_batch_retail&&Number(unit.latest_batch_retail)!==Number(unit.retail_price)&&<em style={{color:'#059669'}}>Yangi partiya narxi: {<DualPrice value={Number(unit.latest_batch_retail||0)} rate={rate}/>}</em>}<em>Filialda: {unit.available_branch_count} dona</em></div><button type="button" onClick={add} aria-label="Savdoga qo'shish"><Plus/></button></article>;
+  return <article className="pos-real-unit">{unit.image?<img src={unit.image} alt=""/>:<span className="pos-real-image"><QrCode/></span>}<div><b>{unit.product_name}</b>{unit.is_fuzzy&&<span style={{marginLeft:6,fontSize:10,fontWeight:700,color:'#b45309',background:'#fef3c7',border:'1px solid #fde68a',padding:'1px 6px',borderRadius:4}}>✨ Yaqin moslik</span>}<small>{unit.brand_name||'Brendsiz'} · {unit.sku}</small><small>QR: {unit.qr_code}{unit.serial_number?` · S/N: ${unit.serial_number}`:''}</small>{unit.location_type&&<Status type={unit.location_type==='store'?'green':'blue'}>{unit.location_type==='store'?'Do‘konda':'Omborda'}</Status>}<strong>{<DualPrice value={Number(unit.retail_price||0)} usdValue={unit.retail_price_usd} rate={rate}/>}</strong><em>Minimum: <button type="button" className="pos-masked-price-inline" onClick={e=>{e.stopPropagation();setShowMinPrice(v=>!v)}} title={showMinPrice?'Minimal narxni yashirish':'Minimal narxni ko‘rsatish'}>{showMinPrice?<DualPrice value={Number(unit.minimum_sale_price||0)} usdValue={unit.minimum_sale_price_usd} rate={rate}/>:<b>******</b>}</button> · Tannarx: <button type="button" className="pos-masked-price-inline" onClick={e=>{e.stopPropagation();setShowCost(v=>!v)}} title={showCost?'Tannarxni yashirish':'Tannarxni ko‘rsatish'}>{showCost?<DualPrice value={Number(unit.unit_cost||0)} usdValue={costUsd} rate={rate}/>:<b>******</b>}</button></em>{unit.latest_batch_retail&&Number(unit.latest_batch_retail)!==Number(unit.retail_price)&&<em style={{color:'#059669'}}>Yangi partiya narxi: {<DualPrice value={Number(unit.latest_batch_retail||0)} rate={rate}/>}</em>}<em>Filialda: {unit.available_branch_count} dona</em></div><button type="button" onClick={add} aria-label="Savdoga qo'shish"><Plus/></button></article>;
 }
 
 // --- Sale flow: cart + optional customer info + minimum-price warning (soft, not blocking).
