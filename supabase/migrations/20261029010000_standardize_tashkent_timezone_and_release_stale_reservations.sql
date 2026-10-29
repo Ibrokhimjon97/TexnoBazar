@@ -824,12 +824,21 @@ BEGIN
             'discount', sl.discount,
             'tax', sl.tax,
             'line_total', sl.line_total,
-            'primary_media_url', (
-              SELECT pm.url
-              FROM public.product_media pm
-              WHERE pm.product_id = p.id
-              ORDER BY pm.is_primary DESC, pm.sort_order ASC, pm.created_at ASC
-              LIMIT 1
+            'primary_media_url', coalesce(
+              (
+                SELECT pm.public_url
+                FROM public.product_media pm
+                WHERE pm.variant_id = u.variant_id
+                ORDER BY pm.is_primary DESC NULLS LAST, pm.sort_order ASC, pm.created_at ASC
+                LIMIT 1
+              ),
+              (
+                SELECT pm.public_url
+                FROM public.product_media pm
+                WHERE pm.product_id = p.id
+                ORDER BY pm.is_primary DESC NULLS LAST, pm.sort_order ASC, pm.created_at ASC
+                LIMIT 1
+              )
             )
           )
           ORDER BY sl.id ASC
@@ -999,17 +1008,26 @@ BEGIN
       p.sku,
       p.slug AS product_slug,
       p.is_published,
-      (
-        SELECT pm.url
-        FROM public.product_media pm
-        WHERE pm.product_id = p.id
-        ORDER BY pm.is_primary DESC, pm.sort_order ASC, pm.created_at ASC
-        LIMIT 1
+      coalesce(
+        (
+          SELECT pm.public_url
+          FROM public.product_media pm
+          WHERE pm.variant_id = u.variant_id
+          ORDER BY pm.is_primary DESC NULLS LAST, pm.sort_order ASC, pm.created_at ASC
+          LIMIT 1
+        ),
+        (
+          SELECT pm.public_url
+          FROM public.product_media pm
+          WHERE pm.product_id = p.id
+          ORDER BY pm.is_primary DESC NULLS LAST, pm.sort_order ASC, pm.created_at ASC
+          LIMIT 1
+        )
       ) AS primary_media_url,
       u.qr_code,
       u.serial_number,
       u.variant_id,
-      pv.color AS variant_color,
+      pv.color_name AS variant_color,
       count(*) OVER() AS full_count
     FROM public.sale_lines sl
     JOIN public.sales s ON s.id = sl.sale_id
