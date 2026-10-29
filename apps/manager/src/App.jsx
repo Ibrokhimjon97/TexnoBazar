@@ -1,5 +1,5 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState}from'react';
-import{AlertTriangle,Archive,ArrowLeftRight,Bell,Calendar,CalendarCheck,Check,Sparkles,Boxes,ClipboardCheck,DollarSign,FileX2,Home,Landmark,Menu,PackagePlus,QrCode,RotateCcw,ShoppingBag,Truck,WalletCards,Warehouse,Wrench,X,Trophy,TrendingUp,ScanSearch}from'lucide-react';
+import{AlertTriangle,Archive,ArrowLeftRight,Bell,Calendar,CalendarCheck,Check,Sparkles,Boxes,ClipboardCheck,DollarSign,FileX2,Home,Landmark,Menu,PackagePlus,QrCode,RotateCcw,ShoppingBag,Truck,WalletCards,Warehouse,Wrench,X,Trophy,TrendingUp,ScanSearch,ChevronRight}from'lucide-react';
 import{AccountMenu,AiChat,Status,ThemeToggle,Toast,formatMoney,useAuth,useExchangeRate}from'@texnobazar/ui';
 import{formatUzDate,getManagementDashboard,listCourierPerformance,listNotifications,listPosPendingSales,markNotificationsRead,subscribeNotifications,subscribePosPendingSales,getBrowserClient}from'@texnobazar/data';
 import{LowStockModal,ProductSalesAnalyticsModal}from'./ManagerDashboardModals';
@@ -510,9 +510,27 @@ function Overview({branchId,go,scan,batch,name}){
             <small>{Number(inventory.reserved || 0)} rezervda</small>
           </span>
         </div>
-        <div style={{ cursor: 'pointer' }} onClick={() => go('debt')}>
-          <AlertTriangle size={24} style={{ color: hasPayables ? '#dc2626' : (hasReceivables ? '#16a34a' : '#eab308') }}/>
-          <span>
+        <button
+          type="button"
+          onClick={() => go('debt')}
+          style={{
+            cursor: 'pointer',
+            textAlign: 'left',
+            font: 'inherit',
+            background: 'var(--surface, #fff)',
+            border: '1px solid var(--line)',
+            borderRadius: 15,
+            padding: 17,
+            display: 'flex',
+            gap: 11,
+            alignItems: 'center',
+            width: '100%',
+            transition: 'transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease'
+          }}
+          title="Qarzdorlik sahifasiga o‘tish"
+        >
+          <AlertTriangle size={24} style={{ color: hasPayables ? '#dc2626' : (hasReceivables ? '#16a34a' : '#eab308'), flexShrink: 0 }}/>
+          <span style={{ flex: 1, minWidth: 0 }}>
             {hasPayables ? 'Filial qarzdorligi' : (hasReceivables ? 'Filial aktivlari (Qarzlar)' : 'Filial qarzdorligi')}
             {hasPayables ? (
               <>
@@ -554,7 +572,8 @@ function Overview({branchId,go,scan,batch,name}){
               </>
             )}
           </span>
-        </div>
+          <ChevronRight size={18} style={{ color: 'var(--muted)', flexShrink: 0, opacity: 0.6 }}/>
+        </button>
       </div>
 
       <h3 className="block-title">Tezkor amallar va Tahlil</h3>
