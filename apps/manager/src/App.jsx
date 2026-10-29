@@ -253,6 +253,7 @@ export default function App(){
 }
 
 function Overview({branchId,go,scan,batch,name}){
+  const rate=useExchangeRate();
   const[data,setData]=useState(null);
   const[loading,setLoading]=useState(true);
   const[refreshing,setRefreshing]=useState(false);
@@ -323,7 +324,6 @@ function Overview({branchId,go,scan,batch,name}){
   const pl=dashboard.profit_loss||{};
   const orders=dashboard.orders||{};
   const inventory=dashboard.inventory||{};
-  const rate=useExchangeRate();
   const debtStats=dashboard.debt_stats||{};
   const payablesUsd=Number(debtStats.payables_usd??(dashboard.payables||0));
   const payablesUzs=Number(debtStats.payables_uzs||0);
