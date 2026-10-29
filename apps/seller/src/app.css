@@ -4709,6 +4709,239 @@ html[data-theme="dark"] .pos-active-customer-indicator b {
   font-family: ui-monospace, SFMono-Regular, monospace;
 }
 
+/* --- Modular Component Transfer System --- */
+.bt-component-summary-tag {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.bt-tag-comp-only {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bt-tag-main-qty {
+  background: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bt-tag-comp-chip {
+  background: var(--surface-alt, #f8fafc);
+  color: var(--text, #334155);
+  border: 1px solid var(--line, #e2e8f0);
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bt-edit-comps-btn {
+  font-size: 11px !important;
+  padding: 2px 8px !important;
+  height: auto !important;
+  color: var(--primary, #2563eb) !important;
+  border-color: var(--primary, #2563eb) !important;
+  background: transparent !important;
+  cursor: pointer;
+  border-radius: 6px !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bt-edit-comps-btn:hover {
+  background: #eff6ff !important;
+}
+
+/* Modal styles for configuring components */
+.bt-comp-modal-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.bt-comp-header-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--surface-2, #f8fafc);
+  border-radius: 8px;
+  border: 1px solid var(--line, #e2e8f0);
+}
+
+.bt-comp-header-pic {
+  width: 50px;
+  height: 50px;
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #e2e8f0);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.bt-comp-header-pic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.bt-comp-main-selector {
+  padding: 14px;
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--line, #e2e8f0);
+}
+
+.bt-comp-main-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.bt-comp-stepper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.bt-comp-stepper-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 6px;
+  border: 1px solid var(--line, #cbd5e1);
+  background: var(--surface-2, #f8fafc);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--text, #1e293b);
+  transition: all 0.15s;
+}
+
+.bt-comp-stepper-btn:hover:not(:disabled) {
+  background: var(--primary, #2563eb);
+  color: #fff;
+  border-color: var(--primary, #2563eb);
+}
+
+.bt-comp-stepper-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.bt-comp-stepper-input {
+  width: 60px;
+  height: 34px;
+  text-align: center;
+  font-weight: 700;
+  font-size: 14px;
+  border: 1px solid var(--line, #cbd5e1);
+  border-radius: 6px;
+  background: var(--surface, #fff);
+}
+
+.bt-comp-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+}
+
+.bt-comp-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.bt-comp-item-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line, #e2e8f0);
+  background: var(--surface, #fff);
+  transition: all 0.15s;
+}
+
+.bt-comp-item-row.active {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.bt-comp-item-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.bt-comp-item-thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 6px;
+  object-fit: cover;
+  border: 1px solid var(--line, #cbd5e1);
+  flex-shrink: 0;
+}
+
+.bt-comp-item-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bt-comp-item-subtotal {
+  min-width: 90px;
+  text-align: right;
+  font-size: 12px;
+}
+
+.bt-comp-total-footer {
+  padding: 14px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+
 
 
 

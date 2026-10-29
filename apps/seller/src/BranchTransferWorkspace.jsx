@@ -50,7 +50,8 @@ import {
   getExternalBranchTransfer,
   cancelExternalBranchTransfer,
   deleteExternalBranchTransfer,
-  updateExternalBranchTransfer
+  updateExternalBranchTransfer,
+  getProductComponents
 } from '@texnobazar/data';
 
 const msg = e => String(e?.message || 'Amalni bajarib bo‘lmadi.');
@@ -183,7 +184,16 @@ function printReceiptWindow(transfer) {
           ${t.lines?.map((line, idx) => `
             <tr>
               <td>${idx + 1}</td>
-              <td><b>${line.product_name}</b><br/><small style="color:#666">${line.sku || ''}</small></td>
+              <td>
+                <b>${line.product_name}</b>
+                ${line.selected_components?.length > 0 ? `
+                  <div style="margin-top: 3px; font-size: 11px; color: #334155;">
+                    <span style="font-weight: 600; color: #0284c7;">Tarkibiy qismlar:</span>
+                    ${line.selected_components.map(c => `<b>${c.quantity > 1 ? `${c.quantity}x ` : ''}</b>${c.name}${c.color ? ` (${c.color})` : ''}`).join(', ')}
+                  </div>
+                ` : ''}
+                <small style="color:#666">${line.sku || ''}</small>
+              </td>
               <td style="text-align: center;">${line.quantity} ta</td>
               <td style="text-align: right;">
                 ${new Intl.NumberFormat('uz-UZ').format(line.unit_price)} so‘m
@@ -251,6 +261,38 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
 
   // Selected Transfer Items
   const [items, setItems] = useState([]);
+
+  // Modular Component Configuration Modal State
+  const [configuringProduct, setConfiguringProduct] = useState(null);
+
+  // Open modular component configuration modal
+  const openComponentConfig = async item => {
+    let target = { ...item };
+    if (!target.components || target.components.length === 0) {
+      try {
+        const comps = await getProductComponents(target.product_id);
+        target.components = comps || [];
+      } catch (err) {
+        console.error('Failed to load components for product', err);
+      }
+    }
+    setConfiguringProduct(target);
+  };
+
+  // Save configured modular item
+  const handleSaveConfiguredComponents = configuredItem => {
+    setItems(prev => {
+      const idx = prev.findIndex(x => x.product_id === configuredItem.product_id);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = { ...next[idx], ...configuredItem };
+        return next;
+      }
+      return [...prev, configuredItem];
+    });
+    setConfiguringProduct(null);
+    toast?.(`"${configuredItem.product_name}" tarkibiy qismlari saqlandi`);
+  };
 
   // Submitting & Completed Receipt Modal
   const [submitting, setSubmitting] = useState(false);
@@ -409,6 +451,19 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
     const existingIndex = items.findIndex(x => x.product_id === prod.product_id);
     if (existingIndex >= 0) {
       const existing = items[existingIndex];
+      // If product has components, open configuration modal to let seller adjust main/component quantities
+      if (
+        (existing.components && existing.components.length > 0) ||
+        (prod.components && prod.components.length > 0) ||
+        existing.is_component_only ||
+        (existing.selected_components && existing.selected_components.length > 0)
+      ) {
+        openComponentConfig({ ...prod, ...existing });
+        setCode('');
+        setSearchResults([]);
+        return;
+      }
+
       if (existing.quantity >= existing.available_count) {
         toast?.(`Omborda bu tovardan ko‘pi bilan ${existing.available_count} ta mavjud!`);
         return;
@@ -416,11 +471,20 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
       const updated = [...items];
       updated[existingIndex] = {
         ...existing,
-        quantity: existing.quantity + 1
+        quantity: existing.quantity + 1,
+        main_quantity: (existing.main_quantity || existing.quantity) + 1
       };
       setItems(updated);
       toast?.(`"${prod.product_name}" soni 1 taga oshirildi`);
     } else {
+      // If product has modular components (e.g. Beshik), open configuration modal immediately
+      if (prod.components && prod.components.length > 0) {
+        openComponentConfig(prod);
+        setCode('');
+        setSearchResults([]);
+        return;
+      }
+
       const costUzs = Number(prod.cost_price || 0);
       const costUsd = Number(
         prod.cost_price_usd || (rate > 0 && costUzs > 0 ? costUzs / rate : 0)
@@ -443,6 +507,11 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
           image: prod.image,
           available_count: Number(prod.available_count || 1),
           quantity: 1,
+          main_quantity: 1,
+          is_component_only: false,
+          has_components: false,
+          components: prod.components || [],
+          selected_components: [],
           cost_price: costUzs,
           cost_price_usd: costUsd,
           wholesale_price: Number(prod.wholesale_price || 0),
@@ -493,13 +562,19 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
   const handleQuantityChange = (productId, val) => {
     const item = items.find(x => x.product_id === productId);
     if (!item) return;
+
+    if (item.is_component_only || (item.selected_components && item.selected_components.length > 0)) {
+      openComponentConfig(item);
+      return;
+    }
+
     let qty = parseInt(val, 10);
     if (isNaN(qty) || qty < 1) qty = 1;
     if (qty > item.available_count) {
       qty = item.available_count;
       toast?.(`Mavjud miqdordan oshirib bo‘lmaydi (Maksimal: ${item.available_count} ta)`);
     }
-    setItems(items.map(x => (x.product_id === productId ? { ...x, quantity: qty } : x)));
+    setItems(items.map(x => (x.product_id === productId ? { ...x, quantity: qty, main_quantity: qty } : x)));
   };
 
   // Update individual item markup in USD
@@ -653,8 +728,11 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
         setError(`"${item.product_name}" soni noldan katta bo‘lishi kerak.`);
         return;
       }
-      if (item.quantity > item.available_count) {
-        setError(`"${item.product_name}" dan omborda yetarli emas (so‘raldi: ${item.quantity}, mavjud: ${item.available_count}).`);
+      const isCompOnly = Boolean(item.is_component_only || item.main_quantity === 0);
+      const mainQty = item.main_quantity !== undefined ? item.main_quantity : (isCompOnly ? 0 : item.quantity);
+
+      if (!isCompOnly && mainQty > item.available_count) {
+        setError(`"${item.product_name}" dan omborda yetarli emas (so‘raldi: ${mainQty}, mavjud: ${item.available_count}).`);
         return;
       }
       const itemUzs = parseFloat(item.transfer_price) || 0;
@@ -677,12 +755,19 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
         } else if (linePriceUsd <= 0 && linePriceUzs > 0 && rate > 0) {
           linePriceUsd = Number((linePriceUzs / rate).toFixed(2));
         }
+        const isCompOnly = Boolean(x.is_component_only || x.main_quantity === 0);
+        const mainQty = x.main_quantity !== undefined ? parseInt(x.main_quantity, 10) : (isCompOnly ? 0 : parseInt(x.quantity, 10) || 1);
+
         return {
           product_id: x.product_id,
           quantity: parseInt(x.quantity, 10) || 1,
+          main_quantity: mainQty,
+          is_component_only: isCompOnly,
+          selected_components: Array.isArray(x.selected_components) ? x.selected_components : [],
           unit_price: linePriceUzs,
           unit_price_usd: Number(linePriceUsd.toFixed(2)),
-          qr_code: x.qr_code || null
+          qr_code: x.qr_code || null,
+          product_name: x.product_name || null
         };
       });
 
@@ -879,6 +964,8 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
         const lineCostUsd = rate > 0 && lineCostUzs ? Number((lineCostUzs / rate).toFixed(2)) : 0;
         const lineTransferUsd = Number(line.unit_price_usd || 0);
         const diffMarkup = Math.max(0, Number((lineTransferUsd - lineCostUsd).toFixed(2)));
+        const selComps = Array.isArray(line.selected_components) ? line.selected_components : [];
+        const isCompOnly = Boolean(line.is_component_only || (selComps.length > 0 && line.main_quantity === 0));
 
         return {
           product_id: line.product_id,
@@ -888,6 +975,10 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
           image: line.image,
           available_count: Number(line.quantity || 1) + 50,
           quantity: Number(line.quantity || 1),
+          main_quantity: line.main_quantity !== undefined ? Number(line.main_quantity) : (isCompOnly ? 0 : Number(line.quantity || 1)),
+          is_component_only: isCompOnly,
+          has_components: selComps.length > 0,
+          selected_components: selComps,
           cost_price: lineCostUzs,
           cost_price_usd: lineCostUsd,
           wholesale_price: Number(line.wholesale_price || 0),
@@ -1330,12 +1421,25 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
                               {prod.sku && <span>SKU: {prod.sku}</span>}
                               <span>Mavjud: <b>{prod.available_count} ta</b></span>
                               <span>Tannarx: <b>${prod.cost_price_usd > 0 ? prod.cost_price_usd.toFixed(2) : (rate > 0 ? (prod.cost_price / rate).toFixed(2) : '0')}</b></span>
+                              {prod.components && prod.components.length > 0 && (
+                                <span className="bt-sku-badge" style={{ background: '#e0e7ff', color: '#3730a3', border: '1px solid #c7d2fe', fontWeight: 600 }}>
+                                  Qismlarga bo‘linadi ({prod.components.length})
+                                </span>
+                              )}
                             </div>
                           </div>
                           <div className="bt-item-price-side">
                             <strong>{new Intl.NumberFormat('uz-UZ').format(prod.cost_price)} so‘m</strong>
                             <button type="button" className="btn btn-sm btn-primary bt-add-pill">
-                              <Plus size={12} /> Tanlash
+                              {prod.components && prod.components.length > 0 ? (
+                                <>
+                                  <Layers size={12} /> Qismlarini tanlash
+                                </>
+                              ) : (
+                                <>
+                                  <Plus size={12} /> Tanlash
+                                </>
+                              )}
                             </button>
                           </div>
                         </div>
@@ -1398,11 +1502,54 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
                               <b className="bt-card-name">{item.product_name}</b>
                               <div className="bt-card-badges">
                                 {item.sku && <span className="bt-sku-badge">{item.sku}</span>}
-                                <span className="bt-stock-badge">
-                                  Omborda: <b>{item.available_count} ta</b>
-                                </span>
+                                {!item.is_component_only && (
+                                  <span className="bt-stock-badge">
+                                    Omborda: <b>{item.available_count} ta</b>
+                                  </span>
+                                )}
                                 {item.qr_code && <span className="bt-qr-badge">QR: {item.qr_code}</span>}
                               </div>
+
+                              {/* Modular Components Summary */}
+                              {(item.has_components || (item.selected_components && item.selected_components.length > 0) || (item.components && item.components.length > 0)) && (
+                                <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                  <div className="bt-component-summary-tag">
+                                    {item.is_component_only ? (
+                                      <span className="bt-tag-comp-only">
+                                        📦 Faqat qismlar ({item.selected_components?.reduce((s, c) => s + (Number(c.quantity) || 0), 0) || item.quantity} dona)
+                                      </span>
+                                    ) : (
+                                      <span className="bt-tag-main-qty">
+                                        Asosiy tovar: {item.main_quantity || item.quantity} dona
+                                      </span>
+                                    )}
+                                    <button
+                                      type="button"
+                                      className="bt-edit-comps-btn"
+                                      onClick={() => openComponentConfig(item)}
+                                      title="Tarkibiy qismlarni qayta sozlash"
+                                    >
+                                      <Edit3 size={11} /> Qismlarni sozlash
+                                    </button>
+                                  </div>
+
+                                  {Array.isArray(item.selected_components) && item.selected_components.length > 0 && (
+                                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                      {item.selected_components.map((c, ci) => (
+                                        <span
+                                          key={ci}
+                                          className="bt-tag-comp-chip"
+                                          onClick={() => openComponentConfig(item)}
+                                          style={{ cursor: 'pointer' }}
+                                          title="Tahrirlash uchun bosing"
+                                        >
+                                          {c.name}: <b>{c.quantity} ta</b>
+                                        </span>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
 
                             <button
@@ -1417,36 +1564,68 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
 
                           <div className="bt-card-bottom">
                             {/* Quantity Counter */}
-                            <div className="bt-card-qty">
-                              <small className="bt-section-label">Soni:</small>
-                              <div className="bt-qty-controls">
-                                <button
-                                  type="button"
-                                  className="bt-qty-btn"
-                                  onClick={() => handleQuantityChange(item.product_id, item.quantity - 1)}
-                                  disabled={item.quantity <= 1}
-                                >
-                                  <Minus size={14} />
-                                </button>
-                                <input
-                                  type="number"
-                                  className="bt-qty-input"
-                                  min="1"
-                                  max={item.available_count}
-                                  value={item.quantity}
-                                  onChange={e => handleQuantityChange(item.product_id, e.target.value)}
-                                />
-                                <button
-                                  type="button"
-                                  className="bt-qty-btn"
-                                  onClick={() => handleQuantityChange(item.product_id, item.quantity + 1)}
-                                  disabled={item.quantity >= item.available_count}
-                                >
-                                  <Plus size={14} />
-                                </button>
+                            {item.is_component_only ? (
+                              <div className="bt-card-qty">
+                                <small className="bt-section-label">Qismlar soni:</small>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                  <span className="bt-tag-comp-only" style={{ padding: '6px 12px', fontSize: 13, fontWeight: 700 }}>
+                                    {item.quantity} ta
+                                  </span>
+                                  <button
+                                    type="button"
+                                    className="btn btn-sm btn-outline bt-edit-comps-btn"
+                                    onClick={() => openComponentConfig(item)}
+                                    title="Qismlar miqdorini o‘zgartirish"
+                                  >
+                                    <Edit3 size={12} /> Sozlash
+                                  </button>
+                                </div>
+                                <span className="bt-max-hint" style={{ color: '#059669', fontWeight: 600 }}>
+                                  (Asosiy tovardan 0 dona)
+                                </span>
                               </div>
-                              <span className="bt-max-hint">Maks: {item.available_count} ta</span>
-                            </div>
+                            ) : (
+                              <div className="bt-card-qty">
+                                <small className="bt-section-label">Soni:</small>
+                                <div className="bt-qty-controls">
+                                  <button
+                                    type="button"
+                                    className="bt-qty-btn"
+                                    onClick={() => handleQuantityChange(item.product_id, item.quantity - 1)}
+                                    disabled={item.quantity <= 1}
+                                  >
+                                    <Minus size={14} />
+                                  </button>
+                                  <input
+                                    type="number"
+                                    className="bt-qty-input"
+                                    min="1"
+                                    max={item.available_count}
+                                    value={item.quantity}
+                                    onChange={e => handleQuantityChange(item.product_id, e.target.value)}
+                                  />
+                                  <button
+                                    type="button"
+                                    className="bt-qty-btn"
+                                    onClick={() => handleQuantityChange(item.product_id, item.quantity + 1)}
+                                    disabled={item.quantity >= item.available_count}
+                                  >
+                                    <Plus size={14} />
+                                  </button>
+                                </div>
+                                <span className="bt-max-hint">Maks: {item.available_count} ta</span>
+                                {(item.has_components || (item.components && item.components.length > 0)) && (
+                                  <button
+                                    type="button"
+                                    className="bt-edit-comps-btn"
+                                    style={{ marginTop: 4 }}
+                                    onClick={() => openComponentConfig(item)}
+                                  >
+                                    <Layers size={11} /> Qismlar
+                                  </button>
+                                )}
+                              </div>
+                            )}
 
                             {/* Pricing details v2: Individual Markup Controls */}
                             <div className="bt-card-pricing-v2">
@@ -1944,10 +2123,22 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
               <div className="bt-receipt-divider" />
               <div className="bt-receipt-lines">
                 {completedTransfer.lines?.map((line, idx) => (
-                  <div key={line.id} className="bt-receipt-line">
+                  <div key={line.id || idx} className="bt-receipt-line">
                     <div>
                       <b>{idx + 1}. {line.product_name}</b>
-                      <small>{line.quantity} dona × {new Intl.NumberFormat('uz-UZ').format(line.unit_price)} so‘m</small>
+                      {Array.isArray(line.selected_components) && line.selected_components.length > 0 && (
+                        <div style={{ marginTop: 3, display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                          {line.selected_components.map((c, ci) => (
+                            <span key={ci} className="bt-tag-comp-chip" style={{ fontSize: 10.5, padding: '1px 5px' }}>
+                              {c.name}: <b>{c.quantity} ta</b>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      <small>
+                        {line.quantity} dona × {new Intl.NumberFormat('uz-UZ').format(line.unit_price)} so‘m
+                        {line.selected_components?.length > 0 && line.main_quantity === 0 ? ' (Faqat qismlar)' : ''}
+                      </small>
                     </div>
                     <b>{new Intl.NumberFormat('uz-UZ').format(line.total_price)} so‘m</b>
                   </div>
@@ -2063,8 +2254,29 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
                       <td>
                         <b>{line.product_name}</b>
                         {line.sku && <small style={{ display: 'block', color: 'var(--muted)' }}>SKU: {line.sku}</small>}
+                        {Array.isArray(line.selected_components) && line.selected_components.length > 0 && (
+                          <div style={{ marginTop: 4, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                            <span style={{ fontSize: 10.5, fontWeight: 700, color: '#4338ca' }}>
+                              Tarkibiy qismlari:
+                            </span>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
+                              {line.selected_components.map((c, ci) => (
+                                <span key={ci} className="bt-tag-comp-chip" style={{ fontSize: 10.5, padding: '1px 5px' }}>
+                                  {c.name}: <b>{c.quantity} ta</b>
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </td>
-                      <td style={{ textAlign: 'center' }}><b>{line.quantity} ta</b></td>
+                      <td style={{ textAlign: 'center' }}>
+                        <b>{line.quantity} ta</b>
+                        {Array.isArray(line.selected_components) && line.selected_components.length > 0 && line.main_quantity === 0 && (
+                          <small style={{ display: 'block', color: '#059669', fontSize: 10, fontWeight: 600 }}>
+                            (Faqat qismlar)
+                          </small>
+                        )}
+                      </td>
                       <td style={{ textAlign: 'right' }}>
                         {new Intl.NumberFormat('uz-UZ').format(line.unit_price)} so‘m
                         {line.unit_price_usd > 0 && (
@@ -2292,6 +2504,504 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
           </div>
         </form>
       </Modal>
+
+      {/* ============================================================ */}
+      {/* MODULAR PRODUCT COMPONENTS CONFIGURATION MODAL               */}
+      {/* ============================================================ */}
+      <TransferComponentModal
+        open={Boolean(configuringProduct)}
+        onClose={() => setConfiguringProduct(null)}
+        product={configuringProduct}
+        onSave={handleSaveConfiguredComponents}
+        rate={rate}
+      />
     </div>
+  );
+}
+
+// ============================================================
+// TRANSFER COMPONENT CONFIGURATION MODAL (MODULAR PRODUCTS)
+// ============================================================
+function TransferComponentModal({
+  open,
+  onClose,
+  product,
+  onSave,
+  rate = 12000
+}) {
+  const [loading, setLoading] = useState(false);
+  const [componentsList, setComponentsList] = useState([]);
+  const [mainQty, setMainQty] = useState(1);
+  const [compQuantities, setCompQuantities] = useState({});
+  const [customMarkupUsd, setCustomMarkupUsd] = useState('');
+
+  useEffect(() => {
+    if (!open || !product) return;
+
+    const initialMain = product.main_quantity !== undefined
+      ? Number(product.main_quantity)
+      : (product.is_component_only ? 0 : (Number(product.quantity) || 1));
+    setMainQty(initialMain);
+    setCustomMarkupUsd(product.markup_usd !== undefined && product.markup_usd !== null ? String(product.markup_usd) : '');
+
+    const setupComponents = (comps) => {
+      setComponentsList(comps);
+      const qMap = {};
+      const preselected = Array.isArray(product.selected_components) ? product.selected_components : [];
+
+      comps.forEach(c => {
+        const cId = c.id || c.component_id;
+        const matched = preselected.find(x => (x.component_id && x.component_id === cId) || x.name === c.name);
+        if (matched) {
+          qMap[cId] = Number(matched.quantity) || 0;
+        } else if (preselected.length > 0) {
+          qMap[cId] = 0;
+        } else {
+          // If first time configuring, set standard kit quantity
+          qMap[cId] = (Number(c.quantity) || 1) * Math.max(1, initialMain);
+        }
+      });
+      setCompQuantities(qMap);
+    };
+
+    if (Array.isArray(product.components) && product.components.length > 0) {
+      setupComponents(product.components);
+      setLoading(false);
+    } else if (product.product_id) {
+      setLoading(true);
+      getProductComponents(product.product_id)
+        .then(res => {
+          setupComponents(res || []);
+        })
+        .catch(() => {
+          setupComponents([]);
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
+  }, [open, product]);
+
+  if (!open || !product) return null;
+
+  const handleCompQtyChange = (compId, val) => {
+    const parsed = parseInt(val, 10);
+    setCompQuantities(prev => ({
+      ...prev,
+      [compId]: isNaN(parsed) || parsed < 0 ? 0 : parsed
+    }));
+  };
+
+  const handleSetAllStandard = () => {
+    const qMap = {};
+    const multiplier = Math.max(1, mainQty);
+    componentsList.forEach(c => {
+      const cId = c.id || c.component_id;
+      qMap[cId] = (Number(c.quantity) || 1) * multiplier;
+    });
+    setCompQuantities(qMap);
+  };
+
+  const handleResetAllToZero = () => {
+    const qMap = {};
+    componentsList.forEach(c => {
+      const cId = c.id || c.component_id;
+      qMap[cId] = 0;
+    });
+    setCompQuantities(qMap);
+  };
+
+  const isComponentOnly = mainQty === 0;
+  const availableMainStock = Number(product.available_count || 0);
+
+  // Total components count and costs
+  let totalCompsCount = 0;
+  let totalCompsCostUsd = 0;
+  let totalCompsCostUzs = 0;
+
+  componentsList.forEach(c => {
+    const cId = c.id || c.component_id;
+    const q = Number(compQuantities[cId]) || 0;
+    if (q > 0) {
+      totalCompsCount += q;
+      const cCostUsd = Number(c.cost_price_usd) || (rate > 0 && c.cost_price ? Number(c.cost_price) / rate : 0);
+      const cCostUzs = Number(c.cost_price) || (rate > 0 ? Math.round(cCostUsd * rate) : 0);
+      totalCompsCostUsd += cCostUsd * q;
+      totalCompsCostUzs += cCostUzs * q;
+    }
+  });
+
+  // Calculate base & line total
+  let totalLineCostUsd = 0;
+  let totalLineCostUzs = 0;
+
+  if (isComponentOnly) {
+    totalLineCostUsd = totalCompsCostUsd;
+    totalLineCostUzs = totalCompsCostUzs;
+  } else {
+    const baseUnitCostUsd = Number(product.cost_price_usd) || (rate > 0 && product.cost_price ? Number(product.cost_price) / rate : 0);
+    const baseUnitCostUzs = Number(product.cost_price) || Math.round(baseUnitCostUsd * rate);
+    totalLineCostUsd = (baseUnitCostUsd * mainQty);
+    totalLineCostUzs = (baseUnitCostUzs * mainQty);
+  }
+
+  const handleConfirm = () => {
+    if (mainQty === 0 && totalCompsCount === 0) {
+      alert('Iltimos, kamida 1 ta qism yoki asosiy tovar miqdorini belgilang!');
+      return;
+    }
+
+    if (mainQty > availableMainStock) {
+      alert(`Asosiy tovardan omborda ko‘pi bilan ${availableMainStock} ta mavjud!`);
+      return;
+    }
+
+    const selectedComponents = componentsList
+      .filter(c => {
+        const cId = c.id || c.component_id;
+        return (Number(compQuantities[cId]) || 0) > 0;
+      })
+      .map(c => {
+        const cId = c.id || c.component_id;
+        const q = Number(compQuantities[cId]) || 0;
+        const cCostUsd = Number(c.cost_price_usd) || (rate > 0 && c.cost_price ? Number(c.cost_price) / rate : 0);
+        const cCostUzs = Number(c.cost_price) || Math.round(cCostUsd * rate);
+        return {
+          component_id: cId,
+          name: c.name,
+          quantity: q,
+          cost_price: cCostUzs,
+          cost_price_usd: Number(cCostUsd.toFixed(2)),
+          unit_price: cCostUzs,
+          unit_price_usd: Number(cCostUsd.toFixed(2))
+        };
+      });
+
+    // Determine line quantity and transfer price
+    let finalQty = 1;
+    let finalCostUzs = 0;
+    let finalCostUsd = 0;
+
+    if (isComponentOnly) {
+      if (selectedComponents.length === 1) {
+        finalQty = selectedComponents[0].quantity;
+        finalCostUzs = selectedComponents[0].cost_price;
+        finalCostUsd = selectedComponents[0].cost_price_usd;
+      } else {
+        finalQty = 1;
+        finalCostUzs = totalCompsCostUzs;
+        finalCostUsd = Number(totalCompsCostUsd.toFixed(2));
+      }
+    } else {
+      finalQty = mainQty;
+      finalCostUsd = Number((totalLineCostUsd / mainQty).toFixed(2));
+      finalCostUzs = Math.round(totalLineCostUzs / mainQty);
+    }
+
+    const markupUsdNum = parseFloat(customMarkupUsd) || 0;
+    const finalTransferUsd = Number((finalCostUsd + markupUsdNum).toFixed(2));
+    const finalTransferUzs = rate > 0 ? Math.round(finalTransferUsd * rate) : finalCostUzs;
+
+    onSave({
+      ...product,
+      quantity: finalQty,
+      main_quantity: mainQty,
+      is_component_only: isComponentOnly,
+      has_components: true,
+      components: componentsList,
+      selected_components: selectedComponents,
+      cost_price: finalCostUzs,
+      cost_price_usd: finalCostUsd,
+      markup_usd: customMarkupUsd !== '' ? customMarkupUsd : 0,
+      transfer_price: finalTransferUzs,
+      transfer_price_usd: finalTransferUsd
+    });
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={`Tarkibiy qismlarni sozlash: ${product.product_name}`}
+    >
+      <div className="bt-comp-modal-content">
+        {/* Product Meta Card */}
+        <div className="bt-comp-product-card">
+          <div className="bt-card-pic" style={{ width: 44, height: 44 }}>
+            {product.image ? <img src={product.image} alt="" /> : <Package size={22} />}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <b style={{ fontSize: 14 }}>{product.product_name}</b>
+            <div style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+              {product.sku && <span>SKU: {product.sku}</span>}
+              <span>Omborda to‘liq mavjud: <b>{availableMainStock} ta</b></span>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 1: Main Product Body Quantity */}
+        <div className="bt-comp-section">
+          <div className="bt-comp-section-title">
+            <span>1. Asosiy tovar soni (Beshik korpusi / to‘plami):</span>
+          </div>
+
+          <div className="bt-comp-main-qty-row">
+            <div className="bt-comp-stepper">
+              <button
+                type="button"
+                className="bt-comp-stepper-btn"
+                onClick={() => setMainQty(prev => Math.max(0, prev - 1))}
+                disabled={mainQty <= 0}
+              >
+                <Minus size={15} />
+              </button>
+              <input
+                type="number"
+                min="0"
+                max={availableMainStock}
+                className="bt-comp-stepper-input"
+                value={mainQty}
+                onChange={e => {
+                  const v = parseInt(e.target.value, 10);
+                  setMainQty(isNaN(v) || v < 0 ? 0 : Math.min(v, availableMainStock));
+                }}
+              />
+              <button
+                type="button"
+                className="bt-comp-stepper-btn"
+                onClick={() => setMainQty(prev => Math.min(availableMainStock, prev + 1))}
+                disabled={mainQty >= availableMainStock}
+              >
+                <Plus size={15} />
+              </button>
+            </div>
+
+            <div className="bt-comp-quick-chips">
+              <button
+                type="button"
+                className={`bt-comp-chip ${mainQty === 0 ? 'active' : ''}`}
+                onClick={() => setMainQty(0)}
+              >
+                0 dona (Faqat qismlar)
+              </button>
+              {availableMainStock >= 1 && (
+                <button
+                  type="button"
+                  className={`bt-comp-chip ${mainQty === 1 ? 'active' : ''}`}
+                  onClick={() => setMainQty(1)}
+                >
+                  1 komplekt
+                </button>
+              )}
+              {availableMainStock >= 2 && (
+                <button
+                  type="button"
+                  className={`bt-comp-chip ${mainQty === 2 ? 'active' : ''}`}
+                  onClick={() => setMainQty(2)}
+                >
+                  2 komplekt
+                </button>
+              )}
+            </div>
+          </div>
+
+          {mainQty === 0 ? (
+            <div className="bt-comp-notice warning">
+              <AlertTriangle size={15} style={{ flexShrink: 0 }} />
+              <div>
+                <b>Faqat tarkibiy qismlar yuborilmoqda (Asosiy tovardan 0 dona).</b>
+                <div>Ombordagi to‘liq mahsulot soni kamaytirilmaydi, faqat filialga tanlangan qismlar o‘tkaziladi.</div>
+              </div>
+            </div>
+          ) : (
+            <div className="bt-comp-notice success">
+              <CheckCircle2 size={15} style={{ flexShrink: 0 }} />
+              <div>
+                <b>Asosiy tovardan {mainQty} dona yuboriladi.</b>
+                <div>Ombordagi to‘liq mahsulot balansidan {mainQty} dona chiqariladi.</div>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Section 2: Component Quantities */}
+        <div className="bt-comp-section">
+          <div className="bt-comp-section-title">
+            <span>2. Tarkibiy qismlar miqdorlari:</span>
+            <div className="bt-comp-presets">
+              <button
+                type="button"
+                className="btn btn-xs btn-outline"
+                onClick={handleSetAllStandard}
+                title="Har bir qismni komplekt bo‘yicha standart miqdorda belgilash"
+              >
+                Standart ({Math.max(1, mainQty)}x)
+              </button>
+              <button
+                type="button"
+                className="btn btn-xs btn-ghost text-danger"
+                onClick={handleResetAllToZero}
+                title="Barcha qismlarni 0 ga tushirish"
+              >
+                Hammasini 0 qilish
+              </button>
+            </div>
+          </div>
+
+          {loading ? (
+            <div style={{ padding: 24, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+              Tarkibiy qismlar yuklanmoqda…
+            </div>
+          ) : componentsList.length === 0 ? (
+            <div style={{ padding: 20, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+              Ushbu tovar uchun alohida tarkibiy qismlar kiritilmagan.
+            </div>
+          ) : (
+            <div className="bt-comp-list-wrap">
+              {componentsList.map(c => {
+                const cId = c.id || c.component_id;
+                const currentQty = Number(compQuantities[cId]) || 0;
+                const cCostUsd = Number(c.cost_price_usd) || (rate > 0 && c.cost_price ? Number(c.cost_price) / rate : 0);
+                const cCostUzs = Number(c.cost_price) || (rate > 0 ? Math.round(cCostUsd * rate) : 0);
+                const lineUsd = cCostUsd * currentQty;
+                const lineUzs = cCostUzs * currentQty;
+
+                return (
+                  <div
+                    key={cId}
+                    className={`bt-comp-item-row ${currentQty > 0 ? 'active' : ''}`}
+                  >
+                    <div className="bt-comp-item-info">
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <b style={{ fontSize: 13.5 }}>{c.name}</b>
+                          {c.color_name && (
+                            <span style={{ fontSize: 10, padding: '1px 5px', background: 'var(--surface-2)', borderRadius: 4 }}>
+                              {c.color_name}
+                            </span>
+                          )}
+                        </div>
+                        <div style={{ display: 'flex', gap: 8, fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                          {c.stock_quantity !== undefined && (
+                            <span>Omborda: <b>{c.stock_quantity} ta</b></span>
+                          )}
+                          <span>Tannarx: <b>${cCostUsd.toFixed(2)}</b> ({new Intl.NumberFormat('uz-UZ').format(cCostUzs)} so‘m)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="bt-comp-item-controls">
+                      <div className="bt-comp-stepper">
+                        <button
+                          type="button"
+                          className="bt-comp-stepper-btn"
+                          onClick={() => handleCompQtyChange(cId, currentQty - 1)}
+                          disabled={currentQty <= 0}
+                        >
+                          <Minus size={13} />
+                        </button>
+                        <input
+                          type="number"
+                          min="0"
+                          className="bt-comp-stepper-input"
+                          value={currentQty}
+                          onChange={e => handleCompQtyChange(cId, e.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className="bt-comp-stepper-btn"
+                          onClick={() => handleCompQtyChange(cId, currentQty + 1)}
+                        >
+                          <Plus size={13} />
+                        </button>
+                      </div>
+
+                      {/* Quick chips */}
+                      <div style={{ display: 'flex', gap: 3 }}>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-outline"
+                          onClick={() => handleCompQtyChange(cId, 0)}
+                          style={{ padding: '2px 5px', fontSize: 10 }}
+                        >
+                          0
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-outline"
+                          onClick={() => handleCompQtyChange(cId, currentQty + 5)}
+                          style={{ padding: '2px 5px', fontSize: 10 }}
+                        >
+                          +5
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-outline"
+                          onClick={() => handleCompQtyChange(cId, currentQty + 10)}
+                          style={{ padding: '2px 5px', fontSize: 10 }}
+                        >
+                          +10
+                        </button>
+                      </div>
+
+                      <div className="bt-comp-item-subtotal">
+                        <b style={{ color: currentQty > 0 ? 'var(--orange)' : 'var(--muted)' }}>
+                          ${lineUsd.toFixed(2)}
+                        </b>
+                        <small style={{ display: 'block', color: 'var(--muted)', fontSize: 10.5 }}>
+                          {new Intl.NumberFormat('uz-UZ').format(lineUzs)} so‘m
+                        </small>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Section 3: Markup & Summary Footer */}
+        <div className="bt-comp-total-footer">
+          <div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Tanlandi: <b>{mainQty} dona</b> asosiy · <b>{totalCompsCount} dona</b> qismlar
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)', marginTop: 2 }}>
+              Jami tannarx: ${totalLineCostUsd.toFixed(2)} ({new Intl.NumberFormat('uz-UZ').format(totalLineCostUzs)} so‘m)
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 11.5, color: 'var(--muted)' }}>Ustama ($):</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="input"
+                style={{ width: 60, height: 32, padding: '2px 6px', textAlign: 'center', fontSize: 13 }}
+                value={customMarkupUsd}
+                onChange={e => setCustomMarkupUsd(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={onClose}
+            >
+              Bekor qilish
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleConfirm}
+            >
+              <CheckCircle2 size={16} />
+              <span>Transferga qo‘shish</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </Modal>
   );
 }
