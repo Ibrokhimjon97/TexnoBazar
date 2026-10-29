@@ -231,40 +231,54 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
     }
   };
 
+  const loadRef = useRef(load);
+  loadRef.current = load;
+
   useEffect(() => {
     setPage(1);
     load(1);
   }, [branchId, status, debounced, dateRange, paymentFilter, sortBy]);
 
-  // 1. Supabase Realtime orqali pos_pending_sales o'zgarishlarini tinglash
+  // 1. Supabase Realtime orqali pos_pending_sales o'zgarishlarini zudlik bilan tinglash
+  // (Broadcast orqali < 50ms + Postgres WAL CDC orqali REPLICA IDENTITY FULL)
+  // Kanal faqat branchId ga bog'langan va filtrlar o'zgarganda qayta ochilmaydi/yopilmaydi.
   useEffect(() => {
     if (!branchId) return;
+    let debounceTimer = null;
+    const onRealtimeUpdate = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadRef.current?.(1, true);
+      }, 150);
+    };
+
     const unsubscribe = subscribePosPendingSales(
-      () => {
-        load(page, true);
-      },
+      onRealtimeUpdate,
       err => console.warn('Realtime pos_pending_sales ogohlantirish:', err),
       branchId
     );
-    return () => unsubscribe?.();
-  }, [branchId, page, status, debounced, dateRange, paymentFilter, sortBy]);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unsubscribe?.();
+    };
+  }, [branchId]);
 
-  // 2. Kassa sahifasida turganda xavfsiz avtomatik silent polling (har 60 soniyada faqat tab ko'rinib turganda)
+  // 2. Kassa sahifasida turganda xavfsiz zaxira avtomatik silent heartbeat (har 60 soniyada faqat tab ko'rinib turganda)
   useEffect(() => {
     if (!branchId) return;
     const timer = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        load(page, true);
+        loadRef.current?.(page, true);
       }
     }, 60000);
     return () => clearInterval(timer);
-  }, [branchId, page, status, debounced, dateRange, paymentFilter, sortBy]);
+  }, [branchId, page]);
 
   // 3. Brauzer tabiga qaytib kirilganda yoki tab ochilganda darhol tekshirish
   useEffect(() => {
     const onFocus = () => {
       if (branchId && (typeof document === 'undefined' || document.visibilityState === 'visible')) {
-        load(page, true);
+        loadRef.current?.(page, true);
       }
     };
     window.addEventListener('focus', onFocus);
@@ -273,7 +287,7 @@ function PosCashTab({ branchId, toast, onSummary, focusPendingSaleId, clearFocus
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
     };
-  }, [branchId, page, status, debounced, dateRange, paymentFilter, sortBy]);
+  }, [branchId, page]);
 
   const handleDelete = async (restoreStock = true) => {
     if (!deletingSale) return;

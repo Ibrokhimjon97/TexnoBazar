@@ -1,5 +1,6 @@
 import { getBrowserClient } from './auth.js';
 import { throwDataError } from './errors.js';
+import { broadcastPosPendingSale } from './realtime.js';
 const client=()=>getBrowserClient();
 async function rpc(name,args={}){const{data,error}=await client().rpc(name,args);if(error)throwDataError(error,name);return data}
 async function list(table,select='*',configure=q=>q){const{data,error}=await configure(client().from(table).select(select));if(error)throw error;return data??[]}
@@ -128,13 +129,20 @@ export async function listSalesHistory({ branchId = null, sellerId = null, from,
   return { items: result?.items || [], total: Number(result?.total || 0) };
 }
 export const deleteSale = (saleId, restoreStock = true) => rpc('delete_sale', { p_sale_id: saleId, p_restore_stock: restoreStock });
-export const deletePosPendingSale = (id, restoreStock = true) => rpc('delete_pos_pending_sale', { p_pending_id: id, p_restore_stock: restoreStock });
-export const deletePosPendingSaleLine = (pendingId, lineId, restoreStock = true) =>
-  rpc('delete_pos_pending_sale_line', {
+export const deletePosPendingSale = async (id, restoreStock = true) => {
+  const result = await rpc('delete_pos_pending_sale', { p_pending_id: id, p_restore_stock: restoreStock });
+  broadcastPosPendingSale(null, { type: 'deleted', id });
+  return result;
+};
+export const deletePosPendingSaleLine = async (pendingId, lineId, restoreStock = true) => {
+  const result = await rpc('delete_pos_pending_sale_line', {
     p_pending_id: pendingId,
     p_line_id: lineId,
     p_restore_stock: restoreStock
   });
+  broadcastPosPendingSale(null, { type: 'line_deleted', id: pendingId, lineId });
+  return result;
+};
 
 // Filial sotuvchilar reytingi (leaderboard)
 export async function getSellerLeaderboard({ branchId = null, period = 'day', date = null } = {}) {

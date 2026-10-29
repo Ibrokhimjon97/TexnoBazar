@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import{AlertTriangle,ArrowLeftRight,ArrowUpRight,BarChart3,Boxes,Check,ChevronLeft,ChevronRight,Clock,CreditCard,ExternalLink,Eye,EyeOff,FileText,Home,Layers,Mail,MapPin,Menu,Package,Plus,Printer,QrCode,ReceiptText,RotateCcw,Search,Send,ShoppingCart,Store,Trash2,Truck,User,Warehouse,X,Trophy}from'lucide-react';
 import{DualPrice,Empty,Modal,QrScanButton,Status,formatDualMoney,useExchangeRate,printThermalReceipt,ThermalReceiptPreview}from'@texnobazar/ui';
-import{createPosPendingSale,updatePosPendingSale,deletePosPendingSale,getBrowserClient,getPosBatchUnits,getPosPendingSale,getPosProductAvailability,getPosReferences,getPosUnitContext,getReceiptDeliveryStatus,getSaleReceipt,listMyPosPendingSalesByDate,listMyPosSales,listPosUnits,queueSaleReceipt,relocatePosUnits}from'@texnobazar/data';
+import{createPosPendingSale,updatePosPendingSale,deletePosPendingSale,getBrowserClient,getPosBatchUnits,getPosPendingSale,getPosProductAvailability,getPosReferences,getPosUnitContext,getReceiptDeliveryStatus,getSaleReceipt,listMyPosPendingSalesByDate,listMyPosSales,listPosUnits,queueSaleReceipt,relocatePosUnits,subscribePosPendingSales}from'@texnobazar/data';
 import ProfileWorkspace from'./ProfileWorkspace';
 import AttendanceWorkspace from'./AttendanceWorkspace';
 import ProductCatalogWorkspace from'./ProductCatalogWorkspace';
@@ -433,6 +433,20 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
   const load=async()=>{if(!branchId){setLoading(false);return}setLoading(true);setError('');try{const[r]=await Promise.all([getPosReferences(branchId),loadHome(homeDate)]);setRefs(r)}catch(e){setError(msg(e))}finally{setLoading(false)}};
   const changeHomeDate=async value=>{setHomeDate(value);setLoading(true);setError('');try{await loadHome(value)}catch(e){setError(msg(e))}finally{setLoading(false)}};
   useEffect(()=>{load()},[branchId]);
+  useEffect(() => {
+    if (!branchId) return;
+    let debounceTimer = null;
+    const unsub = subscribePosPendingSales(() => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        loadHome(homeDate);
+      }, 200);
+    }, null, branchId);
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      unsub?.();
+    };
+  }, [branchId, homeDate]);
   useEffect(()=>{setUnits([]);const id=setTimeout(()=>setDebounced(query.trim()),300);return()=>clearTimeout(id)},[query]);
   useEffect(()=>{if(!branchId||page!=='scan'||!debounced){setUnits([]);return}let active=true;listPosUnits({branchId,query:debounced,pageSize:30}).then(r=>active&&setUnits(r.items||[])).catch(e=>active&&setError(msg(e)));return()=>{active=false}},[branchId,page,debounced]);
 

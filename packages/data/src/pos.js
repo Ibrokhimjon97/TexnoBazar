@@ -1,5 +1,6 @@
 import { getBrowserClient } from './auth.js';
 import { throwDataError } from './errors.js';
+import { broadcastPosPendingSale } from './realtime.js';
 
 async function rpc(name, args) {
   const { data, error } = await getBrowserClient().rpc(name, args);
@@ -15,11 +16,15 @@ export const relocatePosUnits = (branchId, codes, direction, requestId = crypto.
 export function listPosUnits({ branchId, query = null, page = 1, pageSize = 30 }) {
   return rpc('list_pos_units', { p_branch_id: branchId, p_query: query || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
 }
-export function createPosPendingSale({ branchId, lines, payments, notes = null, customer = null }, idempotencyKey = crypto.randomUUID()) {
-  return rpc('create_pos_pending_sale', { p_branch_id: branchId, p_lines: lines, p_payments: payments, p_idempotency_key: idempotencyKey, p_notes: notes || null, p_customer: customer || null });
+export async function createPosPendingSale({ branchId, lines, payments, notes = null, customer = null }, idempotencyKey = crypto.randomUUID()) {
+  const result = await rpc('create_pos_pending_sale', { p_branch_id: branchId, p_lines: lines, p_payments: payments, p_idempotency_key: idempotencyKey, p_notes: notes || null, p_customer: customer || null });
+  broadcastPosPendingSale(branchId, { type: 'created', id: result?.id || result?.pending_id, pending_no: result?.pending_no });
+  return result;
 }
-export function updatePosPendingSale({ pendingId, lines, payments, notes = null, customer = null }) {
-  return rpc('update_pos_pending_sale', { p_pending_id: pendingId, p_lines: lines, p_payments: payments, p_notes: notes || null, p_customer: customer || null });
+export async function updatePosPendingSale({ pendingId, lines, payments, notes = null, customer = null }) {
+  const result = await rpc('update_pos_pending_sale', { p_pending_id: pendingId, p_lines: lines, p_payments: payments, p_notes: notes || null, p_customer: customer || null });
+  broadcastPosPendingSale(result?.branch_id, { type: 'updated', id: pendingId });
+  return result;
 }
 export const releaseExpiredPosSales = branchId => rpc('release_expired_pos_sales', { p_branch_id: branchId });
 export const getPosPendingSale = id => rpc('get_pos_pending_sale', { p_pending_id: id });
@@ -46,14 +51,21 @@ export function listPosPendingSales({
     p_sort_by: sortBy || null
   });
 }
-export const rejectPosPendingSale = (id, reason) => rpc('reject_pos_pending_sale', { p_pending_id: id, p_reason: reason });
-export const confirmPosSale = (id, payments = null, customer = null, notes = null) =>
-  rpc('manager_confirm_sale', {
+export async function rejectPosPendingSale(id, reason) {
+  const result = await rpc('reject_pos_pending_sale', { p_pending_id: id, p_reason: reason });
+  broadcastPosPendingSale(null, { type: 'rejected', id });
+  return result;
+}
+export async function confirmPosSale(id, payments = null, customer = null, notes = null) {
+  const result = await rpc('manager_confirm_sale', {
     p_pending_sale_id: id,
     p_payments: payments,
     p_customer: customer,
     p_notes: notes || null
   });
+  broadcastPosPendingSale(null, { type: 'confirmed', id });
+  return result;
+}
 export function listMyPosSales({ branchId, date = null, query = null, page = 1, pageSize = 100 }) {
   return rpc('list_my_pos_sales_filtered', { p_branch_id: branchId, p_date: date || null, p_query: query || null, p_limit: pageSize, p_offset: (page - 1) * pageSize });
 }
