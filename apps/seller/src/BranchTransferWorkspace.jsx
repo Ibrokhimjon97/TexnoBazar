@@ -726,9 +726,21 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
     }
   };
 
+  // Transferni faqat yaratgan sotuvchi yoki admin/menejer tahrirlay oladi
+  const canModifyTransfer = transfer => {
+    if (!profile) return false;
+    if (['superadmin', 'admin', 'manager'].includes(profile.role)) return true;
+    if (transfer?.seller_id && profile?.id && transfer.seller_id === profile.id) return true;
+    return false;
+  };
+
   // --- EDIT MODAL HANDLERS ---
   const openEditModal = (transfer, e) => {
     e?.stopPropagation?.();
+    if (!canModifyTransfer(transfer)) {
+      toast?.('Xatolik: Ushbu transferni faqat uni yuborgan sotuvchi (' + (transfer.seller_name || 'yuboruvchi') + ') tahrirlashi mumkin!');
+      return;
+    }
     setEditForm({
       id: transfer.id,
       transfer_no: transfer.transfer_no,
@@ -777,6 +789,10 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
   // --- CANCEL TRANSFER HANDLER ---
   const handleCancelTransfer = async (transfer, e) => {
     e?.stopPropagation?.();
+    if (!canModifyTransfer(transfer)) {
+      toast?.('Xatolik: Ushbu transferni faqat uni yuborgan sotuvchi (' + (transfer.seller_name || 'yuboruvchi') + ') bekor qilishi mumkin!');
+      return;
+    }
     const confirmed = window.confirm(
       `Haqiqatan ham #${transfer.transfer_no} raqamli transferni bekor qilmoqchimisiz?\n\n` +
       `DIQQAT: Ushbu transferdagi ${transfer.total_items_count} dona tovar darhol ombor/do‘kon balansiga QAYTARILADI!`
@@ -803,6 +819,10 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
   // --- DELETE TRANSFER HANDLER ---
   const handleDeleteTransfer = async (transfer, e) => {
     e?.stopPropagation?.();
+    if (!canModifyTransfer(transfer)) {
+      toast?.('Xatolik: Ushbu transferni faqat uni yuborgan sotuvchi (' + (transfer.seller_name || 'yuboruvchi') + ') o‘chirishi mumkin!');
+      return;
+    }
     const confirmed = window.confirm(
       `Haqiqatan ham #${transfer.transfer_no} transferini butunlay o‘chirmoqchimisiz?\n\n` +
       `Eslatma: Agar tovarlar hali omborga qaytarilmagan bo‘lsa, ular avtomatik ravishda ombor/do‘konga qaytariladi.`
@@ -828,6 +848,10 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
   // --- EDIT GOODS (RELOAD INTO FORM) HANDLER ---
   const handleReloadToEdit = async (transfer, e) => {
     e?.stopPropagation?.();
+    if (!canModifyTransfer(transfer)) {
+      toast?.('Xatolik: Ushbu transferni faqat uni yuborgan sotuvchi (' + (transfer.seller_name || 'yuboruvchi') + ') tovarlarini tahrirlashi mumkin!');
+      return;
+    }
     const confirmed = window.confirm(
       `#${transfer.transfer_no} transferini tovarlari bilan tahrirlash:\n\n` +
       `Ushbu transfer bekor qilinadi (tovarlar hisobga qaytariladi) va barcha tovarlar yangi transfer oynasiga yuklanadi.\n` +
@@ -1807,51 +1831,59 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
                         <span>Batafsil ko‘rish</span>
                       </button>
 
-                      <button
-                        type="button"
-                        className="bt-hist-act-btn edit"
-                        onClick={e => openEditModal(t, e)}
-                        title="Filial nomi, rahbari yoki izohini tahrirlash"
-                      >
-                        <Edit3 size={15} />
-                        <span>Tahrirlash</span>
-                      </button>
+                      {canModifyTransfer(t) ? (
+                        <>
+                          <button
+                            type="button"
+                            className="bt-hist-act-btn edit"
+                            onClick={e => openEditModal(t, e)}
+                            title="Filial nomi, rahbari yoki izohini tahrirlash"
+                          >
+                            <Edit3 size={15} />
+                            <span>Tahrirlash</span>
+                          </button>
 
-                      {!isCancelled && (
-                        <button
-                          type="button"
-                          className="bt-hist-act-btn reload"
-                          onClick={e => handleReloadToEdit(t, e)}
-                          title="Transfer tovarlarini o‘zgartirish uchun yangi transfer oynasiga yuklash"
-                        >
-                          <RotateCcw size={15} />
-                          <span>Tovarlarni tahrirlash</span>
-                        </button>
+                          {!isCancelled && (
+                            <button
+                              type="button"
+                              className="bt-hist-act-btn reload"
+                              onClick={e => handleReloadToEdit(t, e)}
+                              title="Transfer tovarlarini o‘zgartirish uchun yangi transfer oynasiga yuklash"
+                            >
+                              <RotateCcw size={15} />
+                              <span>Tovarlarni tahrirlash</span>
+                            </button>
+                          )}
+
+                          {!isCancelled && (
+                            <button
+                              type="button"
+                              className="bt-hist-act-btn cancel"
+                              onClick={e => handleCancelTransfer(t, e)}
+                              disabled={actionBusy}
+                              title="Transferni bekor qilish va tovarlarni zudlik bilan omborga qaytarish"
+                            >
+                              <X size={15} />
+                              <span>Bekor qilish</span>
+                            </button>
+                          )}
+
+                          <button
+                            type="button"
+                            className="bt-hist-act-btn delete"
+                            onClick={e => handleDeleteTransfer(t, e)}
+                            disabled={actionBusy}
+                            title="Transferni butunlay o‘chirish"
+                          >
+                            <Trash2 size={15} />
+                            <span>O‘chirish</span>
+                          </button>
+                        </>
+                      ) : (
+                        <span style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 5, padding: '5px 10px', background: 'var(--surface-2, #f1f5f9)', borderRadius: 8 }}>
+                          🔒 Faqat yuborgan sotuvchi ({t.seller_name || 'yuboruvchi'}) tahrirlay oladi
+                        </span>
                       )}
-
-                      {!isCancelled && (
-                        <button
-                          type="button"
-                          className="bt-hist-act-btn cancel"
-                          onClick={e => handleCancelTransfer(t, e)}
-                          disabled={actionBusy}
-                          title="Transferni bekor qilish va tovarlarni zudlik bilan omborga qaytarish"
-                        >
-                          <X size={15} />
-                          <span>Bekor qilish</span>
-                        </button>
-                      )}
-
-                      <button
-                        type="button"
-                        className="bt-hist-act-btn delete"
-                        onClick={e => handleDeleteTransfer(t, e)}
-                        disabled={actionBusy}
-                        title="Transferni butunlay o‘chirish"
-                      >
-                        <Trash2 size={15} />
-                        <span>O‘chirish</span>
-                      </button>
 
                       <button
                         type="button"
@@ -2072,38 +2104,42 @@ export default function BranchTransferWorkspace({ branchId, profile, toast, onBa
               >
                 <Printer size={16} /> Chek chop etish
               </button>
-              <button
-                type="button"
-                className="btn btn-outline"
-                onClick={() => openEditModal(detailData)}
-              >
-                <Edit3 size={16} /> Tahrirlash
-              </button>
-              {detailData.status !== 'cancelled' && (
-                <button
-                  type="button"
-                  className="btn btn-outline text-warning"
-                  onClick={() => handleReloadToEdit(detailData)}
-                >
-                  <RotateCcw size={16} /> Tovarlarni tahrirlash
-                </button>
+              {canModifyTransfer(detailData) && (
+                <>
+                  <button
+                    type="button"
+                    className="btn btn-outline"
+                    onClick={() => openEditModal(detailData)}
+                  >
+                    <Edit3 size={16} /> Tahrirlash
+                  </button>
+                  {detailData.status !== 'cancelled' && (
+                    <button
+                      type="button"
+                      className="btn btn-outline text-warning"
+                      onClick={() => handleReloadToEdit(detailData)}
+                    >
+                      <RotateCcw size={16} /> Tovarlarni tahrirlash
+                    </button>
+                  )}
+                  {detailData.status !== 'cancelled' && (
+                    <button
+                      type="button"
+                      className="btn btn-outline text-danger"
+                      onClick={() => handleCancelTransfer(detailData)}
+                    >
+                      <X size={16} /> Bekor qilish
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn btn-outline text-danger"
+                    onClick={() => handleDeleteTransfer(detailData)}
+                  >
+                    <Trash2 size={16} /> O‘chirish
+                  </button>
+                </>
               )}
-              {detailData.status !== 'cancelled' && (
-                <button
-                  type="button"
-                  className="btn btn-outline text-danger"
-                  onClick={() => handleCancelTransfer(detailData)}
-                >
-                  <X size={16} /> Bekor qilish
-                </button>
-              )}
-              <button
-                type="button"
-                className="btn btn-outline text-danger"
-                onClick={() => handleDeleteTransfer(detailData)}
-              >
-                <Trash2 size={16} /> O‘chirish
-              </button>
               <button
                 type="button"
                 className="btn btn-primary"
