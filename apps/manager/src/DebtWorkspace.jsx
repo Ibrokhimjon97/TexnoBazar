@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CalendarDays, ChevronRight, Landmark, PackagePlus, ReceiptText, Truck, Plus, CheckCircle2, XCircle } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronRight, Landmark, PackagePlus, ReceiptText, Truck, Plus, CheckCircle2, XCircle, Edit3, Trash2 } from 'lucide-react';
 import { DualPrice, Empty, Modal, Status, useExchangeRate } from '@texnobazar/ui';
-import { formatUzDate, getBranchDebt, getBranchDebtSummary, listBranchDebts, listSupplierDebts, recordBranchDebtPayment, registerBranchDebt, registerSupplierDebt, confirmBranchDebt, confirmBranchDebtPayment, rejectBranchDebtPayment, getBrowserClient } from '@texnobazar/data';
+import { formatUzDate, getBranchDebt, getBranchDebtSummary, listBranchDebts, listSupplierDebts, recordBranchDebtPayment, registerBranchDebt, registerSupplierDebt, confirmBranchDebt, confirmBranchDebtPayment, rejectBranchDebtPayment, updateBranchDebt, deleteBranchDebt, getBrowserClient } from '@texnobazar/data';
 const message = e => String(e?.message || 'Amalni bajarib bo‘lmadi.');
 const labels = { open: 'Ochiq', partially_paid: 'Qisman to‘langan', paid: 'To‘langan', void: 'Bekor qilingan' };
 const badge = { open: 'orange', partially_paid: 'blue', paid: 'green', void: 'gray' };
@@ -471,6 +471,7 @@ function BranchDebtSection({ branchId, toast, rate, pendingDebtCount = 0, onDebt
   const [error, setError] = useState('');
   const [detail, setDetail] = useState(null);
   const [registerOpen, setRegisterOpen] = useState(false);
+  const [editDebt, setEditDebt] = useState(null);
   const [branches, setBranches] = useState([]);
 
   // Load available system branches for registration
@@ -521,6 +522,29 @@ function BranchDebtSection({ branchId, toast, rate, pendingDebtCount = 0, onDebt
   const refreshed = async debt => {
     setDetail(debt);
     await load();
+  };
+
+  const handleEdit = debtToEdit => {
+    setEditDebt(debtToEdit);
+  };
+
+  const handleDelete = async debtToDelete => {
+    const debtNo = debtToDelete.transfer_no || debtToDelete.debt_no || 'Ushbu qarz';
+    const confirmed = window.confirm(
+      `Haqiqatan ham "${debtNo}" qarzdorligini o‘chirmoqchimisiz?\n\nBu qarz qarzdor filial hisobidan ham butunlay o‘chiriladi!`
+    );
+    if (!confirmed) return;
+    try {
+      await deleteBranchDebt(debtToDelete.id);
+      toast?.('Filial qarzdorligi muvaffaqiyatli o‘chirildi');
+      if (detail?.id === debtToDelete.id) {
+        setDetail(null);
+      }
+      onDebtConfirmed?.();
+      await load();
+    } catch (e) {
+      toast?.(message(e));
+    }
   };
 
   const displayedSummary = direction === 'all'
@@ -612,7 +636,15 @@ function BranchDebtSection({ branchId, toast, rate, pendingDebtCount = 0, onDebt
       ) : (
         <div className="dw-list">
           {rows.map(row => (
-            <DebtCard key={row.id} debt={row} branchId={branchId} open={() => open(row.id)} rate={rate} />
+            <DebtCard
+              key={row.id}
+              debt={row}
+              branchId={branchId}
+              open={() => open(row.id)}
+              rate={rate}
+              onEdit={handleEdit}
+              onDelete={handleDelete}
+            />
           ))}
         </div>
       )}
@@ -632,7 +664,34 @@ function BranchDebtSection({ branchId, toast, rate, pendingDebtCount = 0, onDebt
         }}
       />
 
-      <DebtDetail debt={detail} close={() => setDetail(null)} toast={toast} refreshed={refreshed} rate={rate} branchId={branchId} onDebtConfirmed={onDebtConfirmed} />
+      {/* Edit Debt Modal */}
+      <EditBranchDebtModal
+        open={Boolean(editDebt)}
+        onClose={() => setEditDebt(null)}
+        debt={editDebt}
+        branches={branches}
+        toast={toast}
+        onSuccess={async updated => {
+          setEditDebt(null);
+          if (detail?.id === updated?.id) {
+            setDetail(updated);
+          }
+          onDebtConfirmed?.();
+          await load();
+        }}
+      />
+
+      <DebtDetail
+        debt={detail}
+        close={() => setDetail(null)}
+        toast={toast}
+        refreshed={refreshed}
+        rate={rate}
+        branchId={branchId}
+        onDebtConfirmed={onDebtConfirmed}
+        onEdit={handleEdit}
+        onDelete={handleDelete}
+      />
     </section>
   );
 }
@@ -824,18 +883,226 @@ function RegisterBranchDebtModal({ open, onClose, branchId, branches, toast, onS
   );
 }
 
-function DebtCard({ debt, branchId, open, rate }) {
+function EditBranchDebtModal({ open, onClose, debt, branches = [], toast, onSuccess }) {
+  const [selectedBranchId, setSelectedBranchId] = useState('');
+  const [customBranchName, setCustomBranchName] = useState('');
+  const [amount, setAmount] = useState('');
+  const [currency, setCurrency] = useState('USD');
+  const [notes, setNotes] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [formError, setFormError] = useState('');
+
+  useEffect(() => {
+    if (open && debt) {
+      setSelectedBranchId(debt.debtor_branch_id || (debt.target_branch_name ? '__custom__' : ''));
+      setCustomBranchName(debt.debtor_branch_name || debt.target_branch_name || '');
+      setAmount(String(debt.amount ?? ''));
+      setCurrency(debt.currency || 'USD');
+      setNotes(debt.notes || '');
+      setFormError('');
+    }
+  }, [open, debt]);
+
+  if (!debt) return null;
+
+  const paidAmount = Number(debt.paid_amount || 0);
+
+  const handleSubmit = async e => {
+    e.preventDefault();
+    const val = parseFloat(amount);
+    if (isNaN(val) || val <= 0) {
+      setFormError('Iltimos, noldan katta qarz summasini kiriting.');
+      return;
+    }
+
+    if (paidAmount > 0 && val < paidAmount) {
+      setFormError(`Yangi qarz summasi allaqachon to‘langan summadan (${paidAmount} ${currency}) kam bo‘lishi mumkin emas.`);
+      return;
+    }
+
+    const finalBranchId = (selectedBranchId && selectedBranchId !== '__custom__') ? selectedBranchId : null;
+    let finalName = customBranchName.trim();
+
+    if (!finalName && finalBranchId) {
+      finalName = branches.find(b => b.id === finalBranchId)?.name || '';
+    }
+
+    if (!finalBranchId && finalName) {
+      const matched = branches.find(b =>
+        b.name?.toLowerCase().trim() === finalName.toLowerCase().trim() ||
+        b.code?.toLowerCase().trim() === finalName.toLowerCase().trim()
+      );
+      if (matched) {
+        finalName = matched.name;
+      }
+    }
+
+    if (!finalName) {
+      setFormError('Iltimos, qarzdor filialni tanlang yoki nomini yozing.');
+      return;
+    }
+
+    setBusy(true);
+    setFormError('');
+    try {
+      const updated = await updateBranchDebt({
+        debtId: debt.id,
+        debtorBranchId: finalBranchId,
+        targetBranchName: finalName,
+        amount: val,
+        currency,
+        notes: notes.trim() || null,
+      });
+
+      toast?.(`"${finalName}" filialiga qarz muvaffaqiyatli tahrirlandi!`);
+      onSuccess?.(updated);
+      onClose();
+    } catch (err) {
+      setFormError(message(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Filial qarzini tahrirlash (${debt.transfer_no || debt.debt_no || ''})`}>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        {formError && (
+          <div className="tw-inline-error">
+            {formError}
+          </div>
+        )}
+
+        <div>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+            Qarzdor filial (Tizimdagi filiallar ro‘yxati) *
+          </label>
+          <select
+            className="select"
+            value={selectedBranchId}
+            onChange={e => {
+              const val = e.target.value;
+              setSelectedBranchId(val);
+              if (val === '__custom__') {
+                setCustomBranchName('');
+              } else if (val) {
+                const b = branches.find(x => x.id === val);
+                if (b) setCustomBranchName(b.name);
+              } else {
+                setCustomBranchName('');
+              }
+            }}
+          >
+            <option value="">-- Mavjud filiallar ro‘yxatidan tanlang --</option>
+            {branches.map(b => (
+              <option key={b.id} value={b.id}>
+                🏛 {b.name} ({b.code})
+              </option>
+            ))}
+            <option value="__custom__">➕ Boshqa / ro‘yxatda yo‘q filial nomini yozish...</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+            Qarzdor filial nomi (qo‘lda yozish ham mumkin) *
+          </label>
+          <input
+            type="text"
+            className="input"
+            placeholder="Masalan: 1-filial, Chilonzor filiali..."
+            value={customBranchName}
+            onChange={e => setCustomBranchName(e.target.value)}
+            required
+          />
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 10 }}>
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+              Qarz miqdori * {paidAmount > 0 && <span style={{ color: 'var(--muted)', fontWeight: 'normal' }}>(To‘langan: {paidAmount})</span>}
+            </label>
+            <input
+              type="number"
+              className="input"
+              step="0.01"
+              min={paidAmount > 0 ? paidAmount : 0.01}
+              placeholder="Masalan: 50000"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              required
+            />
+          </div>
+
+          <div>
+            <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+              Valyuta *
+            </label>
+            <select
+              className="select"
+              value={currency}
+              onChange={e => setCurrency(e.target.value)}
+            >
+              <option value="USD">USD ($)</option>
+              <option value="UZS">UZS (so‘m)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label style={{ display: 'block', fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+            Qo‘shimcha izoh yoki sabab
+          </label>
+          <textarea
+            className="input textarea"
+            rows={3}
+            placeholder="Qarz sababi yoki izoh..."
+            value={notes}
+            onChange={e => setNotes(e.target.value)}
+          />
+        </div>
+
+        <div style={{ background: '#f8fafc', padding: 10, borderRadius: 9, fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
+          💡 <b>Sinxronizatsiya:</b> Ushbu qarzni tahrirlaganingizda o‘zgarishlar qarzdor filial sahifasida ham avtomatik aks etadi.
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 6 }}>
+          <button type="button" className="btn btn-ghost" onClick={onClose} disabled={busy}>
+            Bekor qilish
+          </button>
+          <button type="submit" className="btn btn-primary" disabled={busy}>
+            {busy ? 'Saqlanmoqda…' : 'O‘zgarishlarni saqlash'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function DebtCard({ debt, branchId, open, rate, onEdit, onDelete }) {
   const debtor = debt.debtor_branch_id === branchId;
   const isPendingDebt = debt.is_confirmed === false;
   const pendingPaymentsCount = Number(debt.pending_payments_count || 0);
   const pendingPaymentsTotal = Number(debt.pending_payments_total || 0);
 
   return (
-    <button className="card dw-card" onClick={open}>
+    <div
+      className="card dw-card"
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open();
+        }
+      }}
+      style={{ cursor: 'pointer', textAlign: 'left', width: '100%' }}
+    >
       <span className="dw-card-icon" style={isPendingDebt || pendingPaymentsCount > 0 ? { background: '#fff7ed', color: '#f97316' } : {}}>
         <ReceiptText />
       </span>
-      <div>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div className="between" style={{ alignItems: 'center' }}>
           <b>{debt.transfer_no || debt.debt_no}</b>
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
@@ -867,14 +1134,67 @@ function DebtCard({ debt, branchId, open, rate }) {
           <span>Qoldiq <b><AmountView value={Number(debt.remaining_amount)} currency={debt.currency} rate={rate} /></b></span>
         </div>
 
-        <span className="dw-date"><CalendarDays />{date(debt.created_at)}</span>
+        <div className="between" style={{ alignItems: 'center', marginTop: 8, flexWrap: 'wrap', gap: 6 }}>
+          <span className="dw-date" style={{ margin: 0 }}><CalendarDays />{date(debt.created_at)}</span>
+
+          {!debtor && (
+            <div
+              style={{ display: 'flex', gap: 6, alignItems: 'center' }}
+              onClick={e => e.stopPropagation()}
+            >
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  height: 'auto',
+                  lineHeight: 1.2,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: '#f1f5f9',
+                  borderRadius: 6
+                }}
+                onClick={() => onEdit?.(debt)}
+                title="Tahrirlash"
+              >
+                <Edit3 size={12} />
+                <span>Tahrirlash</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{
+                  padding: '3px 8px',
+                  fontSize: 11,
+                  fontWeight: 600,
+                  height: 'auto',
+                  lineHeight: 1.2,
+                  color: '#dc2626',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  background: '#fef2f2',
+                  borderRadius: 6
+                }}
+                onClick={() => onDelete?.(debt)}
+                title="O‘chirish"
+              >
+                <Trash2 size={12} />
+                <span>O‘chirish</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       <ChevronRight />
-    </button>
+    </div>
   );
 }
 
-function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfirmed }) {
+function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfirmed, onEdit, onDelete }) {
   const [form, setForm] = useState({ amount: '', method: 'Naqd', reference: '', notes: '' });
   const [busy, setBusy] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -976,6 +1296,56 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
   return (
     <Modal open={Boolean(debt)} onClose={close} wide title={debt.transfer_no || debt.debt_no || 'Qarz'}>
       <div className="dw-detail">
+        {/* Actions for creditor branch (Bizga qarz) */}
+        {!debtor && (
+          <div style={{
+            display: 'flex',
+            justifyContent: 'flex-end',
+            gap: 8,
+            alignItems: 'center',
+            background: '#f8fafc',
+            border: '1px solid #e2e8f0',
+            padding: '8px 12px',
+            borderRadius: 10
+          }}>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                background: '#fff',
+                border: '1px solid #cbd5e1'
+              }}
+              onClick={() => onEdit?.(debt)}
+            >
+              <Edit3 size={14} />
+              <span>Qarzni tahrirlash</span>
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{
+                color: '#dc2626',
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                fontSize: 12,
+                fontWeight: 600,
+                background: '#fef2f2',
+                border: '1px solid #fecaca'
+              }}
+              onClick={() => onDelete?.(debt)}
+            >
+              <Trash2 size={14} />
+              <span>Qarzni butunlay o‘chirish</span>
+            </button>
+          </div>
+        )}
+
         {/* If pending initial debt confirmation by this debtor branch */}
         {isPendingDebt && debtor && (
           <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', padding: 14, borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
