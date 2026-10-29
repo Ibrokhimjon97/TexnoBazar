@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { AlertTriangle, CalendarDays, ChevronRight, Landmark, PackagePlus, ReceiptText, Truck, Plus, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ChevronRight, Landmark, PackagePlus, ReceiptText, Truck, Plus, CheckCircle2, XCircle } from 'lucide-react';
 import { DualPrice, Empty, Modal, Status, useExchangeRate } from '@texnobazar/ui';
-import { formatUzDate, getBranchDebt, getBranchDebtSummary, listBranchDebts, listSupplierDebts, recordBranchDebtPayment, registerBranchDebt, registerSupplierDebt, confirmBranchDebt, getBrowserClient } from '@texnobazar/data';
+import { formatUzDate, getBranchDebt, getBranchDebtSummary, listBranchDebts, listSupplierDebts, recordBranchDebtPayment, registerBranchDebt, registerSupplierDebt, confirmBranchDebt, confirmBranchDebtPayment, rejectBranchDebtPayment, getBrowserClient } from '@texnobazar/data';
 const message = e => String(e?.message || 'Amalni bajarib bo‘lmadi.');
 const labels = { open: 'Ochiq', partially_paid: 'Qisman to‘langan', paid: 'To‘langan', void: 'Bekor qilingan' };
 const badge = { open: 'orange', partially_paid: 'blue', paid: 'green', void: 'gray' };
@@ -826,20 +826,27 @@ function RegisterBranchDebtModal({ open, onClose, branchId, branches, toast, onS
 
 function DebtCard({ debt, branchId, open, rate }) {
   const debtor = debt.debtor_branch_id === branchId;
-  const isPending = debt.is_confirmed === false;
+  const isPendingDebt = debt.is_confirmed === false;
+  const pendingPaymentsCount = Number(debt.pending_payments_count || 0);
+  const pendingPaymentsTotal = Number(debt.pending_payments_total || 0);
 
   return (
     <button className="card dw-card" onClick={open}>
-      <span className="dw-card-icon" style={isPending ? { background: '#fff7ed', color: '#f97316' } : {}}>
+      <span className="dw-card-icon" style={isPendingDebt || pendingPaymentsCount > 0 ? { background: '#fff7ed', color: '#f97316' } : {}}>
         <ReceiptText />
       </span>
       <div>
         <div className="between" style={{ alignItems: 'center' }}>
           <b>{debt.transfer_no || debt.debt_no}</b>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {isPending && (
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {isPendingDebt && (
               <Status type="orange">
-                {debtor ? 'Tasdiqlash kutilmoqda' : 'Tasdiqlanishi kutilmoqda'}
+                {debtor ? 'Qarz tasdiqlash kutilmoqda' : 'Qarz tasdiqlanishi kutilmoqda'}
+              </Status>
+            )}
+            {pendingPaymentsCount > 0 && (
+              <Status type="orange">
+                {debtor ? 'To‘lov tasdiqlanishi kutilmoqda' : `${pendingPaymentsCount} to‘lov kutilmoqda`}
               </Status>
             )}
             <Status type={badge[debt.status]}>{labels[debt.status] || debt.status}</Status>
@@ -852,6 +859,11 @@ function DebtCard({ debt, branchId, open, rate }) {
         <div className="dw-amounts">
           <span>Jami <b><AmountView value={Number(debt.amount)} currency={debt.currency} rate={rate} /></b></span>
           <span>To‘langan <b><AmountView value={Number(debt.paid_amount)} currency={debt.currency} rate={rate} /></b></span>
+          {pendingPaymentsTotal > 0 && (
+            <span style={{ color: '#ea580c' }}>
+              Kutilmoqda <b><AmountView value={pendingPaymentsTotal} currency={debt.currency} rate={rate} /></b>
+            </span>
+          )}
           <span>Qoldiq <b><AmountView value={Number(debt.remaining_amount)} currency={debt.currency} rate={rate} /></b></span>
         </div>
 
@@ -866,6 +878,7 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
   const [form, setForm] = useState({ amount: '', method: 'Naqd', reference: '', notes: '' });
   const [busy, setBusy] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmPaymentBusyId, setConfirmPaymentBusyId] = useState(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -878,9 +891,11 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
   const remaining = Number(debt.remaining_amount || 0);
   const transfer = debt.transfer;
   const debtor = debt.debtor_branch_id === branchId;
-  const isPending = debt.is_confirmed === false;
+  const isPendingDebt = debt.is_confirmed === false;
+  const pendingPaymentsCount = Number(debt.pending_payments_count || 0);
+  const pendingPaymentsTotal = Number(debt.pending_payments_total || 0);
 
-  const handleConfirm = async () => {
+  const handleConfirmDebt = async () => {
     setConfirmBusy(true);
     try {
       const updated = await confirmBranchDebt(debt.id);
@@ -891,6 +906,38 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
       setError(message(e));
     } finally {
       setConfirmBusy(false);
+    }
+  };
+
+  const handleConfirmPayment = async (paymentId) => {
+    setConfirmPaymentBusyId(paymentId);
+    setError('');
+    try {
+      const updated = await confirmBranchDebtPayment(paymentId);
+      toast?.('Pul qabul qilinganligi tasdiqlandi va qarz kamaytirildi!');
+      onDebtConfirmed?.();
+      await refreshed(updated);
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setConfirmPaymentBusyId(null);
+    }
+  };
+
+  const handleRejectPayment = async (paymentId) => {
+    const reason = window.prompt('To‘lovni rad etish sababi (ixtiyoriy):', 'Pul yetib kelmadi');
+    if (reason === null) return;
+    setConfirmPaymentBusyId(paymentId);
+    setError('');
+    try {
+      const updated = await rejectBranchDebtPayment(paymentId, reason);
+      toast?.('To‘lov rad etildi');
+      onDebtConfirmed?.();
+      await refreshed(updated);
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setConfirmPaymentBusyId(null);
     }
   };
 
@@ -910,7 +957,11 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
         reference: form.reference,
         notes: form.notes
       });
-      toast?.('Qarz to‘lovi muvaffaqiyatli qayd etildi');
+      if (debtor) {
+        toast?.('To‘lov yuborildi. Haqdor filial menejeri pulni olganini tasdiqlashi kutilmoqda.');
+      } else {
+        toast?.('Qarz to‘lovi muvaffaqiyatli qayd etildi');
+      }
       onDebtConfirmed?.();
       await refreshed(updated);
       setForm({ amount: '', method: 'Naqd', reference: '', notes: '' });
@@ -924,8 +975,8 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
   return (
     <Modal open={Boolean(debt)} onClose={close} wide title={debt.transfer_no || debt.debt_no || 'Qarz'}>
       <div className="dw-detail">
-        {/* If pending confirmation by this debtor branch */}
-        {isPending && debtor && (
+        {/* If pending initial debt confirmation by this debtor branch */}
+        {isPendingDebt && debtor && (
           <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', padding: 14, borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 10 }}>
             <div>
               <b style={{ color: '#c2410c', fontSize: 13 }}>⚡ Yangi filial qarzdorligi so‘rovi</b>
@@ -936,7 +987,7 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
             <button
               type="button"
               className="btn btn-primary"
-              onClick={handleConfirm}
+              onClick={handleConfirmDebt}
               disabled={confirmBusy}
               style={{ fontWeight: 700 }}
             >
@@ -946,12 +997,12 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
           </div>
         )}
 
-        {/* If pending confirmation, and viewer is creditor branch */}
-        {isPending && !debtor && (
+        {/* If pending initial debt confirmation, and viewer is creditor branch */}
+        {isPendingDebt && !debtor && (
           <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', padding: 12, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
             <span style={{ fontSize: 18 }}>⏳</span>
             <div>
-              <b style={{ color: '#c2410c', fontSize: 13 }}>Tasdiqlanishi kutilmoqda</b>
+              <b style={{ color: '#c2410c', fontSize: 13 }}>Qarz tasdiqlanishi kutilmoqda</b>
               <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--muted)' }}>
                 {debt.debtor_branch_name} filiali ushbu qarzdorlikni qabul qilib tasdiqlashi kutilmoqda.
               </p>
@@ -959,13 +1010,44 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
           </div>
         )}
 
+        {/* If debtor made payments and creditor manager needs to confirm receipt */}
+        {pendingPaymentsCount > 0 && !debtor && (
+          <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', padding: 14, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <span style={{ fontSize: 24 }}>⚡</span>
+            <div style={{ flex: 1 }}>
+              <b style={{ color: '#c2410c', fontSize: 14 }}>
+                Qarzdor filial to‘lov kiritgan ({pendingPaymentsCount} ta to‘lov tasdiqlash kutilmoqda)
+              </b>
+              <p style={{ margin: '3px 0 0', fontSize: 12, color: '#7c2d12', lineHeight: 1.4 }}>
+                Qarzdor filial joriy qarz uchun pul to‘laganini yozdi. Haqiqatdan ham naqd yoki bank orqali pulni olgan bo‘lsangiz, quyidagi to‘lovlar ro‘yxatidan <b>"Qabul qildim (Tasdiqlash)"</b> tugmasini bosing. Shunda qarz balansi kamayadi.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* If debtor made payments and is awaiting creditor confirmation */}
+        {pendingPaymentsCount > 0 && debtor && (
+          <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', padding: 12, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 20 }}>ℹ️</span>
+            <div>
+              <b style={{ color: '#1d4ed8', fontSize: 13 }}>To‘lovingiz tasdiqlanishi kutilmoqda</b>
+              <p style={{ margin: '2px 0 0', fontSize: 12, color: '#1e40af' }}>
+                Siz kiritgan to‘lov haqdor filial ({debt.creditor_branch_name}) menejeri pulni qabul qilganini tasdiqlaganidan so‘ng qarz hisobidan yechiladi.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="dw-detail-status">
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <Status type={badge[debt.status]}>{labels[debt.status] || debt.status}</Status>
-            {isPending ? (
-              <Status type="orange">{debtor ? 'Tasdiqlash kutilmoqda' : 'Tasdiqlanishi kutilmoqda'}</Status>
+            {isPendingDebt ? (
+              <Status type="orange">{debtor ? 'Qarz tasdiqlash kutilmoqda' : 'Qarz tasdiqlanishi kutilmoqda'}</Status>
             ) : (
-              <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>✓ Tasdiqlangan</span>
+              <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>✓ Qarz tasdiqlangan</span>
+            )}
+            {pendingPaymentsCount > 0 && (
+              <Status type="orange">{pendingPaymentsCount} ta to‘lov kutilmoqda</Status>
             )}
           </div>
           <small>Qarz yaratildi: {date(debt.created_at)}</small>
@@ -980,6 +1062,12 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
         <div className="dw-detail-total">
           <span><small>Jami qarz miqdori</small><b><AmountView value={Number(debt.amount)} currency={debt.currency} rate={rate} /></b></span>
           <span><small>Qaytarilgan summa</small><b><AmountView value={Number(debt.paid_amount)} currency={debt.currency} rate={rate} /></b></span>
+          {pendingPaymentsTotal > 0 && (
+            <span style={{ color: '#ea580c' }}>
+              <small style={{ color: '#ea580c', fontWeight: 600 }}>Kutilayotgan to‘lovlar</small>
+              <b><AmountView value={pendingPaymentsTotal} currency={debt.currency} rate={rate} /></b>
+            </span>
+          )}
           <span><small>Qoldiq qarz</small><b style={{ color: 'var(--orange)' }}><AmountView value={Number(debt.remaining_amount)} currency={debt.currency} rate={rate} /></b></span>
         </div>
 
@@ -1045,19 +1133,102 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
         )}
 
         {/* Payments History */}
-        <h3>To‘lovlar tarixi</h3>
+        <div className="between" style={{ alignItems: 'center', margin: '14px 0 8px' }}>
+          <h3 style={{ margin: 0, fontSize: 15, fontWeight: 700 }}>To‘lovlar tarixi</h3>
+          {pendingPaymentsCount > 0 && (
+            <span style={{ background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 12 }}>
+              {pendingPaymentsCount} ta to‘lov tasdiqlash kutilmoqda
+            </span>
+          )}
+        </div>
+
         {debt.payments?.length ? (
-          <div className="dw-payments">
-            {debt.payments.map(payment => (
-              <div key={payment.id}>
-                <span>
-                  <b><AmountView value={Number(payment.amount)} currency={payment.currency} rate={rate} /></b>
-                  <small>{payment.method}{payment.reference ? ` · ${payment.reference}` : ''}</small>
-                  {payment.notes && <em>{payment.notes}</em>}
-                </span>
-                <time>{date(payment.paid_at)}</time>
-              </div>
-            ))}
+          <div className="dw-payments" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {debt.payments.map(payment => {
+              const isPaymentPending = payment.status === 'pending' || payment.is_confirmed === false;
+              const isPaymentRejected = payment.status === 'rejected';
+              return (
+                <div key={payment.id} style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'flex-start',
+                  padding: '12px 14px',
+                  background: isPaymentPending ? '#fff7ed' : isPaymentRejected ? '#fef2f2' : '#f8fafc',
+                  border: isPaymentPending ? '1.5px solid #fed7aa' : isPaymentRejected ? '1px solid #fecaca' : '1px solid #e2e8f0',
+                  borderRadius: 10,
+                  gap: 12,
+                  flexWrap: 'wrap'
+                }}>
+                  <div style={{ flex: '1 1 240px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                      <b><AmountView value={Number(payment.amount)} currency={payment.currency} rate={rate} /></b>
+                      {isPaymentPending && (
+                        <span style={{ background: '#ea580c', color: '#fff', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6 }}>
+                          ⏳ Tasdiqlash kutilmoqda
+                        </span>
+                      )}
+                      {isPaymentRejected && (
+                        <span style={{ background: '#dc2626', color: '#fff', fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 6 }}>
+                          ✕ Rad etilgan
+                        </span>
+                      )}
+                      {!isPaymentPending && !isPaymentRejected && (
+                        <span style={{ color: '#16a34a', fontSize: 11, fontWeight: 700 }}>
+                          ✓ Tasdiqlangan
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                      <span>Usul: <b>{payment.method}</b></span>
+                      {payment.reference && <span> · Hujjat: {payment.reference}</span>}
+                      {payment.payer_branch_name && <span> · To‘lovchi: <b>{payment.payer_branch_name}</b></span>}
+                    </div>
+                    {payment.notes && (
+                      <div style={{ fontSize: 11, marginTop: 4, color: isPaymentRejected ? '#b91c1c' : '#475569', background: '#ffffff80', padding: '3px 6px', borderRadius: 4 }}>
+                        {payment.notes}
+                      </div>
+                    )}
+                    <time style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                      {date(payment.paid_at)}
+                      {payment.confirmed_by_name && ` · Tasdiqladi: ${payment.confirmed_by_name}`}
+                    </time>
+                  </div>
+
+                  {/* Actions for Creditor */}
+                  {isPaymentPending && !debtor && (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <button
+                        type="button"
+                        className="btn btn-primary"
+                        style={{ background: '#16a34a', borderColor: '#16a34a', padding: '6px 12px', fontSize: 12, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+                        onClick={() => handleConfirmPayment(payment.id)}
+                        disabled={confirmPaymentBusyId === payment.id}
+                      >
+                        <CheckCircle2 size={15} />
+                        <span>{confirmPaymentBusyId === payment.id ? 'Tasdiqlanmoqda…' : 'Qabul qildim (Tasdiqlash)'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-ghost"
+                        style={{ color: '#dc2626', padding: '6px 10px', fontSize: 12 }}
+                        onClick={() => handleRejectPayment(payment.id)}
+                        disabled={confirmPaymentBusyId === payment.id}
+                      >
+                        <XCircle size={15} />
+                        <span>Rad etish</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Notice for Debtor */}
+                  {isPaymentPending && debtor && (
+                    <div style={{ fontSize: 11, color: '#c2410c', background: '#ffedd5', padding: '5px 10px', borderRadius: 6, fontWeight: 500 }}>
+                      ⏳ Haqdor filial menejeri pulni qabul qilib tasdiqlashi kutilmoqda
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         ) : (
           <p className="dw-no-payments">Hozircha to‘lov kiritilmagan.</p>
@@ -1100,8 +1271,17 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
                 <input className="input" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
               </label>
             </div>
+
+            <div style={{ background: '#f8fafc', padding: '8px 12px', borderRadius: 8, fontSize: 12, color: 'var(--muted)', marginTop: 8, marginBottom: 10 }}>
+              {debtor ? (
+                <>💡 <b>Eslatma:</b> Siz kiritgan to‘lov haqdor filial menejeri tomonidan pul qabul qilingani tasdiqlangandan so‘ng qarz hisobidan yechiladi.</>
+              ) : (
+                <>💡 <b>Eslatma:</b> Siz haqdor filial sifatida kiritgan to‘lov darhol tasdiqlanadi va qarz balansidan yechiladi.</>
+              )}
+            </div>
+
             <button className="btn btn-primary btn-block" disabled={busy}>
-              {busy ? 'Saqlanmoqda…' : 'To‘lovni kiritish'}
+              {busy ? 'Saqlanmoqda…' : debtor ? 'To‘lovni yuborish (Tasdiqlash uchun)' : 'To‘lovni kiritish'}
             </button>
           </form>
         )}
@@ -1109,3 +1289,4 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfi
     </Modal>
   );
 }
+

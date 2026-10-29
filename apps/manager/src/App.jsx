@@ -86,20 +86,39 @@ export default function App(){
     return()=>unsub?.();
   },[branch?.id,loadPending]);
 
-  // Filialdagi tasdiqlanmagan qarzlar so‘rovlari soni: nav badge uchun
+  // Filialdagi tasdiqlanmagan qarzlar va kutilayotgan to‘lovlar soni: nav badge uchun
   const [pendingDebtCount, setPendingDebtCount] = useState(0);
   const loadPendingDebts = useCallback(async () => {
     if (!branch?.id) return;
     try {
-      const { count, error } = await getBrowserClient()
+      const supabase = getBrowserClient();
+      // 1. Qarzdor filial sifatida tasdiqlashimiz kutilayotgan qarzlar
+      const { count: debtCount } = await supabase
         .from('branch_debts')
         .select('id', { count: 'exact', head: true })
         .eq('debtor_branch_id', branch.id)
         .eq('is_confirmed', false)
         .eq('status', 'open');
-      if (!error && typeof count === 'number') {
-        setPendingDebtCount(count);
+
+      // 2. Haqdor filial sifatida pul olganimizni tasdiqlashimiz kutilayotgan to‘lovlar
+      const { data: creditorDebts } = await supabase
+        .from('branch_debts')
+        .select('id')
+        .eq('creditor_branch_id', branch.id);
+
+      let paymentCount = 0;
+      if (creditorDebts?.length) {
+        const debtIds = creditorDebts.map(d => d.id);
+        const { count: payCount } = await supabase
+          .from('debt_payments')
+          .select('id', { count: 'exact', head: true })
+          .in('debt_id', debtIds)
+          .eq('is_confirmed', false)
+          .eq('status', 'pending');
+        paymentCount = payCount || 0;
       }
+
+      setPendingDebtCount((debtCount || 0) + paymentCount);
     } catch {
       /* ignore */
     }
@@ -119,12 +138,18 @@ export default function App(){
 
     const supabase = getBrowserClient();
     const channel = supabase
-      .channel(`branch_debts_count_${branch.id}`)
+      .channel(`branch_debts_and_payments_${branch.id}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
-        table: 'branch_debts',
-        filter: `debtor_branch_id=eq.${branch.id}`
+        table: 'branch_debts'
+      }, () => {
+        loadPendingDebts();
+      })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'debt_payments'
       }, () => {
         loadPendingDebts();
       })

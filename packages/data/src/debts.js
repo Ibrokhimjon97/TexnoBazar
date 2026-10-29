@@ -48,6 +48,8 @@ export const registerBranchDebt = ({
 });
 
 export const confirmBranchDebt = debtId => rpc('confirm_branch_debt', { p_debt_id: debtId });
+export const confirmBranchDebtPayment = paymentId => rpc('confirm_branch_debt_payment', { p_payment_id: paymentId });
+export const rejectBranchDebtPayment = (paymentId, reason = null) => rpc('reject_branch_debt_payment', { p_payment_id: paymentId, p_reason: reason });
 
 export const registerSupplierDebt = ({
   supplierId = null,
