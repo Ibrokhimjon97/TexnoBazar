@@ -1,7 +1,7 @@
 import React,{useCallback,useEffect,useMemo,useRef,useState}from'react';
 import{AlertTriangle,Archive,ArrowLeftRight,Bell,Calendar,CalendarCheck,Check,Sparkles,Boxes,ClipboardCheck,DollarSign,FileX2,Home,Landmark,Menu,PackagePlus,QrCode,RotateCcw,ShoppingBag,Truck,WalletCards,Warehouse,Wrench,X,Trophy,TrendingUp,ScanSearch}from'lucide-react';
-import{AccountMenu,AiChat,Status,ThemeToggle,Toast,formatMoney,useAuth}from'@texnobazar/ui';
-import{formatUzDate,getManagementDashboard,listCourierPerformance,listNotifications,listPosPendingSales,markNotificationsRead,subscribeNotifications,subscribePosPendingSales}from'@texnobazar/data';
+import{AccountMenu,AiChat,Status,ThemeToggle,Toast,formatMoney,useAuth,useExchangeRate}from'@texnobazar/ui';
+import{formatUzDate,getManagementDashboard,listCourierPerformance,listNotifications,listPosPendingSales,markNotificationsRead,subscribeNotifications,subscribePosPendingSales,getBrowserClient}from'@texnobazar/data';
 import{LowStockModal,ProductSalesAnalyticsModal}from'./ManagerDashboardModals';
 import{playCashierAlert,playNotificationAlert}from'./audioAlert.js';
 import{InventoryBatches,InventoryScanner,InventoryStock,ReceiptModal}from'./InventoryWorkspace';
@@ -85,6 +85,59 @@ export default function App(){
     const unsub=subscribePosPendingSales(()=>{loadPending();},null,branch.id);
     return()=>unsub?.();
   },[branch?.id,loadPending]);
+
+  // Filialdagi tasdiqlanmagan qarzlar so‘rovlari soni: nav badge uchun
+  const [pendingDebtCount, setPendingDebtCount] = useState(0);
+  const loadPendingDebts = useCallback(async () => {
+    if (!branch?.id) return;
+    try {
+      const { count, error } = await getBrowserClient()
+        .from('branch_debts')
+        .select('id', { count: 'exact', head: true })
+        .eq('debtor_branch_id', branch.id)
+        .eq('is_confirmed', false)
+        .eq('status', 'open');
+      if (!error && typeof count === 'number') {
+        setPendingDebtCount(count);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [branch?.id]);
+
+  useEffect(() => {
+    if (!branch?.id) return;
+    loadPendingDebts();
+    const tick = () => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        loadPendingDebts();
+      }
+    };
+    const timer = setInterval(tick, 60000);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+
+    const supabase = getBrowserClient();
+    const channel = supabase
+      .channel(`branch_debts_count_${branch.id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'branch_debts',
+        filter: `debtor_branch_id=eq.${branch.id}`
+      }, () => {
+        loadPendingDebts();
+      })
+      .subscribe();
+
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', tick);
+      supabase.removeChannel(channel);
+    };
+  }, [branch?.id, loadPendingDebts]);
+
   const[batchMode,setBatchMode]=useState('batch');
   const[autoOpenReceiptId,setAutoOpenReceiptId]=useState(null);
   const[refreshBatchesTrigger,setRefreshBatchesTrigger]=useState(0);
@@ -93,7 +146,16 @@ export default function App(){
       <aside className={'m-side '+(menu?'open':'')}>
         <div className="m-logo"><i>T</i><span><b>texnobazar</b><small>Menejer paneli</small></span><button onClick={()=>setMenu(false)}><X/></button></div>
         <div className="branch-select"><Landmark/><span><small>Joriy filial</small><b>{branch?.name||'Filial tanlanmagan'}</b></span></div>
-        <nav>{nav.map(([title,Icon,key])=><button className={page===key?'active':''} onClick={()=>go(key)} key={key}><Icon/><span>{title}</span>{key==='cash'&&pendingCount>0&&<em className="nav-badge">{pendingCount>99?'99+':pendingCount}</em>}</button>)}</nav>
+        <nav>
+          {nav.map(([title,Icon,key])=>(
+            <button className={page===key?'active':''} onClick={()=>go(key)} key={key}>
+              <Icon/>
+              <span>{title}</span>
+              {key==='cash'&&pendingCount>0&&<em className="nav-badge">{pendingCount>99?'99+':pendingCount}</em>}
+              {key==='debt'&&pendingDebtCount>0&&<em className="nav-badge">+{pendingDebtCount>99?'99+':pendingDebtCount}</em>}
+            </button>
+          ))}
+        </nav>
         <div className="m-user"><AccountMenu/></div>
       </aside>
       <main>
@@ -102,7 +164,15 @@ export default function App(){
           <div><h1>{nav.find(x=>x[2]===page)?.[0]||'Menejer'}</h1><span>{branch?.name||'Filial tanlanmagan'}</span></div>
           <div className="m-top-spacer"/>
           <ThemeToggle/>
-          <NotificationCenter profileId={profile?.id} onAlert={item=>{setToast(item?.title||'Yangi bildirishnoma');loadPending();}} onOpenItem={onNotificationNavigate}/>
+          <NotificationCenter
+            profileId={profile?.id}
+            onAlert={item=>{
+              setToast(item?.title||'Yangi bildirishnoma');
+              loadPending();
+              loadPendingDebts();
+            }}
+            onOpenItem={onNotificationNavigate}
+          />
           <AccountMenu compact/>
         </header>
         <div className="m-content">
@@ -151,7 +221,7 @@ export default function App(){
           ):page==='exchange'?(
             <ExchangeRateWorkspace {...common}/>
           ):(
-            <DebtWorkspace {...common}/>
+            <DebtWorkspace {...common} pendingDebtCount={pendingDebtCount} onDebtConfirmed={loadPendingDebts}/>
           )}
         </div>
         <BottomNav page={page} go={go} scan={()=>setScan(true)}/>
@@ -253,8 +323,14 @@ function Overview({branchId,go,scan,batch,name}){
   const pl=dashboard.profit_loss||{};
   const orders=dashboard.orders||{};
   const inventory=dashboard.inventory||{};
-  const payables=Number(dashboard.payables||0);
-  const receivables=Number(dashboard.receivables||0);
+  const rate=useExchangeRate();
+  const debtStats=dashboard.debt_stats||{};
+  const payablesUsd=Number(debtStats.payables_usd??(dashboard.payables||0));
+  const payablesUzs=Number(debtStats.payables_uzs||0);
+  const receivablesUsd=Number(debtStats.receivables_usd??(dashboard.receivables||0));
+  const receivablesUzs=Number(debtStats.receivables_uzs||0);
+  const hasPayables=payablesUsd>0||payablesUzs>0;
+  const hasReceivables=receivablesUsd>0||receivablesUzs>0;
   const courier=data?.courier||{};
   const couriers=courier.couriers||[];
   const netProfit=Number(pl.net_profit||0);
@@ -434,12 +510,49 @@ function Overview({branchId,go,scan,batch,name}){
             <small>{Number(inventory.reserved || 0)} rezervda</small>
           </span>
         </div>
-        <div>
-          <AlertTriangle size={24} style={{ color: '#eab308' }}/>
+        <div style={{ cursor: 'pointer' }} onClick={() => go('debt')}>
+          <AlertTriangle size={24} style={{ color: hasPayables ? '#dc2626' : (hasReceivables ? '#16a34a' : '#eab308') }}/>
           <span>
-            Filial qarzdorligi
-            <b>{formatMoney(payables)}</b>
-            <small>Olinadigan: {formatMoney(receivables)}</small>
+            {hasPayables ? 'Filial qarzdorligi' : (hasReceivables ? 'Filial aktivlari (Qarzlar)' : 'Filial qarzdorligi')}
+            {hasPayables ? (
+              <>
+                <b style={{ color: '#dc2626' }}>
+                  ${payablesUsd.toLocaleString('en-US')}
+                  {payablesUzs > 0 ? ` + ${new Intl.NumberFormat('uz-UZ').format(payablesUzs)} so'm` : ''}
+                </b>
+                {rate ? (
+                  <small style={{ color: 'var(--muted)', fontWeight: 600 }}>
+                    ~{new Intl.NumberFormat('uz-UZ').format(Math.round(payablesUsd * rate) + payablesUzs)} so'm
+                  </small>
+                ) : null}
+                {hasReceivables ? (
+                  <small style={{ marginTop: 2, color: '#16a34a', fontWeight: 600 }}>
+                    Olinadigan: ${receivablesUsd.toLocaleString('en-US')}
+                    {rate ? ` (~${new Intl.NumberFormat('uz-UZ').format(Math.round(receivablesUsd * rate) + receivablesUzs)} so'm)` : ''}
+                  </small>
+                ) : null}
+              </>
+            ) : hasReceivables ? (
+              <>
+                <b style={{ color: '#16a34a' }}>
+                  +${receivablesUsd.toLocaleString('en-US')}
+                  {receivablesUzs > 0 ? ` + ${new Intl.NumberFormat('uz-UZ').format(receivablesUzs)} so'm` : ''}
+                </b>
+                {rate ? (
+                  <small style={{ color: 'var(--muted)', fontWeight: 600 }}>
+                    ~{new Intl.NumberFormat('uz-UZ').format(Math.round(receivablesUsd * rate) + receivablesUzs)} so'm
+                  </small>
+                ) : null}
+                <small style={{ marginTop: 2, color: '#16a34a', fontWeight: 600 }}>
+                  Olinadigan qarzimiz
+                </small>
+              </>
+            ) : (
+              <>
+                <b>$0</b>
+                <small>Qarzdorlik yo‘q</small>
+              </>
+            )}
           </span>
         </div>
       </div>

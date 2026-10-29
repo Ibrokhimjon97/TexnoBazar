@@ -7,14 +7,38 @@ const labels = { open: 'Ochiq', partially_paid: 'Qisman to‘langan', paid: 'To�
 const badge = { open: 'orange', partially_paid: 'blue', paid: 'green', void: 'gray' };
 
 const AmountView = ({ value, currency, rate }) => {
-  const uzs = currency === 'UZS' ? Number(value || 0) : (rate ? Number(value || 0) * rate : null);
-  if (uzs == null) return <span>{new Intl.NumberFormat('uz-UZ', { maximumFractionDigits: 2 }).format(Number(value || 0))} {currency}</span>;
-  return <DualPrice value={uzs} rate={rate} />;
+  const num = Number(value || 0);
+  if (currency === 'USD') {
+    const formattedUsd = `$${num.toLocaleString('en-US', { minimumFractionDigits: num % 1 !== 0 ? 2 : 0, maximumFractionDigits: 2 })}`;
+    const uzsEquiv = rate ? Math.round(num * rate) : null;
+    return (
+      <span className="amount-view-usd" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'inherit', lineHeight: 1.25 }}>
+        <b>{formattedUsd}</b>
+        {uzsEquiv !== null && (
+          <small style={{ color: 'var(--muted)', fontSize: 11, fontWeight: 500 }}>
+            ~{new Intl.NumberFormat('uz-UZ').format(uzsEquiv)} so'm
+          </small>
+        )}
+      </span>
+    );
+  }
+  const formattedUzs = `${new Intl.NumberFormat('uz-UZ').format(num)} so'm`;
+  const usdEquiv = (rate && rate > 0) ? (num / rate) : null;
+  return (
+    <span className="amount-view-uzs" style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'inherit', lineHeight: 1.25 }}>
+      <b>{formattedUzs}</b>
+      {usdEquiv !== null && (
+        <small style={{ color: 'var(--muted)', fontSize: 11, fontWeight: 500 }}>
+          ~${usdEquiv.toFixed(2)}
+        </small>
+      )}
+    </span>
+  );
 };
 
 const date = value => value ? new Date(value).toLocaleString('uz-UZ') : '—';
 
-export default function DebtWorkspace({ branchId, toast }) {
+export default function DebtWorkspace({ branchId, toast, pendingDebtCount = 0, onDebtConfirmed }) {
   const rate = useExchangeRate();
   const [section, setSection] = useState('supplier');
   return (
@@ -29,12 +53,33 @@ export default function DebtWorkspace({ branchId, toast }) {
         </button>
         <button className={section === 'branch' ? 'active' : ''} onClick={() => setSection('branch')}>
           <Landmark size={15} /> Filial qarzlari
+          {pendingDebtCount > 0 && (
+            <span style={{
+              marginLeft: 6,
+              background: 'var(--orange, #f97316)',
+              color: '#fff',
+              fontSize: 11,
+              fontWeight: 700,
+              padding: '2px 7px',
+              borderRadius: 10,
+              display: 'inline-flex',
+              alignItems: 'center'
+            }}>
+              +{pendingDebtCount}
+            </span>
+          )}
         </button>
       </div>
       {section === 'supplier' ? (
         <SupplierDebtSection branchId={branchId} toast={toast} rate={rate} />
       ) : (
-        <BranchDebtSection branchId={branchId} toast={toast} rate={rate} />
+        <BranchDebtSection
+          branchId={branchId}
+          toast={toast}
+          rate={rate}
+          pendingDebtCount={pendingDebtCount}
+          onDebtConfirmed={onDebtConfirmed}
+        />
       )}
     </section>
   );
@@ -418,7 +463,7 @@ function RegisterSupplierDebtModal({ open, onClose, branchId, toast, onSuccess, 
   );
 }
 
-function BranchDebtSection({ branchId, toast, rate }) {
+function BranchDebtSection({ branchId, toast, rate, pendingDebtCount = 0, onDebtConfirmed }) {
   const [direction, setDirection] = useState('debtor'); // 'debtor' | 'creditor' | 'all'
   const [rows, setRows] = useState([]);
   const [summary, setSummary] = useState({ debtor: [], creditor: [] });
@@ -505,15 +550,33 @@ function BranchDebtSection({ branchId, toast, rate }) {
           ['debtor', 'Bizning qarzlarimiz'],
           ['creditor', 'Bizga qarzlar'],
           ['all', 'Barchasi']
-        ].map(([key, text]) => (
-          <button
-            key={key}
-            className={direction === key ? 'active' : ''}
-            onClick={() => setDirection(key)}
-          >
-            {text}
-          </button>
-        ))}
+        ].map(([key, text]) => {
+          const showBadge = key === 'debtor' && pendingDebtCount > 0;
+          return (
+            <button
+              key={key}
+              className={direction === key ? 'active' : ''}
+              onClick={() => setDirection(key)}
+            >
+              {text}
+              {showBadge && (
+                <span style={{
+                  marginLeft: 6,
+                  background: 'var(--orange, #f97316)',
+                  color: '#fff',
+                  fontSize: 11,
+                  fontWeight: 700,
+                  padding: '2px 7px',
+                  borderRadius: 10,
+                  display: 'inline-flex',
+                  alignItems: 'center'
+                }}>
+                  +{pendingDebtCount}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <div className="dw-summary">
@@ -569,7 +632,7 @@ function BranchDebtSection({ branchId, toast, rate }) {
         }}
       />
 
-      <DebtDetail debt={detail} close={() => setDetail(null)} toast={toast} refreshed={refreshed} rate={rate} branchId={branchId} />
+      <DebtDetail debt={detail} close={() => setDetail(null)} toast={toast} refreshed={refreshed} rate={rate} branchId={branchId} onDebtConfirmed={onDebtConfirmed} />
     </section>
   );
 }
@@ -774,8 +837,10 @@ function DebtCard({ debt, branchId, open, rate }) {
         <div className="between" style={{ alignItems: 'center' }}>
           <b>{debt.transfer_no || debt.debt_no}</b>
           <div style={{ display: 'flex', gap: 4 }}>
-            {isPending && debtor && (
-              <Status type="orange">Tasdiqlash kutilmoqda</Status>
+            {isPending && (
+              <Status type="orange">
+                {debtor ? 'Tasdiqlash kutilmoqda' : 'Tasdiqlanishi kutilmoqda'}
+              </Status>
             )}
             <Status type={badge[debt.status]}>{labels[debt.status] || debt.status}</Status>
           </div>
@@ -797,7 +862,7 @@ function DebtCard({ debt, branchId, open, rate }) {
   );
 }
 
-function DebtDetail({ debt, close, toast, refreshed, rate, branchId }) {
+function DebtDetail({ debt, close, toast, refreshed, rate, branchId, onDebtConfirmed }) {
   const [form, setForm] = useState({ amount: '', method: 'Naqd', reference: '', notes: '' });
   const [busy, setBusy] = useState(false);
   const [confirmBusy, setConfirmBusy] = useState(false);
@@ -820,6 +885,7 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId }) {
     try {
       const updated = await confirmBranchDebt(debt.id);
       toast?.('Filial qarzdorligi muvaffaqiyatli tasdiqlandi!');
+      onDebtConfirmed?.();
       await refreshed(updated);
     } catch (e) {
       setError(message(e));
@@ -845,6 +911,7 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId }) {
         notes: form.notes
       });
       toast?.('Qarz to‘lovi muvaffaqiyatli qayd etildi');
+      onDebtConfirmed?.();
       await refreshed(updated);
       setForm({ amount: '', method: 'Naqd', reference: '', notes: '' });
     } catch (e) {
@@ -879,10 +946,27 @@ function DebtDetail({ debt, close, toast, refreshed, rate, branchId }) {
           </div>
         )}
 
+        {/* If pending confirmation, and viewer is creditor branch */}
+        {isPending && !debtor && (
+          <div style={{ background: '#fff7ed', border: '1px solid #fed7aa', padding: 12, borderRadius: 12, display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 18 }}>⏳</span>
+            <div>
+              <b style={{ color: '#c2410c', fontSize: 13 }}>Tasdiqlanishi kutilmoqda</b>
+              <p style={{ margin: '2px 0 0', fontSize: 11, color: 'var(--muted)' }}>
+                {debt.debtor_branch_name} filiali ushbu qarzdorlikni qabul qilib tasdiqlashi kutilmoqda.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="dw-detail-status">
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <Status type={badge[debt.status]}>{labels[debt.status] || debt.status}</Status>
-            {debt.is_confirmed && <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>✓ Tasdiqlangan</span>}
+            {isPending ? (
+              <Status type="orange">{debtor ? 'Tasdiqlash kutilmoqda' : 'Tasdiqlanishi kutilmoqda'}</Status>
+            ) : (
+              <span style={{ fontSize: 11, color: '#16a34a', fontWeight: 600 }}>✓ Tasdiqlangan</span>
+            )}
           </div>
           <small>Qarz yaratildi: {date(debt.created_at)}</small>
         </div>
