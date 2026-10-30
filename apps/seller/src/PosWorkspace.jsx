@@ -488,30 +488,48 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
   useEffect(()=>{setUnits([]);const id=setTimeout(()=>setDebounced(query.trim()),300);return()=>clearTimeout(id)},[query]);
   useEffect(()=>{if(!branchId||page!=='scan'||!debounced){setUnits([]);return}let active=true;listPosUnits({branchId,query:debounced,pageSize:30}).then(r=>active&&setUnits(r.items||[])).catch(e=>active&&setError(msg(e)));return()=>{active=false}},[branchId,page,debounced]);
 
-  const add = useCallback((unit, targetTabId) => {
+  const add = useCallback(async (unit, targetTabId) => {
+    let unitToAdd = unit;
+    const allReserved = (tabs || []).flatMap(t => t.cart.map(x => x.id));
+    if (allReserved.includes(unit.id)) {
+      try {
+        const lookupCode = unit.sku || unit.qr_code || unit.serial_number;
+        const alt = await getPosBatchUnits(branchId, lookupCode, 1, allReserved);
+        if (!alt || !alt.length) {
+          toast?.('Bu mahsulotdan filialda boshqa bo‘sh qoldiq qolmagan (barcha qoldiqlar savatlarda band qilingan)');
+          return;
+        }
+        const free = alt[0];
+        unitToAdd = {
+          ...unit,
+          id: free.id,
+          qr_code: free.qr_code || unit.qr_code,
+          serial_number: free.serial_number,
+          location_type: free.location_type || unit.location_type,
+        };
+      } catch (err) {
+        toast?.('Boshqa qoldiqni yuklab bo‘lmadi: ' + (err?.message || 'xatolik'));
+        return;
+      }
+    }
+
     let toastMsg = null;
     let effectiveTargetId = null;
     setTabs(prevTabs => {
       const reqId = targetTabId || activeTabId;
       const targetTab = prevTabs.find(t => t.id === reqId) || prevTabs[0];
       effectiveTargetId = targetTab?.id;
-      if (targetTab.cart.some(x => x.id === unit.id)) {
-        toastMsg = 'Bu mahsulot ushbu mijoz savdosida mavjud';
-        return prevTabs;
-      }
-      const otherTab = prevTabs.find(t => t.id !== targetTab.id && t.cart.some(x => x.id === unit.id));
-      if (otherTab) {
-        const otherName = otherTab.customer?.full_name?.trim() || otherTab.label || 'Boshqa mijoz';
-        toastMsg = `Bu tovar allaqachon "${otherName}" tabida band qilingan!`;
+      if (prevTabs.some(t => t.cart.some(x => x.id === unitToAdd.id))) {
+        toastMsg = 'Bu mahsulot birligi allaqachon savatchada mavjud';
         return prevTabs;
       }
       const tabName = targetTab.customer?.full_name?.trim() || targetTab.label || 'Mijoz';
       toastMsg = `Mahsulot (${tabName}) savdosiga qo‘shildi`;
       const nextLine = {
-        ...unit,
-        unit_price: unit.retail_price != null ? numericText(unit.retail_price) : '',
+        ...unitToAdd,
+        unit_price: unitToAdd.retail_price != null ? numericText(unitToAdd.retail_price) : '',
         discount: '',
-        tax_rate: Number(unit.tax_rate || 0)
+        tax_rate: Number(unitToAdd.tax_rate || 0)
       };
       return prevTabs.map(t => t.id === targetTab.id ? { ...t, cart: [...t.cart, nextLine] } : t);
     });
@@ -519,7 +537,7 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
       setActiveTabId(effectiveTargetId);
     }
     if (toastMsg) toast?.(toastMsg);
-  }, [activeTabId, toast]);
+  }, [branchId, tabs, activeTabId, toast]);
 
   const addMultiple = useCallback((newUnits, targetTabId) => {
     let toastMsg = null;
@@ -938,31 +956,44 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
     if(!context)return;
     const total=Math.max(1,Math.min(50,Number(quantity)||1));
     const allReservedIds=(tabs||[]).flatMap(t=>t.cart.map(x=>x.id));
-    const currentTabIds=(cart||[]).map(x=>x.id);
-
-    // Check if another customer tab holds this physical unit
-    const otherTabHolding=(tabs||[]).find(t=>t.id!==activeTabId&&t.cart.some(x=>x.id===context.id));
-    if(otherTabHolding){
-      const otherName=otherTabHolding.customer?.full_name?.trim()||otherTabHolding.label||'Boshqa mijoz';
-      toast?.(`Bu tovar allaqachon "${otherName}" savatchasida band qilingan!`);
-      return;
-    }
+    const isContextReserved=allReservedIds.includes(context.id);
 
     // Standalone tarkibiy qismni alohida sotish
     if(isStandalone&&standaloneComp){
+      let effectiveUnit = context;
+      if(isContextReserved){
+        try{
+          const alt=await getPosBatchUnits(branchId,context.sku||context.qr_code,1,allReservedIds);
+          if(alt&&alt.length>0){
+            effectiveUnit={
+              ...context,
+              id:alt[0].id,
+              qr_code:alt[0].qr_code||context.qr_code,
+              serial_number:alt[0].serial_number,
+              location_type:alt[0].location_type||context.location_type,
+            };
+          }else{
+            toast?.('Bu mahsulotdan filialda boshqa bo‘sh qoldiq qolmagan (barcha qoldiqlar savatlarda band qilingan)');
+            return;
+          }
+        }catch(e){
+          toast?.('Boshqa qoldiqni yuklab bo‘lmadi: '+(e?.message||'xatolik'));
+          return;
+        }
+      }
       const compRetail=Number(standaloneComp.retail_price_uzs||0);
       const compCost=Number(standaloneComp.cost_price_uzs||0);
       const compRetailUsd=Number(standaloneComp.retail_price_usd||(rate?compRetail/rate:0));
       const compCostUsd=Number(standaloneComp.cost_price_usd||(rate?compCost/rate:0));
       const compLine={
-        id:context.id,
-        qr_code:context.qr_code,
-        serial_number:context.serial_number,
+        id:effectiveUnit.id,
+        qr_code:effectiveUnit.qr_code,
+        serial_number:effectiveUnit.serial_number,
         product_name:`${context.product_name} — ${standaloneComp.name}${standaloneComp.color?` (${standaloneComp.color})`:''}`,
         sku:context.sku,
         brand_name:context.brand_name,
         image:standaloneComp.image_url||context.image,
-        location_type:context.location_type,
+        location_type:effectiveUnit.location_type,
         retail_price:compRetail,
         retail_price_usd:compRetailUsd,
         minimum_sale_price:compRetail,
@@ -974,7 +1005,7 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
         selected_components:[standaloneComp],
         is_standalone_component:true,
       };
-      add(compLine);
+      await add(compLine);
       setContext(null);
       setQuantity(1);
       return;
@@ -1014,8 +1045,8 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
       is_standalone_component:false,
     });
 
-    if(total===1&&!currentTabIds.includes(context.id)){
-      add(buildLine(context));
+    if(total===1&&!isContextReserved){
+      await add(buildLine(context));
       setContext(null);
       setQuantity(1);
       return;
@@ -1026,7 +1057,7 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
     try{
       const batchUnits=await getPosBatchUnits(branchId,context.sku||context.qr_code,total,allReservedIds);
       if(!batchUnits||!batchUnits.length){
-        toast?.('Bu mahsulotdan boshqa qoldiq qolmagan yoki barchasi savdoga qo‘shilgan');
+        toast?.('Bu mahsulotdan filialda boshqa bo‘sh qoldiq qolmagan (barcha qoldiqlar savatlarda band qilingan)');
         return;
       }
       const toAdd=batchUnits.map(unit=>buildLine(unit));
@@ -1037,13 +1068,7 @@ function Scanner({branchId,query,setQuery,units,add,addMultiple,cart,addToReloca
       setContext(null);
       setQuantity(1);
     }catch(err){
-      if(total===1&&!currentTabIds.includes(context.id)){
-        add(buildLine(context));
-        setContext(null);
-        setQuantity(1);
-      }else{
-        setError(msg(err));
-      }
+      setError(msg(err));
     }finally{
       setBusy(false);
     }
