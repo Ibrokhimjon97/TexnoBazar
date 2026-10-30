@@ -1597,7 +1597,6 @@ function Cart({
                 autoComplete="off"
                 placeholder="Sotuv narxini kiriting…"
                 value={line.unit_price ?? ''}
-                onFocus={e => e.target.select()}
                 onChange={e=>editLine(line.id,'unit_price',e.target.value)}
                 onBlur={()=>normalizeLine(line.id,'unit_price')}
                 style={{paddingRight: line.unit_price ? '38px' : '14px'}}
@@ -1633,7 +1632,7 @@ function Cart({
             </div>
           </div>
           <div className="pos-real-line-grid" style={{marginTop:6}}>
-            <label>Chegirma (Aksiya summasi)<input type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={line.discount ?? ''} onFocus={e => e.target.select()} onChange={e=>editLine(line.id,'discount',e.target.value)} onBlur={()=>normalizeLine(line.id,'discount')}/></label>
+            <label>Chegirma (Aksiya summasi)<input type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={line.discount ?? ''} onChange={e=>editLine(line.id,'discount',e.target.value)} onBlur={()=>normalizeLine(line.id,'discount')}/></label>
           </div>
           {hasDiscount ? (
             <div style={{
