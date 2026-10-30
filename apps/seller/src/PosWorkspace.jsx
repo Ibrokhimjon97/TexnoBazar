@@ -63,7 +63,7 @@ const getActiveTabKey = (branchId, profileId) => {
 };
 
 const createInitialTab = (index = 1, initialData = {}) => ({
-  id: initialData.id || `tab_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+  id: initialData.id || (index === 1 ? 'tab_1' : `tab_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`),
   label: initialData.label || `${index}-mijoz`,
   cart: Array.isArray(initialData.cart) ? initialData.cart : [],
   customer: initialData.customer || { full_name: '', phone: '', address: '' },
@@ -110,7 +110,7 @@ const readStoredEditingSale = (branchId, profileId) => {
 };
 
 const readStoredTabs = (branchId, profileId) => {
-  if (!branchId) return [createInitialTab(1)];
+  if (!branchId) return [createInitialTab(1, { id: 'tab_1' })];
   const tabsKey = getTabsKey(branchId, profileId);
   try {
     const raw = tabsKey ? localStorage.getItem(tabsKey) : null;
@@ -143,6 +143,7 @@ const readStoredTabs = (branchId, profileId) => {
   } catch {}
 
   return [createInitialTab(1, {
+    id: 'tab_1',
     cart: legacyCart,
     editingPendingSale: legacyEditing,
     notes: legacyMeta?.notes || legacyEditing?.notes || '',
@@ -164,7 +165,7 @@ const readStoredActiveTabId = (branchId, profileId, initialTabs = []) => {
       return saved;
     }
   } catch {}
-  return initialTabs[0]?.id || null;
+  return initialTabs[0]?.id || 'tab_1';
 };
 
 export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,clearFocus}){
@@ -182,8 +183,15 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
     return readStoredActiveTabId(branchId, profile?.id, initialTabs);
   });
 
+  // Guarantee activeTabId is always pointing to a valid existing tab in `tabs`
+  useEffect(() => {
+    if (tabs.length > 0 && (!activeTabId || !tabs.some(t => t.id === activeTabId))) {
+      setActiveTabId(tabs[0].id);
+    }
+  }, [tabs, activeTabId]);
+
   const activeTab = useMemo(() => {
-    return tabs.find(t => t.id === activeTabId) || tabs[0] || createInitialTab(1);
+    return tabs.find(t => t.id === activeTabId) || tabs[0] || createInitialTab(1, { id: 'tab_1' });
   }, [tabs, activeTabId]);
 
   const cart = activeTab.cart || [];
@@ -313,51 +321,81 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
     };
   }, [tabsKey, pageKey, branchId, profile?.id, page]);
 
-  const setCart = useCallback((updater) => {
-    setTabs(prev => prev.map(t => {
-      if (t.id !== activeTabId) return t;
-      const nextCart = typeof updater === 'function' ? updater(t.cart || []) : updater;
-      return { ...t, cart: nextCart };
-    }));
+  const setCart = useCallback((updater, targetTabId) => {
+    setTabs(prev => {
+      const reqId = targetTabId || activeTabId;
+      const targetExists = prev.some(t => t.id === reqId);
+      const effectiveId = targetExists ? reqId : (prev[0]?.id);
+      return prev.map(t => {
+        if (t.id !== effectiveId) return t;
+        const nextCart = typeof updater === 'function' ? updater(t.cart || []) : updater;
+        return { ...t, cart: nextCart };
+      });
+    });
   }, [activeTabId]);
 
-  const setCustomer = useCallback((updater) => {
-    setTabs(prev => prev.map(t => {
-      if (t.id !== activeTabId) return t;
-      const nextCust = typeof updater === 'function' ? updater(t.customer || { full_name: '', phone: '', address: '' }) : updater;
-      return { ...t, customer: nextCust };
-    }));
+  const setCustomer = useCallback((updater, targetTabId) => {
+    setTabs(prev => {
+      const reqId = targetTabId || activeTabId;
+      const targetExists = prev.some(t => t.id === reqId);
+      const effectiveId = targetExists ? reqId : (prev[0]?.id);
+      return prev.map(t => {
+        if (t.id !== effectiveId) return t;
+        const nextCust = typeof updater === 'function' ? updater(t.customer || { full_name: '', phone: '', address: '' }) : updater;
+        return { ...t, customer: nextCust };
+      });
+    });
   }, [activeTabId]);
 
-  const setNotes = useCallback((updater) => {
-    setTabs(prev => prev.map(t => {
-      if (t.id !== activeTabId) return t;
-      const nextNotes = typeof updater === 'function' ? updater(t.notes || '') : updater;
-      return { ...t, notes: nextNotes };
-    }));
+  const setNotes = useCallback((updater, targetTabId) => {
+    setTabs(prev => {
+      const reqId = targetTabId || activeTabId;
+      const targetExists = prev.some(t => t.id === reqId);
+      const effectiveId = targetExists ? reqId : (prev[0]?.id);
+      return prev.map(t => {
+        if (t.id !== effectiveId) return t;
+        const nextNotes = typeof updater === 'function' ? updater(t.notes || '') : updater;
+        return { ...t, notes: nextNotes };
+      });
+    });
   }, [activeTabId]);
 
-  const setPaymentType = useCallback((updater) => {
-    setTabs(prev => prev.map(t => {
-      if (t.id !== activeTabId) return t;
-      const nextPay = typeof updater === 'function' ? updater(t.paymentType || 'cash') : updater;
-      return { ...t, paymentType: nextPay };
-    }));
+  const setPaymentType = useCallback((updater, targetTabId) => {
+    setTabs(prev => {
+      const reqId = targetTabId || activeTabId;
+      const targetExists = prev.some(t => t.id === reqId);
+      const effectiveId = targetExists ? reqId : (prev[0]?.id);
+      return prev.map(t => {
+        if (t.id !== effectiveId) return t;
+        const nextPay = typeof updater === 'function' ? updater(t.paymentType || 'cash') : updater;
+        return { ...t, paymentType: nextPay };
+      });
+    });
   }, [activeTabId]);
 
-  const setShowCustomer = useCallback((updater) => {
-    setTabs(prev => prev.map(t => {
-      if (t.id !== activeTabId) return t;
-      const nextShow = typeof updater === 'function' ? updater(Boolean(t.showCustomer)) : updater;
-      return { ...t, showCustomer: Boolean(nextShow) };
-    }));
+  const setShowCustomer = useCallback((updater, targetTabId) => {
+    setTabs(prev => {
+      const reqId = targetTabId || activeTabId;
+      const targetExists = prev.some(t => t.id === reqId);
+      const effectiveId = targetExists ? reqId : (prev[0]?.id);
+      return prev.map(t => {
+        if (t.id !== effectiveId) return t;
+        const nextShow = typeof updater === 'function' ? updater(Boolean(t.showCustomer)) : updater;
+        return { ...t, showCustomer: Boolean(nextShow) };
+      });
+    });
   }, [activeTabId]);
 
-  const setEditingPendingSale = useCallback((val) => {
-    setTabs(prev => prev.map(t => {
-      if (t.id !== activeTabId) return t;
-      return { ...t, editingPendingSale: typeof val === 'function' ? val(t.editingPendingSale) : val };
-    }));
+  const setEditingPendingSale = useCallback((val, targetTabId) => {
+    setTabs(prev => {
+      const reqId = targetTabId || activeTabId;
+      const targetExists = prev.some(t => t.id === reqId);
+      const effectiveId = targetExists ? reqId : (prev[0]?.id);
+      return prev.map(t => {
+        if (t.id !== effectiveId) return t;
+        return { ...t, editingPendingSale: typeof val === 'function' ? val(t.editingPendingSale) : val };
+      });
+    });
   }, [activeTabId]);
 
   const addNewTab = useCallback(() => {
@@ -450,10 +488,13 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
   useEffect(()=>{setUnits([]);const id=setTimeout(()=>setDebounced(query.trim()),300);return()=>clearTimeout(id)},[query]);
   useEffect(()=>{if(!branchId||page!=='scan'||!debounced){setUnits([]);return}let active=true;listPosUnits({branchId,query:debounced,pageSize:30}).then(r=>active&&setUnits(r.items||[])).catch(e=>active&&setError(msg(e)));return()=>{active=false}},[branchId,page,debounced]);
 
-  const add = useCallback(unit => {
+  const add = useCallback((unit, targetTabId) => {
     let toastMsg = null;
+    let effectiveTargetId = null;
     setTabs(prevTabs => {
-      const targetTab = prevTabs.find(t => t.id === activeTabId) || prevTabs[0];
+      const reqId = targetTabId || activeTabId;
+      const targetTab = prevTabs.find(t => t.id === reqId) || prevTabs[0];
+      effectiveTargetId = targetTab?.id;
       if (targetTab.cart.some(x => x.id === unit.id)) {
         toastMsg = 'Bu mahsulot ushbu mijoz savdosida mavjud';
         return prevTabs;
@@ -468,19 +509,25 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
       toastMsg = `Mahsulot (${tabName}) savdosiga qo‘shildi`;
       const nextLine = {
         ...unit,
-        unit_price: numericText(unit.retail_price),
+        unit_price: unit.retail_price != null ? numericText(unit.retail_price) : '',
         discount: '',
         tax_rate: Number(unit.tax_rate || 0)
       };
       return prevTabs.map(t => t.id === targetTab.id ? { ...t, cart: [...t.cart, nextLine] } : t);
     });
+    if (effectiveTargetId && effectiveTargetId !== activeTabId) {
+      setActiveTabId(effectiveTargetId);
+    }
     if (toastMsg) toast?.(toastMsg);
   }, [activeTabId, toast]);
 
-  const addMultiple = useCallback(newUnits => {
+  const addMultiple = useCallback((newUnits, targetTabId) => {
     let toastMsg = null;
+    let effectiveTargetId = null;
     setTabs(prevTabs => {
-      const targetTab = prevTabs.find(t => t.id === activeTabId) || prevTabs[0];
+      const reqId = targetTabId || activeTabId;
+      const targetTab = prevTabs.find(t => t.id === reqId) || prevTabs[0];
+      effectiveTargetId = targetTab?.id;
       const existingIds = new Set(targetTab.cart.map(x => x.id));
       const otherReservedIds = new Set(prevTabs.filter(t => t.id !== targetTab.id).flatMap(t => t.cart.map(x => x.id)));
 
@@ -493,12 +540,15 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
       toastMsg = `${toAdd.length} ta mahsulot (${tabName}) savdosiga qo‘shildi`;
       const newLines = toAdd.map(unit => ({
         ...unit,
-        unit_price: numericText(unit.retail_price),
+        unit_price: unit.retail_price != null ? numericText(unit.retail_price) : '',
         discount: '',
         tax_rate: Number(unit.tax_rate || 0)
       }));
       return prevTabs.map(t => t.id === targetTab.id ? { ...t, cart: [...t.cart, ...newLines] } : t);
     });
+    if (effectiveTargetId && effectiveTargetId !== activeTabId) {
+      setActiveTabId(effectiveTargetId);
+    }
     if (toastMsg) toast?.(toastMsg);
   }, [activeTabId, toast]);
 
@@ -548,6 +598,7 @@ export default function PosWorkspace({branchId,profile,toast,focusPendingSaleId,
     setTabs(prev => {
       const active = prev.find(t => t.id === activeTabId) || prev[0];
       if (active && (!active.cart || active.cart.length === 0) && !active.editingPendingSale) {
+        if (active.id !== activeTabId) setActiveTabId(active.id);
         return prev.map(t => t.id === active.id ? {
           ...t,
           label: `So‘rov #${sale.pending_no}`,
@@ -1304,14 +1355,19 @@ function Cart({
 
   const editLine=(id,key,value)=>setCart(rows=>{
     return rows.map(row=>row.id===id?{...row,[key]:numericText(value)}:row);
-  });
+  }, activeTab?.id);
   // Limits are enforced when the field loses focus so typing is never blocked.
   const normalizeLine=(id,key)=>setCart(rows=>{
     return rows.map(row=>{
       if(row.id!==id)return row;
       const percent=Math.max(1, Number(refs?.discount_policy?.seller_max_line_discount_percent||100)/100);
       if(key==='unit_price'){
-        const price=Math.min(Number(row.retail_price||0)*5,Math.max(0,Number(row.unit_price||0)));
+        // Agar sotuvchi narxni o'chirgan bo'lsa (bo'sh qator), uni 0 ga majburlab to'ldirib qo'ymaslik kerak
+        if(row.unit_price===''||row.unit_price==null) return row;
+        const currentPrice=Math.max(0,Number(row.unit_price||0));
+        const baseRetail=Number(row.retail_price||0);
+        const maxPrice=baseRetail>0?baseRetail*10:1000000000;
+        const price=Math.min(maxPrice,currentPrice);
         const maxDiscount=Math.max(0,Math.min(price*percent,price));
         return{...row,unit_price:numericText(price),discount:row.discount===''?'':numericText(Math.min(Number(row.discount||0),maxDiscount))};
       }
@@ -1319,7 +1375,7 @@ function Cart({
       const maxDiscount=Math.max(0,Math.min(Number(row.unit_price||0)*percent,Number(row.unit_price||0)));
       return{...row,discount:numericText(Math.min(maxDiscount,Math.max(0,Number(row.discount||0))))};
     });
-  });
+  }, activeTab?.id);
 
   const belowMinimumLines = cart.filter(line => !Number(line.discount || 0) && lineTotal(line) - lineTax(line) < Number(line.minimum_sale_price || 0));
   const hasMissingPrice = cart.some(line => !line.unit_price || Number(line.unit_price) <= 0);
@@ -1340,7 +1396,7 @@ function Cart({
         qr_code: newUnit.qr_code,
         serial_number: newUnit.serial_number,
         location_type: newUnit.location_type
-      } : r));
+      } : r), activeTab?.id);
       toast?.(newUnit.location_type === 'warehouse' ? 'Tovar ombor qoldig‘iga o‘tkazildi' : 'Tovar do‘kon qoldig‘iga o‘tkazildi');
     } catch (e) {
       toast?.(msg(e));
@@ -1526,26 +1582,58 @@ function Cart({
                 </span>)}
               </div>}
             </div>
-            <button type="button" onClick={()=>setCart(x=>x.filter(y=>y.id!==line.id))} aria-label="Mahsulotni savatdan o‘chirish"><Trash2/></button>
+            <button type="button" onClick={()=>setCart(x=>x.filter(y=>y.id!==line.id), activeTab?.id)} aria-label="Mahsulotni savatdan o‘chirish"><Trash2/></button>
           </div>
           <div className="pos-sale-price-field">
             <div className="pos-sale-price-head">
               <span>Sotish narxi (so‘m) *</span>
               {isPriceMissing&&<span className="pos-price-pulse-badge">Narx kiritilmagan!</span>}
             </div>
-            <input
-              className={`pos-sale-price-input ${isPriceMissing?'pulse-attention':''}`}
-              type="text"
-              inputMode="decimal"
-              autoComplete="off"
-              placeholder="Sotuv narxini kiriting…"
-              value={line.unit_price}
-              onChange={e=>editLine(line.id,'unit_price',e.target.value)}
-              onBlur={()=>normalizeLine(line.id,'unit_price')}
-            />
+            <div style={{position:'relative',display:'flex',alignItems:'center'}}>
+              <input
+                className={`pos-sale-price-input ${isPriceMissing?'pulse-attention':''}`}
+                type="text"
+                inputMode="decimal"
+                autoComplete="off"
+                placeholder="Sotuv narxini kiriting…"
+                value={line.unit_price ?? ''}
+                onFocus={e => e.target.select()}
+                onChange={e=>editLine(line.id,'unit_price',e.target.value)}
+                onBlur={()=>normalizeLine(line.id,'unit_price')}
+                style={{paddingRight: line.unit_price ? '38px' : '14px'}}
+              />
+              {line.unit_price ? (
+                <button
+                  type="button"
+                  tabIndex={-1}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    editLine(line.id, 'unit_price', '');
+                  }}
+                  title="Narxni o‘chirish"
+                  style={{
+                    position: 'absolute',
+                    right: '8px',
+                    width: '26px',
+                    height: '26px',
+                    display: 'grid',
+                    placeItems: 'center',
+                    background: '#f1f5f9',
+                    border: '1px solid #cbd5e1',
+                    borderRadius: '50%',
+                    color: '#64748b',
+                    cursor: 'pointer',
+                    padding: 0
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              ) : null}
+            </div>
           </div>
           <div className="pos-real-line-grid" style={{marginTop:6}}>
-            <label>Chegirma (Aksiya summasi)<input type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={line.discount} onChange={e=>editLine(line.id,'discount',e.target.value)} onBlur={()=>normalizeLine(line.id,'discount')}/></label>
+            <label>Chegirma (Aksiya summasi)<input type="text" inputMode="decimal" autoComplete="off" placeholder="0" value={line.discount ?? ''} onFocus={e => e.target.select()} onChange={e=>editLine(line.id,'discount',e.target.value)} onBlur={()=>normalizeLine(line.id,'discount')}/></label>
           </div>
           {hasDiscount ? (
             <div style={{
