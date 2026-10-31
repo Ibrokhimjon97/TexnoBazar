@@ -73,7 +73,68 @@ export default function StockCorrectionModal({
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
-  const [filterMode, setFilterMode] = useState('all'); // 'all' | 'modified' | 'store' | 'warehouse' | 'zero'
+  const [filterMode, setFilterMode] = useState('all'); // 'all' | 'uninspected' | 'inspected' | 'modified' | 'store' | 'warehouse' | 'zero'
+
+  // Persistent inspected/checked products tracking: { [productId]: { checkedAt: number, mode: 'saved' | 'manual' } }
+  const storageKey = useMemo(() => {
+    return `texnobazar:stock_correction_checked_${branchId || 'default'}`;
+  }, [branchId]);
+
+  const [inspectedMap, setInspectedMap] = useState(() => {
+    if (typeof window === 'undefined') return {};
+    try {
+      const saved = localStorage.getItem(`texnobazar:stock_correction_checked_${branchId || 'default'}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch (_) {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const saved = localStorage.getItem(storageKey);
+      setInspectedMap(saved ? JSON.parse(saved) : {});
+    } catch (_) {}
+  }, [storageKey]);
+
+  const persistInspectedMap = useCallback((nextMap) => {
+    setInspectedMap(nextMap);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(nextMap));
+    } catch (e) {
+      console.error('Failed to save inspectedMap:', e);
+    }
+  }, [storageKey]);
+
+  const toggleInspected = useCallback((productId, forceValue) => {
+    setInspectedMap(prev => {
+      const next = { ...prev };
+      const isChecked = !!next[productId];
+      const target = forceValue !== undefined ? forceValue : !isChecked;
+      if (target) {
+        next[productId] = {
+          checkedAt: Date.now(),
+          mode: 'manual'
+        };
+      } else {
+        delete next[productId];
+      }
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(next));
+      } catch (_) {}
+      return next;
+    });
+  }, [storageKey]);
+
+  const clearAllInspected = useCallback(() => {
+    const count = Object.keys(inspectedMap).length;
+    if (!count) return;
+    if (window.confirm(`Barcha ${count} ta tovarning tekshirilganlik belgisini tozalab, yangi tekshiruv boshlansinmi?`)) {
+      persistInspectedMap({});
+      toast?.('Barcha tekshiruv belgilari tozalandi');
+    }
+  }, [inspectedMap, persistInspectedMap, toast]);
 
   // Responsive mobile detection & view mode ('cards' vs 'table')
   const checkIsMobile = () => {
@@ -448,6 +509,21 @@ export default function StockCorrectionModal({
       // 4. Trigger system-wide batch price sync helper
       await syncAllBatchPricesToLatest().catch(() => {});
 
+      // 5. Saqlangan tovarlarni avtomatik tekshirilgan (sverka qilingan) deb belgilash
+      setInspectedMap(prev => {
+        const next = { ...prev };
+        itemsToSave.forEach(p => {
+          next[p.product_id] = {
+            checkedAt: Date.now(),
+            mode: 'saved'
+          };
+        });
+        try {
+          localStorage.setItem(storageKey, JSON.stringify(next));
+        } catch (_) {}
+        return next;
+      });
+
       toast?.(`${itemsToSave.length} ta tovar ma’lumotlari muvaffaqiyatli saqlandi!`);
       onUpdated?.();
       await loadData();
@@ -502,6 +578,7 @@ export default function StockCorrectionModal({
         { header: 'Tannarxi (USD)', key: 'cost_price_usd', width: 18 },
         { header: 'Tafovut (UZS)', key: 'diff_price_uzs', width: 20 },
         { header: 'Tafovut (USD)', key: 'diff_price_usd', width: 18 },
+        { header: 'Tekshiruv', key: 'audit_status', width: 18 },
         { header: 'Holati', key: 'status', width: 16 }
       ];
 
@@ -550,6 +627,10 @@ export default function StockCorrectionModal({
         totalValueUzsSum += totQty * retUzs;
         totalCostUzsSum += totQty * cstUzs;
 
+        const isInspected = !!inspectedMap[item.product_id];
+        const isMod = isRowModified(item);
+        const auditStatus = isMod ? 'O‘zgartirildi' : isInspected ? 'Tekshirildi' : 'Tekshirilmagan';
+
         const addedRow = ws.addRow({
           idx: rowIdx - 1,
           category_name: item.category_name || 'Kategoriyasiz',
@@ -563,6 +644,7 @@ export default function StockCorrectionModal({
           cost_price_usd: cstUsd,
           diff_price_uzs: { formula: `G${rowIdx}-I${rowIdx}`, result: dfUzs },
           diff_price_usd: { formula: `H${rowIdx}-J${rowIdx}`, result: dfUsd },
+          audit_status: auditStatus,
           status: totQty > 0 ? 'Mavjud' : 'Tugagan (0)'
         });
 
@@ -710,6 +792,10 @@ export default function StockCorrectionModal({
 
     if (filterMode === 'modified') {
       list = list.filter(isRowModified);
+    } else if (filterMode === 'uninspected') {
+      list = list.filter(p => !inspectedMap[p.product_id]);
+    } else if (filterMode === 'inspected') {
+      list = list.filter(p => !!inspectedMap[p.product_id]);
     } else if (filterMode === 'store') {
       list = list.filter(p => Number(p.store_qty) > 0);
     } else if (filterMode === 'warehouse') {
@@ -740,7 +826,7 @@ export default function StockCorrectionModal({
       suggestedProducts: res.suggestedProducts,
       suggestedQuery: res.suggestedQuery
     };
-  }, [products, searchQuery, selectedCategory, filterMode, isRowModified]);
+  }, [products, searchQuery, selectedCategory, filterMode, isRowModified, inspectedMap]);
 
   const filteredProducts = searchResult.products;
   const hasFuzzyOnly = searchResult.hasFuzzyOnly;
@@ -752,6 +838,7 @@ export default function StockCorrectionModal({
     let totWarehouse = 0;
     let totValueUzs = 0;
     let totCostUzs = 0;
+    let inspectedCount = 0;
 
     products.forEach(p => {
       const sq = Number(p.store_qty) || 0;
@@ -761,14 +848,20 @@ export default function StockCorrectionModal({
       totWarehouse += wq;
       totValueUzs += tq * (Number(p.retail_price) || 0);
       totCostUzs += tq * (Number(p.cost_price) || 0);
+      if (inspectedMap[p.product_id]) {
+        inspectedCount++;
+      }
     });
 
     const totDiffUzs = totValueUzs - totCostUzs;
     const totDiffUsd = rate > 0 ? Number((totDiffUzs / rate).toFixed(2)) : 0;
+    const uninspectedCount = products.length - inspectedCount;
 
     return {
       totalProducts: products.length,
       modifiedCount: modifiedList.length,
+      inspectedCount,
+      uninspectedCount,
       totStore,
       totWarehouse,
       totQty: totStore + totWarehouse,
@@ -777,7 +870,7 @@ export default function StockCorrectionModal({
       totDiffUzs,
       totDiffUsd
     };
-  }, [products, modifiedList, rate]);
+  }, [products, modifiedList, rate, inspectedMap]);
 
   if (!open) return null;
 
@@ -891,7 +984,7 @@ export default function StockCorrectionModal({
 
           {/* Row 2: Badges and Header Actions */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, flexWrap: 'wrap', width: '100%' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
               <span
                 style={{
                   background: 'rgba(255,255,255,0.15)',
@@ -903,6 +996,23 @@ export default function StockCorrectionModal({
                 }}
               >
                 1 USD = {rate.toLocaleString('uz-UZ')} UZS
+              </span>
+              <span
+                style={{
+                  background: stats.inspectedCount > 0 ? '#dcfce7' : 'rgba(255,255,255,0.12)',
+                  color: stats.inspectedCount > 0 ? '#15803d' : '#94a3b8',
+                  padding: '2px 8px',
+                  borderRadius: 6,
+                  fontSize: 11,
+                  fontWeight: 700,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 4
+                }}
+                title="Ko‘zdan kechirilgan / tekshirilgan tovarlar soni"
+              >
+                <CheckCircle2 size={12} />
+                {stats.inspectedCount} / {products.length} tekshirildi
               </span>
               {modifiedList.length > 0 && (
                 <span
@@ -921,6 +1031,30 @@ export default function StockCorrectionModal({
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              {stats.inspectedCount > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-outline"
+                  style={{
+                    background: 'rgba(239,68,68,0.15)',
+                    borderColor: 'rgba(239,68,68,0.3)',
+                    color: '#fca5a5',
+                    fontSize: 11,
+                    height: 30,
+                    padding: '0 8px',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderRadius: 6,
+                    cursor: 'pointer'
+                  }}
+                  onClick={clearAllInspected}
+                  title="Barcha tekshirilganlik belgilarini tozalash (yangi sverka boshlash uchun)"
+                >
+                  <RotateCcw size={12} />
+                  {isMobile ? 'Tozalash' : 'Belgilarni tozalash'}
+                </button>
+              )}
               <button
                 type="button"
                 className="btn btn-outline"
@@ -1194,6 +1328,8 @@ export default function StockCorrectionModal({
             >
               {[
                 { id: 'all', label: `Barchasi (${products.length})` },
+                { id: 'uninspected', label: `Tekshirilmagan (${stats.uninspectedCount})`, badgeColor: stats.uninspectedCount > 0 ? '#b91c1c' : undefined },
+                { id: 'inspected', label: `Tekshirilgan (${stats.inspectedCount})`, badgeColor: stats.inspectedCount > 0 ? '#15803d' : undefined },
                 { id: 'modified', label: `O‘zgarganlar (${stats.modifiedCount})` },
                 { id: 'store', label: 'Faqat do‘konda' },
                 { id: 'warehouse', label: 'Faqat omborda' },
@@ -1206,8 +1342,8 @@ export default function StockCorrectionModal({
                   style={{
                     border: 'none',
                     background: filterMode === tab.id ? '#fff' : 'transparent',
-                    color: filterMode === tab.id ? '#0f172a' : '#64748b',
-                    fontWeight: filterMode === tab.id ? 700 : 500,
+                    color: filterMode === tab.id ? '#0f172a' : (tab.badgeColor || '#64748b'),
+                    fontWeight: filterMode === tab.id ? 800 : 600,
                     padding: '4px 10px',
                     borderRadius: 5,
                     fontSize: 11.5,
@@ -1380,6 +1516,7 @@ export default function StockCorrectionModal({
             >
               {filteredProducts.map((p, idx) => {
                 const modified = isRowModified(p);
+                const isInspected = !!inspectedMap[p.product_id];
                 const storeQty = Number(p.store_qty) || 0;
                 const warehouseQty = Number(p.warehouse_qty) || 0;
                 const totalQty = storeQty + warehouseQty;
@@ -1393,11 +1530,11 @@ export default function StockCorrectionModal({
                   <div
                     key={p.product_id}
                     style={{
-                      background: modified ? '#fffdf5' : '#ffffff',
-                      border: modified ? '1.5px solid #f59e0b' : '1px solid #e2e8f0',
+                      background: modified ? '#fffdf5' : isInspected ? '#f0fdf4' : '#ffffff',
+                      border: modified ? '1.5px solid #f59e0b' : isInspected ? '1.5px solid #86efac' : '1px solid #e2e8f0',
                       borderRadius: 12,
                       padding: isMobile ? '10px 10px' : '12px 14px',
-                      boxShadow: modified ? '0 4px 12px rgba(245, 158, 11, 0.12)' : '0 1px 3px rgba(0,0,0,0.04)',
+                      boxShadow: modified ? '0 4px 12px rgba(245, 158, 11, 0.12)' : isInspected ? '0 2px 6px rgba(22, 163, 74, 0.08)' : '0 1px 3px rgba(0,0,0,0.04)',
                       display: 'flex',
                       flexDirection: 'column',
                       gap: 8,
@@ -1406,7 +1543,7 @@ export default function StockCorrectionModal({
                       overflow: 'hidden'
                     }}
                   >
-                    {/* Card Top: №, Category, Status & Modified Badge */}
+                    {/* Card Top: №, Category, Status & Modified / Inspected Badge */}
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 6, minWidth: 0 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0, flexWrap: 'wrap' }}>
                         <span style={{ fontSize: 11, fontWeight: 700, color: '#94a3b8' }}>#{idx + 1}</span>
@@ -1459,6 +1596,26 @@ export default function StockCorrectionModal({
                             }}
                           >
                             O‘zgardi
+                          </span>
+                        )}
+                        {!modified && isInspected && (
+                          <span
+                            style={{
+                              background: '#dcfce7',
+                              color: '#15803d',
+                              border: '1px solid #86efac',
+                              fontSize: 10,
+                              fontWeight: 800,
+                              padding: '2px 6px',
+                              borderRadius: 5,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: 3
+                            }}
+                            title="Ushbu tovar ko‘zdan kechirilgan"
+                          >
+                            <CheckCircle2 size={11} />
+                            Tekshirildi
                           </span>
                         )}
                       </div>
@@ -1763,8 +1920,8 @@ export default function StockCorrectionModal({
                       </div>
                     </div>
 
-                    {/* Card Actions (if modified) */}
-                    {modified && (
+                    {/* Card Actions (if modified save/revert, else toggle inspected) */}
+                    {modified ? (
                       <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
                         <button
                           type="button"
@@ -1810,6 +1967,33 @@ export default function StockCorrectionModal({
                           <RotateCcw size={12} />
                         </button>
                       </div>
+                    ) : (
+                      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                        <button
+                          type="button"
+                          onClick={() => toggleInspected(p.product_id)}
+                          style={{
+                            flex: 1,
+                            height: 32,
+                            background: isInspected ? '#f0fdf4' : '#fff',
+                            color: isInspected ? '#15803d' : '#334155',
+                            border: isInspected ? '1.5px solid #16a34a' : '1px solid #cbd5e1',
+                            borderRadius: 6,
+                            fontWeight: 700,
+                            fontSize: 11.5,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: 5,
+                            cursor: 'pointer',
+                            boxShadow: isInspected ? '0 1px 3px rgba(22,163,74,0.15)' : 'none'
+                          }}
+                          title={isInspected ? 'Tekshirilganlik belgisini bekor qilish' : 'Do‘kondagi soni to‘g‘ri, ko‘zdan kechirildi deb belgilash'}
+                        >
+                          {isInspected ? <CheckCircle2 size={13} color="#16a34a" /> : <Check size={13} color="#64748b" />}
+                          {isInspected ? '✓ Ko‘zdan kechirildi' : 'Ko‘zdan kechirildi deb belgilash'}
+                        </button>
+                      </div>
                     )}
                   </div>
                 );
@@ -1849,12 +2033,13 @@ export default function StockCorrectionModal({
                     <th style={thStyle({ width: 78, textAlign: 'right', padding: '8px 6px' })}>Tannarx ($)</th>
                     <th style={thStyle({ width: 78, textAlign: 'right', padding: '8px 6px' })}>Sotish ($)</th>
                     <th style={thStyle({ width: 78, textAlign: 'right', background: '#059669', padding: '8px 6px' })}>Tafovut ($)</th>
-                    <th style={thStyle({ width: 48, textAlign: 'center', padding: '8px 4px' })}>Amal</th>
+                    <th style={thStyle({ width: 96, textAlign: 'center', padding: '8px 4px' })}>Holat / Amal</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredProducts.map((p, idx) => {
                     const modified = isRowModified(p);
+                    const isInspected = !!inspectedMap[p.product_id];
                     const storeQty = Number(p.store_qty) || 0;
                     const warehouseQty = Number(p.warehouse_qty) || 0;
                     const totalQty = storeQty + warehouseQty;
@@ -1869,8 +2054,9 @@ export default function StockCorrectionModal({
                       <tr
                         key={p.product_id}
                         style={{
-                          background: modified ? '#fffbeb' : idx % 2 === 0 ? '#fff' : '#f8fafc',
+                          background: modified ? '#fffbeb' : isInspected ? '#f0fdf4' : idx % 2 === 0 ? '#fff' : '#f8fafc',
                           borderBottom: '1px solid #e2e8f0',
+                          borderLeft: isInspected ? '3px solid #16a34a' : modified ? '3px solid #f59e0b' : '3px solid transparent',
                           transition: 'background 0.15s ease'
                         }}
                       >
@@ -1915,6 +2101,26 @@ export default function StockCorrectionModal({
                             >
                               {p.category_name}
                             </span>
+                            {isInspected && (
+                              <span
+                                style={{
+                                  background: '#dcfce7',
+                                  color: '#15803d',
+                                  border: '1px solid #86efac',
+                                  fontSize: 9.5,
+                                  fontWeight: 800,
+                                  padding: '1px 5px',
+                                  borderRadius: 4,
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: 2
+                                }}
+                                title="Ushbu tovar ko‘zdan kechirilgan"
+                              >
+                                <CheckCircle2 size={10} />
+                                Tekshirildi
+                              </span>
+                            )}
                             {(p.sku || p.barcode) && (
                               <span style={{ fontSize: 9, color: '#94a3b8', fontFamily: 'monospace' }}>
                                 {p.sku || p.barcode}
@@ -2182,15 +2388,15 @@ export default function StockCorrectionModal({
                           </div>
                         </td>
 
-                        {/* Amal: Row Save / Revert */}
-                        <td style={tdStyle({ textAlign: 'center', padding: '6px 4px', width: 48 })}>
+                        {/* Amal: Row Save / Revert or Mark as Inspected */}
+                        <td style={tdStyle({ textAlign: 'center', padding: '6px 4px', width: 96 })}>
                           {modified ? (
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3 }}>
                               <button
                                 type="button"
                                 onClick={() => saveSingleRow(p)}
                                 disabled={saving || isRowSaving}
-                                title="Faqat ushbu tovardagi o‘zgarishlarni saqlash"
+                                title="Faqat ushbu tovardagi o‘zgarishlarni saqlash (tekshirilgan deb belgilanadi)"
                                 style={{
                                   background: '#16a34a',
                                   border: 'none',
@@ -2226,7 +2432,29 @@ export default function StockCorrectionModal({
                               </button>
                             </div>
                           ) : (
-                            <span style={{ color: '#cbd5e1', fontSize: 11 }}>—</span>
+                            <button
+                              type="button"
+                              onClick={() => toggleInspected(p.product_id)}
+                              style={{
+                                background: isInspected ? '#16a34a' : '#fff',
+                                color: isInspected ? '#fff' : '#475569',
+                                border: isInspected ? '1px solid #15803d' : '1px solid #cbd5e1',
+                                padding: '3px 7px',
+                                borderRadius: 5,
+                                fontSize: 10.5,
+                                fontWeight: 700,
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 3,
+                                cursor: 'pointer',
+                                boxShadow: isInspected ? '0 1px 2px rgba(22, 163, 74, 0.2)' : 'none',
+                                whiteSpace: 'nowrap'
+                              }}
+                              title={isInspected ? 'Tekshirilgan deb belgilangan. Bekor qilish uchun bosing' : 'Soni va narxi to‘g‘ri bo‘lsa, ko‘zdan kechirilgan deb belgilash'}
+                            >
+                              {isInspected ? <Check size={11} strokeWidth={3} /> : <Check size={11} />}
+                              {isInspected ? 'Tekshirildi' : 'Belgilash'}
+                            </button>
                           )}
                         </td>
                       </tr>
@@ -2253,9 +2481,14 @@ export default function StockCorrectionModal({
         >
           <div style={{ fontSize: isMobile ? 11 : 12, color: '#64748b' }}>
             Ko‘rsatilmoqda: <b>{filteredProducts.length}</b> / <b>{products.length}</b>
+            {stats.inspectedCount > 0 && (
+              <span style={{ marginLeft: 6, color: '#16a34a', fontWeight: 700 }}>
+                • {stats.inspectedCount} ta tekshirildi
+              </span>
+            )}
             {modifiedList.length > 0 && (
               <span style={{ marginLeft: 6, color: '#2563eb', fontWeight: 700 }}>
-                ({modifiedList.length} ta o‘zgargan)
+                • ({modifiedList.length} ta o‘zgargan)
               </span>
             )}
           </div>
