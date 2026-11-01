@@ -51,6 +51,13 @@ const minReturnDate = () => {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+const numericText = (value) => {
+  const raw = String(value ?? '').replace(/[^\d.]/g, '');
+  const [whole, ...rest] = raw.split('.');
+  const head = whole.replace(/^0+(?=\d)/, '');
+  return rest.length ? `${head || '0'}.${rest.join('').slice(0, 2)}` : head;
+};
+
 const extractQr = (value) => {
   const raw = String(value || '').trim();
   if (!raw) return '';
@@ -96,6 +103,7 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
   // Option 2 state
   const [opt2NewQr, setOpt2NewQr] = useState('');
   const [opt2NewUnit, setOpt2NewUnit] = useState(null);
+  const [opt2CustomPrice, setOpt2CustomPrice] = useState('');
   const [opt2LookupBusy, setOpt2LookupBusy] = useState(false);
   const [opt2LookupError, setOpt2LookupError] = useState('');
   const [opt2RefundMethod, setOpt2RefundMethod] = useState('cash'); // 'cash' | 'card'
@@ -116,6 +124,7 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
     setOpt1LookupError('');
     setOpt2NewQr('');
     setOpt2NewUnit(null);
+    setOpt2CustomPrice('');
     setOpt2LookupError('');
     setOpt2RefundMethod('cash');
     setOpt3Reason('Mijoz xaridini qaytarib pulini olishni so‘radi');
@@ -230,6 +239,8 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
       }
       setOpt2NewUnit(ctx);
       setOpt2NewQr(codeToSearch);
+      const defaultPrice = ctx.unit?.retail_price ?? ctx.product?.retail_price;
+      setOpt2CustomPrice(defaultPrice != null && Number(defaultPrice) > 0 ? numericText(defaultPrice) : '');
     } catch (e) {
       setOpt2LookupError(msg(e));
     } finally {
@@ -282,8 +293,12 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
   // Submit Option 2 (Different / Upgrade / Cheaper Product Exchange)
   const handleOption2Submit = async () => {
     if (!found?.unit?.id || !opt2NewUnit?.unit?.id) return;
+    if (isOpt2PriceMissing) {
+      toast?.('Iltimos, yangi tovarning sotish narxini kiriting!');
+      return;
+    }
     const returnedPrice = Number(found.sale_line?.line_total || 0);
-    const newPrice = Number(opt2NewUnit.product?.retail_price || 0);
+    const newPrice = Number(opt2NewPrice || 0);
     const diff = newPrice - returnedPrice;
 
     setOption2Busy(true);
@@ -293,7 +308,8 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
         returnedUnitId: found.unit.id,
         newUnitId: opt2NewUnit.unit.id,
         reason: `2-opsiya: ${opt2NewUnit.product?.name} ga almashtirildi (${diff < 0 ? 'arzonroq tovar, farq qaytarildi' : diff > 0 ? 'qimmatroq tovar' : 'teng narx'})`,
-        refundMethod: opt2RefundMethod
+        refundMethod: opt2RefundMethod,
+        customPrice: newPrice
       });
 
       if (diff < 0) {
@@ -377,8 +393,12 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
   };
 
   const returnedPrice = Number(found?.sale_line?.line_total || 0);
-  const opt2NewPrice = Number(opt2NewUnit?.product?.retail_price || 0);
+  const opt2RetailPrice = Number(opt2NewUnit?.unit?.retail_price ?? opt2NewUnit?.product?.retail_price ?? 0);
+  const opt2NewPrice = opt2CustomPrice !== '' && !isNaN(Number(opt2CustomPrice))
+    ? Number(opt2CustomPrice)
+    : opt2RetailPrice;
   const opt2Diff = opt2NewPrice - returnedPrice;
+  const isOpt2PriceMissing = Boolean(opt2NewUnit && (!opt2CustomPrice || Number(opt2CustomPrice) <= 0));
 
   return (
     <div className="pos-returns-view">
@@ -726,6 +746,73 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
 
                   {opt2NewUnit && (
                     <div className="opt2-comparison-box">
+                      {/* Yangi tovar sotish narxi inputi */}
+                      <div className="pos-sale-price-field" style={{
+                        background: '#ffffff',
+                        border: isOpt2PriceMissing ? '2px solid #ea580c' : '1.5px solid #fed7aa',
+                        borderRadius: '12px',
+                        padding: '14px',
+                        marginBottom: '14px',
+                        boxShadow: '0 2px 8px rgba(234, 88, 12, 0.08)'
+                      }}>
+                        <div className="pos-sale-price-head" style={{ marginBottom: '8px' }}>
+                          <span style={{ fontSize: '13.5px', fontWeight: 800, color: '#1e293b' }}>
+                            Yangi tovarning sotish narxi (so‘m) *
+                          </span>
+                          {isOpt2PriceMissing ? (
+                            <span className="pos-price-pulse-badge">Narx kiritilmagan!</span>
+                          ) : (
+                            <small style={{ color: '#64748b' }}>
+                              Baza narxi: <DualPrice value={opt2RetailPrice} rate={rate} />
+                            </small>
+                          )}
+                        </div>
+                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                          <input
+                            className={`pos-sale-price-input ${isOpt2PriceMissing ? 'pulse-attention' : ''}`}
+                            type="text"
+                            inputMode="decimal"
+                            autoComplete="off"
+                            placeholder="Sotuv narxini kiriting…"
+                            value={opt2CustomPrice}
+                            onChange={e => setOpt2CustomPrice(numericText(e.target.value))}
+                            style={{ paddingRight: opt2CustomPrice ? '38px' : '14px' }}
+                          />
+                          {opt2CustomPrice ? (
+                            <button
+                              type="button"
+                              tabIndex={-1}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setOpt2CustomPrice('');
+                              }}
+                              title="Narxni tozalash"
+                              style={{
+                                position: 'absolute',
+                                right: '10px',
+                                width: '26px',
+                                height: '26px',
+                                display: 'grid',
+                                placeItems: 'center',
+                                background: '#f1f5f9',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '50%',
+                                color: '#64748b',
+                                cursor: 'pointer'
+                              }}
+                            >
+                              <X size={14} />
+                            </button>
+                          ) : null}
+                        </div>
+                        {Number(opt2CustomPrice) > 0 && (
+                          <div style={{ marginTop: '6px', fontSize: '12.5px', color: '#0369a1', fontWeight: 600 }}>
+                            Belgilangan sotuv narxi: <DualPrice value={Number(opt2CustomPrice)} rate={rate} />
+                          </div>
+                        )}
+                      </div>
+
                       <div className="comparison-row">
                         <div className="comp-item old">
                           <small>Qaytarilayotgan tovar</small>
@@ -738,7 +825,7 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
                         <div className="comp-item new">
                           <small>Almashtiriladigan yangi tovar</small>
                           <b>{opt2NewUnit.product?.name}</b>
-                          <span>Chakana narxi: <strong><DualPrice value={opt2NewPrice} rate={rate} /></strong></span>
+                          <span>Sotish narxi: <strong><DualPrice value={opt2NewPrice} rate={rate} /></strong></span>
                         </div>
                       </div>
 
@@ -860,11 +947,11 @@ export default function ReturnsWorkspace({ branchId, toast, goPage }) {
                       <button
                         type="button"
                         className="btn btn-primary btn-block btn-lg"
-                        disabled={option2Busy}
+                        disabled={option2Busy || isOpt2PriceMissing}
                         style={opt2Diff < 0 ? { background: '#16a34a', borderColor: '#16a34a', marginTop: 14 } : { marginTop: 14 }}
                         onClick={handleOption2Submit}
                       >
-                        {option2Busy ? 'Bajarilmoqda…' : opt2Diff < 0
+                        {option2Busy ? 'Bajarilmoqda…' : isOpt2PriceMissing ? 'Yangi tovar sotish narxini kiriting' : opt2Diff < 0
                           ? `Tovarni almashtirish va kassadan ${formatDualMoney(Math.abs(opt2Diff), rate)} qaytarish (${opt2RefundMethod === 'card' ? 'Plastik' : 'Naqd'})`
                           : opt2Diff > 0
                           ? `Kassaga yo‘naltirish (+${formatDualMoney(opt2Diff, rate)})`

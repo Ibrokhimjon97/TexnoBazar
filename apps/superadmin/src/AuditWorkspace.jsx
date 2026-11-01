@@ -31,6 +31,7 @@ export default function AuditWorkspace() {
   const [pruneModalOpen, setPruneModalOpen] = useState(false);
   const [pruneDays, setPruneDays] = useState(1);
   const [pruning, setPruning] = useState(false);
+  const [pruneProgress, setPruneProgress] = useState('');
   const [pruneSuccess, setPruneSuccess] = useState('');
   const [exporting, setExporting] = useState(false);
 
@@ -81,22 +82,34 @@ export default function AuditWorkspace() {
   const handlePrune = async () => {
     setPruning(true);
     setPruneSuccess('');
+    setPruneProgress('');
     setError('');
+    let totalDeleted = 0;
     try {
-      const res = await pruneOldAuditLogs(Number(pruneDays));
+      let hasMore = true;
+      while (hasMore) {
+        setPruneProgress(`Tozalanmoqda... (${totalDeleted.toLocaleString()} ta tozalandi)`);
+        const res = await pruneOldAuditLogs(Number(pruneDays), 5000);
+        const deletedThisBatch = Number(res?.batch_deleted ?? res?.deleted_count ?? 0);
+        totalDeleted += deletedThisBatch;
+        hasMore = Boolean(res?.has_more) && deletedThisBatch > 0;
+        if (deletedThisBatch === 0) break;
+      }
       setPruneSuccess(
-        `${res.deleted_count || 0} ta eski yozuv tozalandi. Qolgan audit yozuvlari: ${res.remaining_count || 0} ta.`
+        `${totalDeleted.toLocaleString()} ta eski audit yozuvi muvaffaqiyatli tozalandi!`
       );
       await loadStats();
       await load();
       setTimeout(() => {
         setPruneModalOpen(false);
         setPruneSuccess('');
+        setPruneProgress('');
       }, 3000);
     } catch (e) {
       alert(e.message || 'Tozalashda xatolik yuz berdi');
     } finally {
       setPruning(false);
+      setPruneProgress('');
     }
   };
 
@@ -419,6 +432,26 @@ export default function AuditWorkspace() {
             </select>
           </div>
 
+          {pruning && (
+            <div
+              style={{
+                padding: '0.75rem',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                border: '1px solid rgba(59, 130, 246, 0.3)',
+                borderRadius: '8px',
+                color: '#38bdf8',
+                fontSize: '0.88rem',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+              }}
+            >
+              <History className="spin" size={18} />
+              <span>{pruneProgress || 'Tozalanmoqda, iltimos kuting...'}</span>
+            </div>
+          )}
+
           {pruneSuccess && (
             <div
               style={{
@@ -448,7 +481,7 @@ export default function AuditWorkspace() {
               disabled={pruning}
               style={{ background: '#dc2626', color: '#fff' }}
             >
-              {pruning ? 'Tozalanmoqda…' : 'Tozalashni tasdiqlash'}
+              {pruning ? (pruneProgress || 'Tozalanmoqda…') : 'Tozalashni tasdiqlash'}
             </button>
           </div>
         </div>

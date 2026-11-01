@@ -45,7 +45,21 @@ export const RETURN_CONDITIONS=[
 export const findSaleReturnUnit=(branchId,code)=>rpc('find_sale_return_unit',{p_branch_id:branchId,p_code:code});
 export const listBranchSoldUnitsByDate=(branchId,date,query=null)=>rpc('list_branch_sold_units_by_date',{p_branch_id:branchId,p_date:date,p_query:query||null});
 export const executePosSameProductExchange=({branchId,returnedUnitId,replacementUnitId=null,reason=null})=>rpc('execute_pos_same_product_exchange',{p_branch_id:branchId,p_returned_unit_id:returnedUnitId,p_replacement_unit_id:replacementUnitId||null,p_reason:reason});
-export const createPosExchangeUpgrade=({branchId,returnedUnitId,newUnitId,reason=null,refundMethod='cash'})=>rpc('create_pos_exchange_upgrade',{p_branch_id:branchId,p_returned_unit_id:returnedUnitId,p_new_unit_id:newUnitId,p_reason:reason,p_refund_method:refundMethod||'cash'});
+export const createPosExchangeUpgrade=async({branchId,returnedUnitId,newUnitId,reason=null,refundMethod='cash',customPrice=null})=>{
+  const numericPrice=customPrice!=null&&customPrice!==''?Number(customPrice):null;
+  const params={p_branch_id:branchId,p_returned_unit_id:returnedUnitId,p_new_unit_id:newUnitId,p_reason:reason,p_refund_method:refundMethod||'cash'};
+  if(numericPrice!=null&&Number.isFinite(numericPrice)&&numericPrice>0){params.p_custom_price=numericPrice;}
+  try{
+    return await rpc('create_pos_exchange_upgrade',params);
+  }catch(err){
+    if(params.p_custom_price&&/schema cache|p_custom_price|function.*create_pos_exchange_upgrade/i.test(err?.message||'')){
+      const fallbackParams={...params};
+      delete fallbackParams.p_custom_price;
+      return await rpc('create_pos_exchange_upgrade',fallbackParams);
+    }
+    throw err;
+  }
+};
 export const requestPosCashRefund=({branchId,unitId,reason=null})=>rpc('request_pos_cash_refund',{p_branch_id:branchId,p_unit_id:unitId,p_reason:reason});
 export const completePosCashRefund=({returnId,resellLocationId=null})=>rpc('complete_pos_cash_refund',{p_return_id:returnId,p_resell_location_id:resellLocationId||null});
 export const executeSaleReturn=({branchId,unitId,condition,reason,refundAmount=null,resellLocationId=null,idempotencyKey=crypto.randomUUID()})=>rpc('execute_sale_return',{p_branch_id:branchId,p_unit_id:unitId,p_condition:condition,p_reason:reason,p_refund_amount:refundAmount,p_resell_location_id:resellLocationId||null,p_idempotency_key:idempotencyKey});
